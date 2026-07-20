@@ -21,6 +21,7 @@ disable-model-invocation: true
 3. **検証**(すべて通過するまで次へ進まない):
    - `npx tsc --noEmit`
    - `npm run lint`
+   - テストが存在する場合(`package.json` の test スクリプト、または `*.test.ts` の存在で判定): `npx vitest run` 等でテストを実行
    - `convex/` に変更がある場合: `npx convex dev --once`
    - 計画書「✅ 動作確認」のうち自動確認できる項目(curl・CLI等)
 4. **コミット**: 意味のある単位でコミット(メッセージ先頭: `Phase <番号>: <要約>`)

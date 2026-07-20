@@ -26,6 +26,7 @@ tools: Read, Grep, Glob
    - 引数で受け取ったIDで `ctx.db.get` したドキュメントの `coupleId` を `member.coupleId` と比較しているか
    - 引数のmember ID(`paidBy`, `shares[].memberId`, 精算のfrom/to等)を `assertCoupleMemberIds` で検証しているか
    - ストレージ操作(`getUrl` / `generateUploadUrl` / `storage.get`)が認可チェックの後にのみ実行されるか
+   - **クライアントから受け取った `storageId` の世帯帰属が検証されているか**(認証だけでは不十分。`uploads` 台帳またはstorageIdを保持する自世帯の `expenses` ドキュメント経由で、そのstorageIdが自世帯のものだと確認してからblob取得・URL発行していること)
    - クエリの `withIndex` / filter が `coupleId` で絞られており、世帯をまたぐ結果を返さないか
 
 ## 出力形式
