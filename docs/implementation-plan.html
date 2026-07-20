@@ -1,0 +1,708 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>warikapp 実装計画 — 進捗トラッカー</title>
+<style>
+  :root {
+    --paper: #f4f2eb;
+    --card: #fbfaf5;
+    --ink: #26241f;
+    --muted: #7c766a;
+    --rule: #cfc9ba;
+    --rule-soft: #e4dfd2;
+    --ledger: #1f4e5f;      /* 帳簿の藍インク: リンク・操作 */
+    --ledger-soft: #e2ebee;
+    --stamp: #c93a2a;       /* 朱肉: 完了スタンプ */
+    --stamp-soft: #f6e3df;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", Meiryo, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1c1b17;
+      --card: #24221d;
+      --ink: #e8e4d8;
+      --muted: #98917f;
+      --rule: #4a463c;
+      --rule-soft: #35322a;
+      --ledger: #8db9c9;
+      --ledger-soft: #253238;
+      --stamp: #e05a48;
+      --stamp-soft: #3a2521;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1c1b17; --card: #24221d; --ink: #e8e4d8; --muted: #98917f;
+    --rule: #4a463c; --rule-soft: #35322a; --ledger: #8db9c9; --ledger-soft: #253238;
+    --stamp: #e05a48; --stamp-soft: #3a2521;
+  }
+  :root[data-theme="light"] {
+    --paper: #f4f2eb; --card: #fbfaf5; --ink: #26241f; --muted: #7c766a;
+    --rule: #cfc9ba; --rule-soft: #e4dfd2; --ledger: #1f4e5f; --ledger-soft: #e2ebee;
+    --stamp: #c93a2a; --stamp-soft: #f6e3df;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  a { color: var(--ledger); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--ledger); outline-offset: 2px; border-radius: 2px; }
+
+  /* ── sticky 合計バー ─────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--card);
+    border-bottom: 1px solid var(--rule);
+    padding: 10px 16px 0;
+  }
+  .topbar-in {
+    max-width: 780px; margin: 0 auto;
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 8px;
+  }
+  .topbar .t-name { font-weight: 700; letter-spacing: .04em; }
+  .topbar .t-label { color: var(--muted); font-size: 12px; }
+  .topbar .t-count { font-family: var(--mono); font-size: 14px; margin-left: auto; }
+  .topbar .t-pct { font-family: var(--mono); color: var(--ledger); font-weight: 700; }
+  .g-track { max-width: 780px; margin: 0 auto; height: 4px; background: var(--rule-soft); }
+  .g-fill { height: 100%; width: 0%; background: var(--ledger); transition: width .3s ease; }
+
+  main { max-width: 780px; margin: 0 auto; padding: 28px 16px 60px; }
+
+  /* ── レシート型タイトル ─────────────────────── */
+  .receipt-head {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    padding: 28px 22px 22px;
+    text-align: center;
+  }
+  .receipt-head .stars { font-family: var(--mono); color: var(--muted); letter-spacing: .35em; font-size: 12px; }
+  .receipt-head h1 {
+    margin: 8px 0 2px;
+    font-size: 24px; font-weight: 800; letter-spacing: .12em;
+  }
+  .receipt-head .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .receipt-meta {
+    font-family: var(--mono); font-size: 12.5px; text-align: left;
+    max-width: 420px; margin: 0 auto;
+    border-top: 1px dashed var(--rule); padding-top: 12px;
+  }
+  .receipt-meta div { display: flex; gap: 8px; }
+  .receipt-meta .k { color: var(--muted); white-space: nowrap; }
+  .receipt-meta .leader { flex: 1; border-bottom: 1px dotted var(--rule); transform: translateY(-5px); }
+  .canonical {
+    margin-top: 14px; font-size: 12.5px;
+    background: var(--ledger-soft); border: 1px solid var(--ledger);
+    padding: 8px 12px; text-align: left; line-height: 1.6;
+  }
+
+  /* ── ステッパー ─────────────────────── */
+  .stepper {
+    display: flex; gap: 4px; overflow-x: auto;
+    padding: 22px 2px 10px; scrollbar-width: thin;
+  }
+  .step {
+    flex: 1 0 62px;
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-family: inherit; color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    font-size: 11px;
+  }
+  .step .dot {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 2px solid var(--rule);
+    background: var(--card);
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--muted);
+    transition: all .2s ease;
+  }
+  .step.started .dot { border-color: var(--ledger); color: var(--ledger); }
+  .step.done .dot { background: var(--ledger); border-color: var(--ledger); color: var(--card); }
+  .step.current .dot { box-shadow: 0 0 0 4px var(--ledger-soft); border-color: var(--ledger); }
+  .step.current { color: var(--ink); font-weight: 700; }
+
+  /* ── フェーズ(明細行) ─────────────────────── */
+  .phase {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-top: none;
+    position: relative;
+  }
+  .phase:first-of-type { border-top: 1px solid var(--rule); }
+  .phase summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    user-select: none;
+  }
+  .phase summary::-webkit-details-marker { display: none; }
+  .phase summary:hover { background: color-mix(in srgb, var(--ledger-soft) 40%, transparent); }
+  .ph-no {
+    font-family: var(--mono); font-weight: 700; font-size: 13px;
+    color: var(--ledger);
+    border: 1px solid var(--ledger); padding: 1px 7px;
+    white-space: nowrap;
+  }
+  .ph-name { font-weight: 700; }
+  .ph-fn { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .ph-leader { flex: 1; border-bottom: 2px dotted var(--rule); min-width: 12px; transform: translateY(4px); }
+  .ph-count { font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .phase.done .ph-count { color: var(--stamp); font-weight: 700; }
+  .caret { color: var(--muted); font-size: 11px; transition: transform .15s; }
+  .phase[open] .caret { transform: rotate(90deg); }
+
+  .ph-body { padding: 2px 20px 18px; border-top: 1px dashed var(--rule); }
+  .ph-goal { color: var(--muted); font-size: 13.5px; margin: 12px 0 4px; }
+  .ph-body h4 {
+    font-size: 12px; letter-spacing: .15em; color: var(--muted);
+    margin: 18px 0 6px; font-weight: 700;
+    font-family: var(--mono);
+  }
+  ul.tasks { list-style: none; margin: 0; padding: 0; }
+  ul.tasks li { border-bottom: 1px dotted var(--rule-soft); }
+  ul.tasks li:last-child { border-bottom: none; }
+  ul.tasks label {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 7px 2px; cursor: pointer; font-size: 14px;
+  }
+  ul.tasks input[type="checkbox"] {
+    accent-color: var(--ledger);
+    width: 16px; height: 16px; margin-top: 4px; flex-shrink: 0;
+  }
+  ul.tasks input:checked + span { text-decoration: line-through; color: var(--muted); }
+  ul.tasks.verify input[type="checkbox"] { accent-color: var(--stamp); }
+  .md-ref {
+    margin: 16px 0 0; font-size: 12.5px; color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* 済スタンプ */
+  .stamp {
+    display: none;
+    position: absolute; top: 6px; right: 52px;
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 3px double var(--stamp); color: var(--stamp);
+    place-items: center;
+    font-size: 20px; font-weight: 800;
+    transform: rotate(-12deg);
+    background: color-mix(in srgb, var(--stamp-soft) 60%, transparent);
+    pointer-events: none;
+  }
+  .phase.done .stamp { display: grid; animation: press .25s ease-out; }
+  @keyframes press { from { transform: rotate(-12deg) scale(1.6); opacity: 0; } to { transform: rotate(-12deg) scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .phase.done .stamp { animation: none; }
+    .g-fill { transition: none; }
+  }
+
+  /* ── セクション共通 ─────────────────────── */
+  .tear {
+    height: 18px; margin: 26px 0;
+    background-image: repeating-linear-gradient(90deg, var(--rule) 0 10px, transparent 10px 18px);
+    background-size: 100% 1px; background-repeat: no-repeat; background-position: center;
+  }
+  section > h2 {
+    font-size: 15px; letter-spacing: .2em; font-weight: 800;
+    margin: 0 0 12px;
+  }
+  section > h2 .mk { color: var(--stamp); }
+
+  /* 注意事項 */
+  ol.pitfalls { margin: 0; padding: 0; counter-reset: pit; list-style: none; }
+  ol.pitfalls li {
+    counter-increment: pit;
+    background: var(--card); border: 1px solid var(--rule); border-top: none;
+    padding: 10px 16px 10px 52px; position: relative; font-size: 13.5px;
+  }
+  ol.pitfalls li:first-child { border-top: 1px solid var(--rule); }
+  ol.pitfalls li::before {
+    content: counter(pit, decimal-leading-zero);
+    position: absolute; left: 16px; top: 12px;
+    font-family: var(--mono); font-size: 12px; color: var(--stamp); font-weight: 700;
+  }
+  ol.pitfalls b { display: block; }
+  ol.pitfalls .fix { color: var(--muted); }
+
+  /* 対応表 */
+  .map-wrap { overflow-x: auto; }
+  table.map { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--card); }
+  table.map th, table.map td { border: 1px solid var(--rule); padding: 6px 10px; text-align: left; }
+  table.map th { font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+  table.map td:first-child { font-family: var(--mono); white-space: nowrap; }
+
+  /* フッター */
+  footer { margin-top: 40px; text-align: center; }
+  .barcode {
+    height: 34px; max-width: 300px; margin: 0 auto 10px;
+    background: repeating-linear-gradient(90deg, var(--ink) 0 2px, transparent 2px 5px, var(--ink) 5px 6px, transparent 6px 11px);
+    opacity: .75;
+  }
+  footer p { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin: 4px 0; }
+  .reset-btn {
+    margin-top: 10px; font-family: var(--mono); font-size: 12px;
+    background: none; border: 1px solid var(--rule); color: var(--muted);
+    padding: 5px 14px; cursor: pointer;
+  }
+  .reset-btn.arm { border-color: var(--stamp); color: var(--stamp); }
+</style>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <span class="t-name">warikapp 実装計画</span>
+    <span class="t-label">合計進捗</span>
+    <span class="t-count"><span id="g-count">0 / 0</span> <span class="t-pct" id="g-pct">0%</span></span>
+  </div>
+  <div class="g-track"><div class="g-fill" id="g-bar"></div></div>
+</div>
+
+<main>
+  <div class="receipt-head">
+    <div class="stars">＊＊＊＊＊＊＊＊＊＊＊＊＊＊＊＊＊＊</div>
+    <h1>実 装 計 画 書</h1>
+    <p class="sub">warikapp — 同棲カップル向けレシート割り勘精算アプリ</p>
+    <div class="receipt-meta">
+      <div><span class="k">構成</span><span class="leader"></span><span>Next.js × Convex × Clerk</span></div>
+      <div><span class="k">AI読み取り</span><span class="leader"></span><span>Claude API (claude-opus-4-8)</span></div>
+      <div><span class="k">フェーズ</span><span class="leader"></span><span>P0 〜 P9(順番に進める)</span></div>
+      <div><span class="k">改訂</span><span class="leader"></span><span>2026-07-20 Convex+Clerk版</span></div>
+    </div>
+    <div class="canonical">
+      <b>正本</b>: <a href="./implementation-plan.md">implementation-plan.md</a>(このHTMLは進捗チェック用の視覚補助。コード例・詳細手順・仕様の真実はMDを参照)。チェック状態はこのブラウザに保存されます。
+    </div>
+  </div>
+
+  <nav class="stepper" aria-label="フェーズ一覧">
+    <button class="step" data-phase="0"><span class="dot">0</span>準備</button>
+    <button class="step" data-phase="1"><span class="dot">1</span>雛形</button>
+    <button class="step" data-phase="2"><span class="dot">2</span>Convex</button>
+    <button class="step" data-phase="3"><span class="dot">3</span>認証</button>
+    <button class="step" data-phase="4"><span class="dot">4</span>世帯</button>
+    <button class="step" data-phase="5"><span class="dot">5</span>手入力</button>
+    <button class="step" data-phase="6"><span class="dot">6</span>一覧</button>
+    <button class="step" data-phase="7"><span class="dot">7</span>精算</button>
+    <button class="step" data-phase="8"><span class="dot">8</span>AI</button>
+    <button class="step" data-phase="9"><span class="dot">9</span>公開</button>
+  </nav>
+
+  <!-- ══════════ Phase 0 ══════════ -->
+  <details class="phase" id="phase-0" data-phase="0" open>
+    <summary>
+      <span class="ph-no">P0</span><span class="ph-name">開発環境とアカウント準備</span>
+      <span class="ph-fn">1〜2h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/9</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">ツールとアカウントを揃える。Google Cloud Consoleの設定は本番(P9)まで不要。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p0-t1"><span>Node.js LTS(v20以上)をインストール</span></label></li>
+        <li><label><input type="checkbox" id="p0-t2"><span>Gitの動作確認</span></label></li>
+        <li><label><input type="checkbox" id="p0-t3"><span>GitHubリポジトリ warikapp を作成(privateでよい)</span></label></li>
+        <li><label><input type="checkbox" id="p0-t4"><span>Convexダッシュボードに契約済みアカウントでログインできることを確認</span></label></li>
+        <li><label><input type="checkbox" id="p0-t5"><span>Clerkでアプリ作成+GoogleサインインをON</span></label></li>
+        <li><label><input type="checkbox" id="p0-t6"><span>Vercelアカウント(GitHub連携)</span></label></li>
+        <li><label><input type="checkbox" id="p0-t7"><span>Anthropic APIキー発行+課金上限アラート設定</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p0-v1"><span>node / npm / git がバージョンを表示する</span></label></li>
+        <li><label><input type="checkbox" id="p0-v2"><span>Convex・Clerkのダッシュボードにログインできる</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §2</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 1 ══════════ -->
+  <details class="phase" id="phase-1" data-phase="1">
+    <summary>
+      <span class="ph-no">P1</span><span class="ph-name">Next.jsプロジェクト作成</span>
+      <span class="ph-fn">1h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/6</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">雛形とディレクトリ骨組み。最初はすべてTODOページでよい。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p1-t1"><span>create-next-app(TypeScript / Tailwind / App Router)</span></label></li>
+        <li><label><input type="checkbox" id="p1-t2"><span>npm install convex @clerk/nextjs @anthropic-ai/sdk zod</span></label></li>
+        <li><label><input type="checkbox" id="p1-t3"><span>app/ と convex/ のディレクトリ骨組みを作成(9画面ぶんのTODOページ)</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p1-v1"><span>npm run dev で localhost:3000 が表示される</span></label></li>
+        <li><label><input type="checkbox" id="p1-v2"><span>/setup /settings など各URLが404にならない</span></label></li>
+        <li><label><input type="checkbox" id="p1-v3"><span>初回コミット完了</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §3(ディレクトリ構成の全体図)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 2 ══════════ -->
+  <details class="phase" id="phase-2" data-phase="2">
+    <summary>
+      <span class="ph-no">P2</span><span class="ph-name">Convexセットアップ</span>
+      <span class="ph-fn">土台・2〜3h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/5</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">スキーマ6テーブルと認可ヘルパー。requireMember がRLSの代わり=セキュリティの要。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p2-t1"><span>npx convex dev で初期化(convex/ と .env.local が自動生成)</span></label></li>
+        <li><label><input type="checkbox" id="p2-t2"><span>convex/schema.ts に6テーブル定義(品目・負担割合は expenses に内包)</span></label></li>
+        <li><label><input type="checkbox" id="p2-t3"><span>convex/lib/auth.ts に requireMember / requireUser ヘルパー</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p2-v1"><span>ダッシュボード → Data に6テーブルが表示される</span></label></li>
+        <li><label><input type="checkbox" id="p2-v2"><span>couples にテスト行を手動追加→削除できる</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §4(schema.ts と auth.ts の全コード)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 3 ══════════ -->
+  <details class="phase" id="phase-3" data-phase="3">
+    <summary>
+      <span class="ph-no">P3</span><span class="ph-name">認証(Clerk)</span>
+      <span class="ph-fn">F-001・2〜4h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/14</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">Clerk↔Convex接続の肝は「JWTテンプレートのIssuer URLをConvex環境変数へ」。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p3-t1"><span>Clerk JWTテンプレート「convex」を作成し Issuer URL をコピー</span></label></li>
+        <li><label><input type="checkbox" id="p3-t2"><span>Convex環境変数に CLERK_JWT_ISSUER_DOMAIN を登録</span></label></li>
+        <li><label><input type="checkbox" id="p3-t3"><span>convex/auth.config.ts を作成</span></label></li>
+        <li><label><input type="checkbox" id="p3-t4"><span>.env.local にClerkの2キー(PUBLISHABLE / SECRET)</span></label></li>
+        <li><label><input type="checkbox" id="p3-t5"><span>ConvexClientProvider(ClerkProvider → ConvexProviderWithClerk)を layout に組み込み</span></label></li>
+        <li><label><input type="checkbox" id="p3-t6"><span>middleware.ts で /login 以外を保護</span></label></li>
+        <li><label><input type="checkbox" id="p3-t7"><span>/login に Clerk の SignIn、settings にログアウト</span></label></li>
+        <li><label><input type="checkbox" id="p3-t8"><span>currentMember query+世帯未所属なら /setup へ振り分け</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p3-v1"><span>未ログインで / → /login にリダイレクト</span></label></li>
+        <li><label><input type="checkbox" id="p3-v2"><span>Googleログイン成功 → /setup に到達</span></label></li>
+        <li><label><input type="checkbox" id="p3-v3"><span>Clerk → Users に自分が表示される</span></label></li>
+        <li><label><input type="checkbox" id="p3-v4"><span>Convex → Logs に query の実行が見える</span></label></li>
+        <li><label><input type="checkbox" id="p3-v5"><span>ログアウト → /login に戻される</span></label></li>
+        <li><label><input type="checkbox" id="p3-v6"><span>Google同意画面でキャンセルしても復帰できる</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §5(auth.config.ts / middleware.ts のコード)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 4 ══════════ -->
+  <details class="phase" id="phase-4" data-phase="4">
+    <summary>
+      <span class="ph-no">P4</span><span class="ph-name">世帯作成・招待</span>
+      <span class="ph-fn">F-002・3〜4h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/9</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">すべて普通のmutationで書ける(Supabase構成のようなservice_roleの特別扱いは不要)。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p4-t1"><span>createCouple mutation(世帯+自分を登録、招待コード発行・72h期限)</span></label></li>
+        <li><label><input type="checkbox" id="p4-t2"><span>joinCouple mutation(V-201/202/203を検証 → 参加+コード無効化)</span></label></li>
+        <li><label><input type="checkbox" id="p4-t3"><span>/setup 画面(「作る/参加する」2タブ+招待URLコピー)</span></label></li>
+        <li><label><input type="checkbox" id="p4-t4"><span>/settings 最小実装(表示名変更・コード再発行・ログアウト)</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p4-v1"><span>Aで世帯作成 → ホームに遷移</span></label></li>
+        <li><label><input type="checkbox" id="p4-v2"><span>別アカウントBが招待コードで参加できる</span></label></li>
+        <li><label><input type="checkbox" id="p4-v3"><span>使用済みコードは「招待コードが無効です」</span></label></li>
+        <li><label><input type="checkbox" id="p4-v4"><span>3人目の参加は「この世帯は満員です」</span></label></li>
+        <li><label><input type="checkbox" id="p4-v5"><span>第三の世帯からA/Bのデータが一切見えない(分離検証)</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §6</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 5 ══════════ -->
+  <details class="phase" id="phase-5" data-phase="5">
+    <summary>
+      <span class="ph-no">P5</span><span class="ph-name">手入力支出+品目仕分け</span>
+      <span class="ph-fn">F-005/004・5〜8h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/11</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">アプリの中核。ここで作る ExpenseEditor はP8のAI結果確認でもそのまま再利用する。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p5-t1"><span>lib/types.ts に共通型(ShareRatio / ExpenseItemInput)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t2"><span>expenses.save mutation(V-401〜403+精算済みガード、totalAmountはサーバーで算出)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t3"><span>ExpenseEditor(負担チップ: 折半→自分→相手を循環、カスタム割合、固定フッター)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t4"><span>/expenses/new/manual(名目+金額だけで確定できる)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t5"><span>calcAdvanceAmount 純粋関数(品目ごとに四捨五入)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t6"><span>計算関数の単体テスト(端数 / 100:0 / 70:30)</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p5-v1"><span>手入力登録がConvexのDataに保存される</span></label></li>
+        <li><label><input type="checkbox" id="p5-v2"><span>フッターの立て替え額が手計算と一致する</span></label></li>
+        <li><label><input type="checkbox" id="p5-v3"><span>割合合計≠100の行は赤枠+確定不可</span></label></li>
+        <li><label><input type="checkbox" id="p5-v4"><span>0円・小数はエラーになる</span></label></li>
+        <li><label><input type="checkbox" id="p5-v5"><span>スマホ幅で親指操作できる</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §7(型定義と calcAdvanceAmount のコード)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 6 ══════════ -->
+  <details class="phase" id="phase-6" data-phase="6">
+    <summary>
+      <span class="ph-no">P6</span><span class="ph-name">支出一覧・詳細・編集・削除</span>
+      <span class="ph-fn">F-006・4〜6h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/9</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">useQueryの自動リアルタイム更新により、パートナーの登録が追加実装ゼロで即時反映される。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p6-t1"><span>expenses.list query+usePaginatedQuery(20件)+「未精算のみ/すべて」フィルタ</span></label></li>
+        <li><label><input type="checkbox" id="p6-t2"><span>ホームに一覧+「+レシート」「+手入力」ボタン</span></label></li>
+        <li><label><input type="checkbox" id="p6-t3"><span>詳細ページ(内訳・立て替え額・画像URL query)</span></label></li>
+        <li><label><input type="checkbox" id="p6-t4"><span>編集(ExpenseEditor再利用。精算済みは非活性+サーバー側でも拒否)</span></label></li>
+        <li><label><input type="checkbox" id="p6-t5"><span>削除(確認ダイアログ → deletedAt で論理削除)</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p6-v1"><span>支出が新しい順に並ぶ</span></label></li>
+        <li><label><input type="checkbox" id="p6-v2"><span>ブラウザ2つでリアルタイム同期される</span></label></li>
+        <li><label><input type="checkbox" id="p6-v3"><span>編集が一覧に反映される</span></label></li>
+        <li><label><input type="checkbox" id="p6-v4"><span>削除で消える(Dataには deletedAt 付きで残る)</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §8</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 7 ══════════ -->
+  <details class="phase" id="phase-7" data-phase="7">
+    <summary>
+      <span class="ph-no">P7</span><span class="ph-name">精算</span>
+      <span class="ph-fn">F-007・3〜5h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/11</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">mutationは自動トランザクション。Postgres RPC相当の仕組みは不要で、1関数に素直に書く。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p7-t1"><span>currentBalance query+ホームに「あなたが○○さんに3,450円」を常時表示</span></label></li>
+        <li><label><input type="checkbox" id="p7-t2"><span>/settlement 画面(対象一覧+メモ+精算ボタン)</span></label></li>
+        <li><label><input type="checkbox" id="p7-t3"><span>settlements.execute mutation(ドラフトガード / サーバー側で再計算 / 一括で精算ID付与)</span></label></li>
+        <li><label><input type="checkbox" id="p7-t4"><span>実行中のボタン無効化(二重実行防止のUI側)</span></label></li>
+        <li><label><input type="checkbox" id="p7-t5"><span>/settlements 履歴+直近1件のみ取り消し</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p7-v1"><span>5,000円折半+2,000円折半 → 「BがAに1,500円」(手計算と一致)</span></label></li>
+        <li><label><input type="checkbox" id="p7-v2"><span>精算実行 → 差額0円+履歴1件</span></label></li>
+        <li><label><input type="checkbox" id="p7-v3"><span>ボタン連打しても精算は1件のみ</span></label></li>
+        <li><label><input type="checkbox" id="p7-v4"><span>精算済み支出は編集・削除できない</span></label></li>
+        <li><label><input type="checkbox" id="p7-v5"><span>取り消しで差額が復活する</span></label></li>
+        <li><label><input type="checkbox" id="p7-v6"><span>ドラフトがあると「未確定のレシートがあります」</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §9(execute mutation のコード)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 8 ══════════ -->
+  <details class="phase" id="phase-8" data-phase="8">
+    <summary>
+      <span class="ph-no">P8</span><span class="ph-name">AIレシート読み取り</span>
+      <span class="ph-fn">F-003・5〜8h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/13</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">最後の難所。「撮影 → AI抽出 → ExpenseEditorで確認 → 確定」を接続する。環境変数はConvexダッシュボード側に。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p8-t1"><span>ReceiptParser抽象化+Convex環境変数(ANTHROPIC_API_KEY / PROVIDER / MODEL)を登録</span></label></li>
+        <li><label><input type="checkbox" id="p8-t2"><span>claude.ts(構造化出力 output_config.format+30秒タイムアウト)</span></label></li>
+        <li><label><input type="checkbox" id="p8-t3"><span>generateUploadUrl mutation</span></label></li>
+        <li><label><input type="checkbox" id="p8-t4"><span>parse action("use node" / 認可 / レート制限30回・時 / リトライ1回 / 調整行の補完)</span></label></li>
+        <li><label><input type="checkbox" id="p8-t5"><span>S-004画面(Canvasで長辺2,000px縮小 → アップロード → ドラフト保存 → 確定)</span></label></li>
+        <li><label><input type="checkbox" id="p8-t6"><span>エラー3系統(読み取り失敗→手入力 / 不鮮明→撮り直し / 通信→再試行)</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p8-v1"><span>実物レシートで品目・金額・店名・日付が自動入力される</span></label></li>
+        <li><label><input type="checkbox" id="p8-v2"><span>合計ズレ時に「調整(税・割引等)」行が自動追加される</span></label></li>
+        <li><label><input type="checkbox" id="p8-v3"><span>修正→確定→一覧と未精算差額に反映される</span></label></li>
+        <li><label><input type="checkbox" id="p8-v4"><span>離脱したドラフトを再開できる</span></label></li>
+        <li><label><input type="checkbox" id="p8-v5"><span>詳細画面で元画像が閲覧できる</span></label></li>
+        <li><label><input type="checkbox" id="p8-v6"><span>レシート以外はエラー+手入力導線が出る</span></label></li>
+        <li><label><input type="checkbox" id="p8-v7"><span>(任意)31回連続でレート制限エラー</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §10(claude.ts の全コードとaction設計)</p>
+    </div>
+  </details>
+
+  <!-- ══════════ Phase 9 ══════════ -->
+  <details class="phase" id="phase-9" data-phase="9">
+    <summary>
+      <span class="ph-no">P9</span><span class="ph-name">仕上げ・本番デプロイ</span>
+      <span class="ph-fn">3〜5h</span><span class="ph-leader"></span>
+      <span class="ph-count" data-count>0/10</span><span class="caret">▶</span>
+    </summary>
+    <span class="stamp" aria-hidden="true">済</span>
+    <div class="ph-body">
+      <p class="ph-goal">Clerk本番インスタンスには自前のGoogle OAuth認証情報が必須(開発と違う点)。</p>
+      <h4>TASKS</h4>
+      <ul class="tasks">
+        <li><label><input type="checkbox" id="p9-t1"><span>Clerk本番インスタンス作成+Google Cloud ConsoleでOAuth認証情報を登録</span></label></li>
+        <li><label><input type="checkbox" id="p9-t2"><span>Convex本番環境の環境変数4つを登録</span></label></li>
+        <li><label><input type="checkbox" id="p9-t3"><span>Vercel Import+Build Commandを npx convex deploy --cmd 'npm run build' に+CONVEX_DEPLOY_KEY</span></label></li>
+        <li><label><input type="checkbox" id="p9-t4"><span>スマホ実機(iOS Safari / Android Chrome)で通しテスト</span></label></li>
+        <li><label><input type="checkbox" id="p9-t5"><span>主要画面の初期表示が体感2秒以内</span></label></li>
+        <li><label><input type="checkbox" id="p9-t6"><span>Anthropic上限アラート+Convex使用量の確認</span></label></li>
+      </ul>
+      <h4>✔ 動作確認</h4>
+      <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p9-v1"><span>本番URLで2人ログイン → 同じ世帯データが見える</span></label></li>
+        <li><label><input type="checkbox" id="p9-v2"><span>撮影→仕分け→確定が1分程度で完結</span></label></li>
+        <li><label><input type="checkbox" id="p9-v3"><span>精算→履歴まで通しで動く</span></label></li>
+        <li><label><input type="checkbox" id="p9-v4"><span>リアルタイム同期が本番でも動く</span></label></li>
+      </ul>
+      <p class="md-ref">→ 正本 §11。完了後は /verification-checklist で最終検証を。</p>
+    </div>
+  </details>
+
+  <div class="tear" role="separator"></div>
+
+  <section>
+    <h2><span class="mk">※</span> ご注意 — ハマりやすいポイント</h2>
+    <ol class="pitfalls">
+      <li><b>requireMember の呼び忘れ</b><span class="fix">公開query/mutation/actionの1行目は必ず認可チェック。1つの漏れで他世帯のデータが漏れる(最重要)</span></li>
+      <li><b>環境変数の置き場所間違い</b><span class="fix">AI関連はConvexダッシュボード、Clerkキーは .env.local / Vercel。逆に置くと届かない</span></li>
+      <li><b>"use node" の付け忘れ</b><span class="fix">Anthropic SDKを使うactionファイルの先頭に必須。無いとバンドルエラー</span></li>
+      <li><b>devとprodは別世界</b><span class="fix">Convexの開発環境と本番はデータも環境変数も完全に別</span></li>
+      <li><b>本番でGoogleログイン失敗</b><span class="fix">Clerk本番インスタンスは自前のGoogle OAuth認証情報が必須(開発は不要だった)</span></li>
+      <li><b>iPhoneのHEIC画像</b><span class="fix">CanvasでJPEG再エンコードして吸収する(P8の実装に含む)</span></li>
+      <li><b>金額の浮動小数点誤差</b><span class="fix">金額は常に「円・整数」で扱う</span></li>
+      <li><b>APIキーのコミット</b><span class="fix">.env.local がgit管理外か最初に確認。漏れたら即再発行</span></li>
+      <li><b>AI応答のパース失敗</b><span class="fix">構造化出力+リトライ1回+手入力フォールバックの三段構え</span></li>
+      <li><b>actionとmutationの混同</b><span class="fix">actionはDBに直接触れない。トランザクションが要る書き込みはmutationへ</span></li>
+      <li><b>ドキュメント1MB上限</b><span class="fix">品目20件は余裕。画像は必ずFile Storageへ</span></li>
+    </ol>
+  </section>
+
+  <div class="tear" role="separator"></div>
+
+  <section>
+    <h2>要件との対応</h2>
+    <div class="map-wrap">
+      <table class="map">
+        <tr><th>要件ID</th><th>内容</th><th>フェーズ</th></tr>
+        <tr><td>F-001</td><td>認証</td><td><a href="#phase-3">P3</a></td></tr>
+        <tr><td>F-002</td><td>世帯作成・招待</td><td><a href="#phase-4">P4</a></td></tr>
+        <tr><td>F-003 / SR-001</td><td>レシート読み取り(Convex action)</td><td><a href="#phase-8">P8</a></td></tr>
+        <tr><td>F-004</td><td>品目仕分け・確認</td><td><a href="#phase-5">P5</a>・<a href="#phase-8">P8</a></td></tr>
+        <tr><td>F-005</td><td>手入力支出登録</td><td><a href="#phase-5">P5</a></td></tr>
+        <tr><td>F-006</td><td>一覧・詳細・編集・削除</td><td><a href="#phase-6">P6</a></td></tr>
+        <tr><td>F-007</td><td>精算</td><td><a href="#phase-7">P7</a></td></tr>
+        <tr><td>F-008〜010</td><td>Should/Could機能</td><td>MVP対象外</td></tr>
+        <tr><td>5.2 セキュリティ</td><td>requireMemberによる認可</td><td><a href="#phase-2">P2</a>〜全フェーズ</td></tr>
+        <tr><td>TBD-001</td><td>Claudeモデル選定</td><td><a href="#phase-8">P8</a>で実測</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div class="barcode" aria-hidden="true"></div>
+    <p>warikapp implementation plan — thank you for building!</p>
+    <p>正本: <a href="./implementation-plan.md">docs/implementation-plan.md</a></p>
+    <button class="reset-btn" id="reset">進捗をリセット</button>
+  </footer>
+</main>
+
+<script>
+  const KEY = "warikapp-plan-v1";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+
+  const boxes = document.querySelectorAll('input[type="checkbox"]');
+  boxes.forEach((b) => {
+    if (saved[b.id]) b.checked = true;
+    b.addEventListener("change", () => {
+      if (b.checked) saved[b.id] = true; else delete saved[b.id];
+      localStorage.setItem(KEY, JSON.stringify(saved));
+      update();
+    });
+  });
+
+  function update() {
+    let total = 0, done = 0;
+    document.querySelectorAll("details.phase").forEach((ph) => {
+      const bs = ph.querySelectorAll('input[type="checkbox"]');
+      const d = [...bs].filter((b) => b.checked).length;
+      total += bs.length; done += d;
+      ph.querySelector("[data-count]").textContent = d + "/" + bs.length;
+      const complete = bs.length > 0 && d === bs.length;
+      ph.classList.toggle("done", complete);
+      const step = document.querySelector('.step[data-phase="' + ph.dataset.phase + '"]');
+      if (step) {
+        step.classList.toggle("done", complete);
+        step.classList.toggle("started", d > 0 && !complete);
+      }
+    });
+    document.querySelectorAll(".step").forEach((s) => s.classList.remove("current"));
+    const next = [...document.querySelectorAll(".step")].find((s) => !s.classList.contains("done"));
+    if (next) next.classList.add("current");
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    document.getElementById("g-count").textContent = done + " / " + total;
+    document.getElementById("g-pct").textContent = pct + "%";
+    document.getElementById("g-bar").style.width = pct + "%";
+  }
+
+  document.querySelectorAll(".step").forEach((s) => {
+    s.addEventListener("click", () => {
+      const ph = document.getElementById("phase-" + s.dataset.phase);
+      if (ph) { ph.open = true; ph.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    });
+  });
+
+  // リセット: 誤操作防止のため2クリック方式(ダイアログは使わない)
+  const resetBtn = document.getElementById("reset");
+  let armed = false, timer = null;
+  resetBtn.addEventListener("click", () => {
+    if (!armed) {
+      armed = true;
+      resetBtn.textContent = "もう一度押すと全チェックが消えます";
+      resetBtn.classList.add("arm");
+      timer = setTimeout(() => {
+        armed = false;
+        resetBtn.textContent = "進捗をリセット";
+        resetBtn.classList.remove("arm");
+      }, 4000);
+    } else {
+      clearTimeout(timer);
+      saved = {};
+      localStorage.removeItem(KEY);
+      boxes.forEach((b) => (b.checked = false));
+      armed = false;
+      resetBtn.textContent = "進捗をリセット";
+      resetBtn.classList.remove("arm");
+      update();
+    }
+  });
+
+  update();
+</script>
