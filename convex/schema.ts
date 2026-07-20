@@ -49,7 +49,15 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // 未設定なら未精算
     deletedAt: v.optional(v.number()), // 論理削除
-  }).index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"]),
+  })
+    // 「すべて」表示用: 世帯内を購入日順に読む
+    .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
+    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
+    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+      "coupleId",
+      "settlementId",
+      "purchasedAt",
+    ]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),

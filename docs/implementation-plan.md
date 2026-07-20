@@ -10,7 +10,7 @@
 
 1. **Phase 0 から順番に進める**。フェーズを飛ばさない。
 2. 各フェーズの最後にある **「✅ 動作確認」をすべてパスしてから次へ進む**。
-3. フェーズが終わるたびに `git add -A && git commit` する(壊れたら戻れるように)。
+3. **mainに直接コミットしない**。フェーズ(またはひとまとまりの修正)ごとにブランチを切り、終わったらPRを作ってレビュー後にmainへマージする。例: `git checkout -b feature/phase-3-auth` → 作業・コミット → push → PR作成。
 4. 分からないエラーが出たら、エラーメッセージ全文をそのままAI(Claude Code等)に貼って相談する。Convexは日本語情報が少ないため、**公式ドキュメント(docs.convex.dev)+AIへの質問**を基本の調べ方にする。
 
 ## 目次
@@ -236,7 +236,15 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // undefinedなら未精算
     deletedAt: v.optional(v.number()),             // 論理削除
-  }).index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"]),
+  })
+    // 「すべて」表示用: 世帯内を購入日順に読む
+    .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
+    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
+    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+      "coupleId",
+      "settlementId",
+      "purchasedAt",
+    ]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),
@@ -355,7 +363,7 @@ CLERK_SECRET_KEY=sk_test_...
 ### 5.2 Next.js側の組み込み
 
 - [ ] `components/ConvexClientProvider.tsx`(client component): `ClerkProvider` → `ConvexProviderWithClerk`(`convex/react-clerk` パッケージ、Clerkの `useAuth` を渡す)の順で全体をラップし、`app/layout.tsx` から使う
-- [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でMiddlewareは名称・置き場所ともに Proxy(`proxy.ts`)に変わった**(機能自体は同じ。旧middlewareファイルは使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
+- [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でファイル名が `middleware.ts` から `proxy.ts` に変わった**(置き場所はプロジェクト直下のままで機能も同じ。旧ファイル名は使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
 
 ```ts
 // proxy.ts
@@ -504,6 +512,7 @@ export function calcAdvanceAmount(
 
 - [ ] **ホーム(S-003)**: 未精算差額の常時表示(Phase 7で本実装、まずは枠だけ)+支出一覧
   - query `expenses.list`: `requireMember` → 自世帯の `settlementId` なし・`deletedAt` なし・confirmed を購入日降順で返す。`usePaginatedQuery` で20件ずつ
+  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_purchasedAt` で `.eq("settlementId", undefined)` まで絞る(deletedAt/statusの残りだけコードでfilter)。「すべて」= `by_coupleId_and_purchasedAt`
   - フィルタ「未精算のみ(デフォルト)/すべて」
   - 各行: 店名/名目、日付、合計金額、支払者、精算状態バッジ、ドラフトバッジ
   - 「+レシート」「+手入力」の登録ボタン(レシートはPhase 8までリンクのみ)
@@ -551,9 +560,10 @@ export const execute = mutation({
     // 対象支出を収集
     const expenses = (await ctx.db
       .query("expenses")
-      .withIndex("by_coupleId_and_purchasedAt", (q) => q.eq("coupleId", member.coupleId))
+      .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
+        q.eq("coupleId", member.coupleId).eq("settlementId", undefined))
       .collect())
-      .filter((e) => e.settlementId === undefined && e.deletedAt === undefined);
+      .filter((e) => e.deletedAt === undefined);
 
     // V-701: ドラフトが残っていたら拒否
     if (expenses.some((e) => e.status === "draft")) {

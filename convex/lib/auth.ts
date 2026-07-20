@@ -42,7 +42,7 @@ export async function assertCoupleMemberIds(
   memberIds: Id<"members">[],
 ) {
   for (const memberId of new Set(memberIds)) {
-    const member = await ctx.db.get(memberId);
+    const member = await ctx.db.get("members", memberId);
     if (member === null || member.coupleId !== coupleId) {
       throw new Error("権限がありません");
     }
