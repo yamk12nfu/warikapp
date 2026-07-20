@@ -100,12 +100,10 @@ graph LR
 
 ### タスク
 
-- [ ] プロジェクト作成(既存リポジトリの直下に作る。`docs/` があると create-next-app が止まるため、一時退避してから実行):
+- [ ] プロジェクト作成(既存リポジトリの直下に作る。`docs/` は許容されるのでそのままでよい):
 
 ```bash
-mv docs ../warikapp-docs-tmp
-npx create-next-app@latest . --typescript --tailwind --app --eslint --src-dir=false
-mv ../warikapp-docs-tmp docs
+npx create-next-app@latest . --typescript --tailwind --app --eslint --no-src-dir --yes
 ```
 
 質問には基本すべてデフォルト(Enter)でよい。**App Router: Yes / Tailwind: Yes / TypeScript: Yes** になっていることだけ確認。
