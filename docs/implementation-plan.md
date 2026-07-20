@@ -305,7 +305,7 @@ export async function assertCoupleMemberIds(
   memberIds: Id<"members">[],
 ) {
   for (const memberId of new Set(memberIds)) {
-    const member = await ctx.db.get(memberId);
+    const member = await ctx.db.get("members", memberId);
     if (member === null || member.coupleId !== coupleId) {
       throw new Error("権限がありません");
     }
@@ -697,13 +697,15 @@ export class ClaudeReceiptParser implements ReceiptParser {
 ### 10.3 Convex関数(`convex/receipts.ts`)
 
 - [ ] mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)
+- [ ] mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: coupleId, storageId, index by_storageId)
 - [ ] action `parse`(**ファイル先頭に `"use node";` を書く** — Anthropic SDKを使うためNode.jsランタイムで実行):
   1. 認証+世帯確認: actionはDBに直接触れないので、`await ctx.runQuery(internal.lib.auth.getCurrentMember, {})` のように internal query 経由で行う
-  2. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
-  3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
-  4. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)
-  5. 品目合計 ≠ total_amount のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値: 折半)
-  6. 抽出結果を返す(保存はクライアントが `expenses.save` で行う)
+  2. **storageIdの帰属検証**: 引数の `storageId` が `uploads` 台帳で自世帯に登録済みかを internal query で確認(他世帯のstorageIdを渡されても読めないようにする)。`expenses.save` でも `imageStorageId` に同じ検証を行う
+  3. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
+  4. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
+  5. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)
+  6. 品目合計 ≠ total_amount のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値: 折半)
+  7. 抽出結果を返す(保存はクライアントが `expenses.save` で行う)
 - [ ] ログ: 成否・所要時間・使用プロバイダを `console.log`(Convexダッシュボード → Logs で見える)。**レシートの中身はログに出さない**(要件 5.4)
 
 ### 10.4 レシート登録画面(S-004)
