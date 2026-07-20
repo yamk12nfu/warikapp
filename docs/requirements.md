@@ -488,7 +488,7 @@ graph LR
 | テーブル | 役割 |
 |---|---|
 | couples | 世帯 |
-| members | 世帯メンバー(coupleId, clerkUserId, displayName) ※アカウント情報はClerkが保持 |
+| members | 世帯メンバー(coupleId, tokenIdentifier, displayName) ※アカウント情報はClerkが保持 |
 | invitations | 招待コード(code, expiresAt, usedAt) |
 | expenses | 支出(coupleId, paidBy, storeName, purchasedAt, totalAmount, imageStorageId, source: receipt/manual, status: draft/confirmed, settlementId, deletedAt)。品目リスト items[] を内包し、各品目が name / price / quantity / shares[](memberId, ratioPercent ※2名合計100)を持つ |
 | settlements | 精算(coupleId, fromMemberId, toMemberId, amount, memo, settledBy) |

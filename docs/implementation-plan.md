@@ -209,11 +209,13 @@ export default defineSchema({
 
   members: defineTable({
     coupleId: v.id("couples"),
-    clerkUserId: v.string(), // Clerkのユーザーid(identity.subject)
+    // 認証プロバイダ発行の安定ID(identity.tokenIdentifier)。
+    // Convex公式ガイドラインに従い subject ではなくこちらを使う
+    tokenIdentifier: v.string(),
     displayName: v.string(), // 1〜20文字
   })
-    .index("by_clerkUserId", ["clerkUserId"])
-    .index("by_couple", ["coupleId"]),
+    .index("by_tokenIdentifier", ["tokenIdentifier"])
+    .index("by_coupleId", ["coupleId"]),
 
   invitations: defineTable({
     coupleId: v.id("couples"),
@@ -234,7 +236,7 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // undefinedなら未精算
     deletedAt: v.optional(v.number()),             // 論理削除
-  }).index("by_couple", ["coupleId"]),
+  }).index("by_coupleId", ["coupleId"]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),
@@ -243,12 +245,12 @@ export default defineSchema({
     amount: v.number(),
     memo: v.optional(v.string()),  // 100文字以内
     settledBy: v.id("members"),
-  }).index("by_couple", ["coupleId"]),
+  }).index("by_coupleId", ["coupleId"]),
 
   // AI読み取りのレート制限用(要件: 30回/時/世帯)
   parseLogs: defineTable({
     coupleId: v.id("couples"),
-  }).index("by_couple", ["coupleId"]),
+  }).index("by_coupleId", ["coupleId"]),
 });
 ```
 
@@ -268,7 +270,9 @@ export async function requireMember(ctx: QueryCtx | MutationCtx) {
   if (identity === null) throw new Error("ログインしてください");
   const member = await ctx.db
     .query("members")
-    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+    .withIndex("by_tokenIdentifier", (q) =>
+      q.eq("tokenIdentifier", identity.tokenIdentifier),
+    )
     .unique();
   if (member === null) throw new Error("世帯に参加してください");
   return member;
