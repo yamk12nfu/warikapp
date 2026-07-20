@@ -385,7 +385,7 @@
         <li><label><input type="checkbox" id="p3-t3"><span>convex/auth.config.ts を作成</span></label></li>
         <li><label><input type="checkbox" id="p3-t4"><span>.env.local にClerkの2キー(PUBLISHABLE / SECRET)</span></label></li>
         <li><label><input type="checkbox" id="p3-t5"><span>ConvexClientProvider(ClerkProvider → ConvexProviderWithClerk)を layout に組み込み</span></label></li>
-        <li><label><input type="checkbox" id="p3-t6"><span>middleware.ts で /login 以外を保護</span></label></li>
+        <li><label><input type="checkbox" id="p3-t6"><span>proxy.ts(Next.js 16。旧middleware)で /login 以外を保護</span></label></li>
         <li><label><input type="checkbox" id="p3-t7"><span>/login に Clerk の SignIn、settings にログアウト</span></label></li>
         <li><label><input type="checkbox" id="p3-t8"><span>currentMember query+世帯未所属なら /setup へ振り分け</span></label></li>
       </ul>
@@ -398,7 +398,7 @@
         <li><label><input type="checkbox" id="p3-v5"><span>ログアウト → /login に戻される</span></label></li>
         <li><label><input type="checkbox" id="p3-v6"><span>Google同意画面でキャンセルしても復帰できる</span></label></li>
       </ul>
-      <p class="md-ref">→ 正本 §5(auth.config.ts / middleware.ts のコード)</p>
+      <p class="md-ref">→ 正本 §5(auth.config.ts / proxy.ts のコード)</p>
     </div>
   </details>
 
@@ -444,7 +444,7 @@
       <h4>TASKS</h4>
       <ul class="tasks">
         <li><label><input type="checkbox" id="p5-t1"><span>lib/types.ts に共通型(ShareRatio / ExpenseItemInput)</span></label></li>
-        <li><label><input type="checkbox" id="p5-t2"><span>expenses.save mutation(V-401〜403+精算済みガード、totalAmountはサーバーで算出)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t2"><span>expenses.save mutation(V-401〜403+精算済みガード+メンバーID検証(assertCoupleMemberIds)、totalAmountはサーバーで算出)</span></label></li>
         <li><label><input type="checkbox" id="p5-t3"><span>ExpenseEditor(負担チップ: 折半→自分→相手を循環、カスタム割合、固定フッター)</span></label></li>
         <li><label><input type="checkbox" id="p5-t4"><span>/expenses/new/manual(名目+金額だけで確定できる)</span></label></li>
         <li><label><input type="checkbox" id="p5-t5"><span>calcAdvanceAmount 純粋関数(品目ごとに四捨五入)</span></label></li>

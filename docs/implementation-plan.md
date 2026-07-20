@@ -151,7 +151,7 @@ warikapp/
 ├── components/
 │   ├── ConvexClientProvider.tsx    # Clerk+Convexのプロバイダ
 │   └── ExpenseEditor.tsx           # 仕分けUI(3画面で共用)
-├── middleware.ts                   # Clerkの認証ミドルウェア
+├── proxy.ts                         # Clerkの認証Proxy(Next.js 16。旧middlewareファイル相当)
 └── docs/
 ```
 
@@ -236,7 +236,7 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // undefinedなら未精算
     deletedAt: v.optional(v.number()),             // 論理削除
-  }).index("by_coupleId", ["coupleId"]),
+  }).index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),
@@ -258,16 +258,27 @@ export default defineSchema({
 
 ### 4.3 認可ヘルパー(`convex/lib/auth.ts`)
 
-- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり:
+- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり。ポイントは3つ:
+  1. `requireUser` は `ctx.auth` さえあれば呼べる型(`{ auth: Auth }`)にして、query/mutationだけでなくactionからも使えるようにする
+  2. `requireMember` で世帯所属を確認し、自分のmemberレコードを返す
+  3. `assertCoupleMemberIds` で、クライアントから来た `paidBy` や `shares[].memberId` が**自世帯のメンバーか**を必ず検証する(他世帯のIDを混ぜて送られても弾く)
 
 ```ts
-import { QueryCtx, MutationCtx } from "../_generated/server";
+import { Auth } from "convex/server";
+import { internalQuery, QueryCtx, MutationCtx } from "../_generated/server";
+import { Id } from "../_generated/dataModel";
+
+// ログイン済みか確認。auth さえあれば良いので query/mutation/action どれからも呼べる
+export async function requireUser(ctx: { auth: Auth }) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) throw new Error("ログインしてください");
+  return identity;
+}
 
 // ログイン済み+世帯所属を確認し、自分のmemberレコードを返す。
 // これを呼ばずにDBを触る公開関数を書いてはいけない(セキュリティの要)。
 export async function requireMember(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) throw new Error("ログインしてください");
+  const identity = await requireUser(ctx);
   const member = await ctx.db
     .query("members")
     .withIndex("by_tokenIdentifier", (q) =>
@@ -278,12 +289,27 @@ export async function requireMember(ctx: QueryCtx | MutationCtx) {
   return member;
 }
 
-// ログインのみ確認(世帯未所属でも呼べる。setup画面用)
-export async function requireUser(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) throw new Error("ログインしてください");
-  return identity;
+// paidBy / shares[].memberId など、クライアント由来の member ID が
+// すべて自世帯のメンバーであることを検証する(他世帯IDの混入を防ぐ)
+export async function assertCoupleMemberIds(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+  memberIds: Id<"members">[],
+) {
+  for (const memberId of new Set(memberIds)) {
+    const member = await ctx.db.get(memberId);
+    if (member === null || member.coupleId !== coupleId) {
+      throw new Error("権限がありません");
+    }
+  }
 }
+
+// actionはDBに直接触れないので、認証+所属確認は internal query 経由で行う
+// 使い方: await ctx.runQuery(internal.lib.auth.getCurrentMember, {})
+export const getCurrentMember = internalQuery({
+  args: {},
+  handler: async (ctx) => requireMember(ctx),
+});
 ```
 
 さらに、取得した支出などが**自分の世帯のものか**を確認するチェックも徹底する:
@@ -329,9 +355,10 @@ CLERK_SECRET_KEY=sk_test_...
 ### 5.2 Next.js側の組み込み
 
 - [ ] `components/ConvexClientProvider.tsx`(client component): `ClerkProvider` → `ConvexProviderWithClerk`(`convex/react-clerk` パッケージ、Clerkの `useAuth` を渡す)の順で全体をラップし、`app/layout.tsx` から使う
-- [ ] `middleware.ts`: `clerkMiddleware` で `/login` 以外を保護:
+- [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でMiddlewareは名称・置き場所ともに Proxy(`proxy.ts`)に変わった**(機能自体は同じ。旧middlewareファイルは使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
 
 ```ts
+// proxy.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isPublicRoute = createRouteMatcher(["/login(.*)"]);
@@ -345,7 +372,7 @@ export const config = {
 };
 ```
 
-> 実装はClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードをほぼそのまま使えばよい。自己流にアレンジしない。
+> 実装のベースはClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードでよいが、ファイル名は `proxy.ts` に読み替えること。自己流にアレンジしない。Clerk側の最新の組み込み方法(関数名・引数の変更有無)は念のため **Clerk公式のNext.jsガイド参照**で確認する。
 
 ### 5.3 画面とフロー
 
@@ -418,6 +445,7 @@ export type ExpenseItemInput = {
 
 - [ ] mutation `expenses.save`(新規作成と更新を兼ねる):
   - `requireMember` → 更新時は対象支出の `coupleId` が自世帯か確認
+  - `assertCoupleMemberIds` で **`paidBy` と全 `shares[].memberId` が自世帯のメンバーであること**を検証(他世帯のmember IDが紛れ込むテナント境界破りを防ぐ)
   - バリデーション(V-401〜V-403): 各品目の割合合計=100 / 品目1件以上 / 金額は1円以上の整数 / 購入日は未来日不可 / **精算済み(`settlementId`あり)は変更拒否**
   - `totalAmount` は品目合計から算出して保存
   - 引数 `status: "draft" | "confirmed"` で確定状態を制御
@@ -523,7 +551,7 @@ export const execute = mutation({
     // 対象支出を収集
     const expenses = (await ctx.db
       .query("expenses")
-      .withIndex("by_couple", (q) => q.eq("coupleId", member.coupleId))
+      .withIndex("by_coupleId_and_purchasedAt", (q) => q.eq("coupleId", member.coupleId))
       .collect())
       .filter((e) => e.settlementId === undefined && e.deletedAt === undefined);
 
@@ -660,7 +688,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 
 - [ ] mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)
 - [ ] action `parse`(**ファイル先頭に `"use node";` を書く** — Anthropic SDKを使うためNode.jsランタイムで実行):
-  1. 認証+世帯確認: actionはDBに直接触れないので、`ctx.runQuery(internal.receipts.checkMember)` のように internal query/mutation 経由で行う
+  1. 認証+世帯確認: actionはDBに直接触れないので、`await ctx.runQuery(internal.lib.auth.getCurrentMember, {})` のように internal query 経由で行う
   2. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
   3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
   4. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)

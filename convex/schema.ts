@@ -49,7 +49,7 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // 未設定なら未精算
     deletedAt: v.optional(v.number()), // 論理削除
-  }).index("by_coupleId", ["coupleId"]),
+  }).index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),
