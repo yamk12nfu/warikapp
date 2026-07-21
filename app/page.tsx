@@ -1,3 +1,9 @@
+"use client";
+
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import Link from "next/link";
 
 const screens = [
@@ -12,10 +18,30 @@ const screens = [
 ];
 
 export default function Home() {
+  const router = useRouter();
+  // 未ログイン/世帯未所属なら null(ルーティング用プローブ)
+  const member = useQuery(api.couples.currentMember);
+
+  useEffect(() => {
+    if (member === null) {
+      router.replace("/setup");
+    }
+  }, [member, router]);
+
+  if (member === undefined) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
+  }
+  if (member === null) {
+    return null; // /setup へリダイレクト中
+  }
+
   return (
     <main className="p-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">warikapp</h1>
+        <p className="text-sm text-gray-500">
+          こんにちは、{member.displayName} さん
+        </p>
         <p className="text-sm text-gray-500">
           TODO: ホーム(S-003)— 未精算差額+支出一覧
         </p>

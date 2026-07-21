@@ -339,7 +339,7 @@ if (expense.coupleId !== member.coupleId) throw new Error("権限がありませ
 ### 5.1 ClerkとConvexの接続
 
 - [ ] Clerkダッシュボード → JWT Templates → **New template → Convex** を選択して作成(名前は `convex` のまま)。表示される **Issuer URL**(`https://xxx.clerk.accounts.dev` 形式)をコピー
-- [ ] Convexダッシュボード → Settings → Environment Variables に `CLERK_JWT_ISSUER_DOMAIN` = (Issuer URL) を登録
+- [ ] Convexダッシュボード → Settings → Environment Variables に `CLERK_JWT_ISSUER_DOMAIN` = (Issuer URL) を登録(CLIなら `npx convex env set CLERK_JWT_ISSUER_DOMAIN <Issuer URL>`)。**auth.config.ts が参照する環境変数が未設定だとConvexへのデプロイ自体が失敗する**ため、Issuer URL取得前に開発を進める場合は一時的なプレースホルダ値を設定しておく
 - [ ] `convex/auth.config.ts` を作成:
 
 ```ts
@@ -385,7 +385,7 @@ export const config = {
 ### 5.3 画面とフロー
 
 - [ ] `/login`(S-001): Clerkの `<SignIn />` コンポーネントを配置(Googleボタンが自動で出る)
-- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember`(requireUserで identity 取得 → members を検索して返す。未所属なら null)を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**
+- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember` を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**。この queryは**ルーティング用プローブ**で、未ログイン・世帯未所属とも null を返す(認可ゲートではない。世帯データに触る関数は従来どおり requireMember の throw を使う)
 - [ ] `/settings` に仮のログアウトボタン(Clerkの `<UserButton />` か `<SignOutButton />`)を置く
 
 ### ✅ 動作確認
