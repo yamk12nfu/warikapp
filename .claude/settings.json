@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.env*)",
+      "Write(.env*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v jq >/dev/null 2>&1 || { echo 'hooks: jq が見つからないため型チェックを実行できません(brew install jq)' >&2; exit 2; }; f=$(jq -r '.tool_input.file_path // \"\"'); case \"$f\" in *.ts|*.tsx) cd \"$CLAUDE_PROJECT_DIR\" && out=$(npx tsc --noEmit 2>&1) || { printf '%s\\n' \"$out\" | head -30 >&2; exit 2; } ;; esac",
+            "timeout": 120,
+            "statusMessage": "型チェック中(tsc --noEmit)…"
+          }
+        ]
+      }
+    ]
+  }
+}
