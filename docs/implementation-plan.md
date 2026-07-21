@@ -366,17 +366,30 @@ CLERK_SECRET_KEY=sk_test_...
 - [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でファイル名が `middleware.ts` から `proxy.ts` に変わった**(置き場所はプロジェクト直下のままで機能も同じ。旧ファイル名は使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
 
 ```ts
-// proxy.ts
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+// proxy.ts(createRouteMatcherはClerk v7で非推奨のためpathname判定を使う)
+import { clerkMiddleware } from "@clerk/nextjs/server";
 
-const isPublicRoute = createRouteMatcher(["/login(.*)"]);
+const isPublicPath = (pathname: string) =>
+  pathname === "/login" || pathname.startsWith("/login/");
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) await auth.protect();
-});
+export default clerkMiddleware(
+  async (auth, req) => {
+    if (isPublicPath(req.nextUrl.pathname)) return;
+    const { userId, redirectToSignIn } = await auth();
+    if (userId === null) {
+      // returnBackUrlで「復帰後は元のページへ」(要件F-001)を満たす
+      return redirectToSignIn({ returnBackUrl: req.url });
+    }
+  },
+  { signInUrl: "/login" },
+);
 
 export const config = {
-  matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"],
+  // Clerk公式推奨: 静的アセットの拡張子のみ除外(「.を含むパス全除外」は動的ルートの保護漏れになる)
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api|trpc)(.*)",
+  ],
 };
 ```
 
@@ -385,7 +398,8 @@ export const config = {
 ### 5.3 画面とフロー
 
 - [ ] `/login`(S-001): Clerkの `<SignIn />` コンポーネントを配置(Googleボタンが自動で出る)
-- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember` を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**。この queryは**ルーティング用プローブ**で、未ログイン・世帯未所属とも null を返す(認可ゲートではない。世帯データに触る関数は従来どおり requireMember の throw を使う)
+- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember` を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**。この queryは**ルーティング用プローブ**で、未ログイン・世帯未所属とも null を返す(認可ゲートではない。世帯データに触る関数は従来どおり requireMember の throw を使う)。返却は `_id / coupleId / displayName` のみに射影する
+- [ ] ホーム側は **`useConvexAuth()` で認証確立を待ってから** queryを実行する(`isAuthenticated ? {} : "skip"`)。待たないと認証確立前の null を「未所属」と誤解し、所属済みユーザーを /setup へ誤誘導するバグになる
 - [ ] `/settings` に仮のログアウトボタン(Clerkの `<UserButton />` か `<SignOutButton />`)を置く
 
 ### ✅ 動作確認

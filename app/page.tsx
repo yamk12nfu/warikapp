@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -19,20 +19,32 @@ const screens = [
 
 export default function Home() {
   const router = useRouter();
-  // 未ログイン/世帯未所属なら null(ルーティング用プローブ)
-  const member = useQuery(api.couples.currentMember);
+  // Convex側のJWT検証が完了するまでqueryを実行しない(実行すると認証確立前の
+  // nullを「世帯未所属」と誤解し、所属済みユーザーを/setupへ誤誘導してしまう)
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const member = useQuery(
+    api.couples.currentMember,
+    isAuthenticated ? {} : "skip",
+  );
 
   useEffect(() => {
-    if (member === null) {
+    // 認証確立後にnull = 本当に世帯未所属
+    if (isAuthenticated && member === null) {
       router.replace("/setup");
     }
-  }, [member, router]);
+  }, [isAuthenticated, member, router]);
 
+  if (isLoading) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
+  }
+  if (!isAuthenticated) {
+    return null; // 未ログイン: proxyが/loginへ誘導する
+  }
   if (member === undefined) {
     return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (member === null) {
-    return null; // /setup へリダイレクト中
+    return null; // 世帯未所属: /setupへ誘導中
   }
 
   return (
