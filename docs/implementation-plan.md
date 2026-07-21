@@ -120,17 +120,19 @@ npm install @anthropic-ai/sdk zod
 ```text
 warikapp/
 ├── app/
-│   ├── login/[[...rest]]/page.tsx  # S-001 ログイン(Clerkの<SignIn/>を置くcatch-allルート)
-│   ├── setup/page.tsx              # S-002 世帯セットアップ
-│   ├── page.tsx                    # S-003 ホーム
-│   ├── expenses/
-│   │   ├── new/
-│   │   │   ├── receipt/page.tsx    # S-004 レシート登録
-│   │   │   └── manual/page.tsx     # S-006 手入力登録
-│   │   └── [id]/page.tsx           # S-005 支出詳細・編集
-│   ├── settlement/page.tsx         # S-007 精算確認・実行
-│   ├── settlements/page.tsx        # S-008 精算履歴
-│   └── settings/page.tsx           # S-009 設定
+│   ├── login/[[...rest]]/page.tsx  # S-001 ログイン(Clerkの<SignIn/>・唯一の公開ルート)
+│   └── (app)/                      # 保護ルート群(URLは変わらないルートグループ)
+│       ├── layout.tsx              # サーバー側auth()で未ログインを/loginへ(リソースレベル認証)
+│       ├── page.tsx                # S-003 ホーム
+│       ├── setup/page.tsx          # S-002 世帯セットアップ
+│       ├── expenses/
+│       │   ├── new/
+│       │   │   ├── receipt/page.tsx  # S-004 レシート登録
+│       │   │   └── manual/page.tsx   # S-006 手入力登録
+│       │   └── [id]/page.tsx         # S-005 支出詳細・編集
+│       ├── settlement/page.tsx       # S-007 精算確認・実行
+│       ├── settlements/page.tsx      # S-008 精算履歴
+│       └── settings/page.tsx         # S-009 設定
 ├── convex/                         # ★バックエンド本体(Phase 2で npx convex dev が生成)
 │   ├── schema.ts                   # テーブル定義
 │   ├── auth.config.ts              # Clerk連携設定
@@ -394,6 +396,8 @@ export const config = {
 ```
 
 > 実装のベースはClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードでよいが、ファイル名は `proxy.ts` に読み替えること。自己流にアレンジしない。Clerk側の最新の組み込み方法(関数名・引数の変更有無)は念のため **Clerk公式のNext.jsガイド参照**で確認する。
+
+- [ ] `app/(app)/layout.tsx`: 保護対象ページをルートグループ `(app)` にまとめ(URLは変わらない)、レイアウトでサーバー側 `auth()` チェックを行う(**リソースレベル認証**)。proxyのmatcherは静的アセット拡張子を除外するため、拡張子付きURL(例: `/expenses/foo.css`)がすり抜けてもここで弾く防衛線。matcher除外パスでは `auth()` が例外を投げるため、catchして未ログイン扱いにする
 
 ### 5.3 画面とフロー
 
