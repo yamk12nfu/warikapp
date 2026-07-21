@@ -1,0 +1,80 @@
+schema_version: 1
+source:
+  repository: yamk12nfu/ai-repo-ops
+  distribution: base
+  version: 0.1.5
+  commit: null
+  distribution_content_sha256: b89bd09f27531f15733d306adba73bc7918e6aea8b639058c10a9972c54db94e
+checksum:
+  algorithm: sha256
+  mode: canonical_text_lf_utf8bom_strip_v1
+managed_files:
+  - path: .ai/managed/prompts/review.md
+    source: distribution/base/files/.ai/managed/prompts/review.md
+    installed_sha256: 25abc4a2d914dd506a47b0078b263660f265251984d58082df350e303e6f6255
+    strategy: managed_overwrite
+  - path: .ai/managed/prompts/improve.md
+    source: distribution/base/files/.ai/managed/prompts/improve.md
+    installed_sha256: 65232e883805072d997e02fc8c9872d56c02c38575cce298a329ca0b48a48945
+    strategy: managed_overwrite
+  - path: .ai/managed/prompts/issue-fix.md
+    source: distribution/base/files/.ai/managed/prompts/issue-fix.md
+    installed_sha256: 3db5751b25168aad6677ade62d7370c840fb4b54c784ba1606e880858da4f93d
+    strategy: managed_overwrite
+  - path: .ai/managed/prompts/knowledge-refresh.md
+    source: distribution/base/files/.ai/managed/prompts/knowledge-refresh.md
+    installed_sha256: 651574fd7a55837d1cd513db5258e52f896bffc6163fdbfeb5d86c423bd517d4
+    strategy: managed_overwrite
+  - path: .ai/managed/prompts/release-check.md
+    source: distribution/base/files/.ai/managed/prompts/release-check.md
+    installed_sha256: 34862b7f5bf3a2f6c93b55ea72a2925ff33e7e2711aafed2526fe484e426ffe2
+    strategy: managed_overwrite
+  - path: .ai/managed/policies/default.yaml
+    source: distribution/base/files/.ai/managed/policies/default.yaml
+    installed_sha256: 2e49d418d6c6c32dd5e4308790278c143326d3156bcfdd24706634834d3a372d
+    strategy: managed_overwrite
+  - path: .ai/managed/policies/low-risk.yaml
+    source: distribution/base/files/.ai/managed/policies/low-risk.yaml
+    installed_sha256: 612e55e403e6a769c41993e99681ce7597892c39075177fd3f5885d55e64c379
+    strategy: managed_overwrite
+  - path: .ai/managed/policies/security.yaml
+    source: distribution/base/files/.ai/managed/policies/security.yaml
+    installed_sha256: 56925e9f7910e2029c44e5406390c121d67b77c58e476394a8316ef30a50a746
+    strategy: managed_overwrite
+  - path: .ai/managed/schemas/project.schema.json
+    source: distribution/base/files/.ai/managed/schemas/project.schema.json
+    installed_sha256: 5bf644018f1157c581f560ce97cca48c654ed2148f9cfadf48b1d203c7873bcf
+    strategy: managed_overwrite
+  - path: .ai/managed/schemas/knowledge.schema.json
+    source: distribution/base/files/.ai/managed/schemas/knowledge.schema.json
+    installed_sha256: d5c65ca373f81150ffb4ef280cc1942f4335bc04abfb39d92fc79153507be0e5
+    strategy: managed_overwrite
+seed_files:
+  - path: .ai/project.yaml
+    strategy: create_only
+  - path: .github/workflows/ai-review.yml
+    strategy: create_only
+patches:
+  - type: append_unique_lines
+    path: .gitignore
+    lines:
+      - .ai/runs/
+      - .ai/tmp/
+      - .ai/logs/
+  - type: append_unique_lines
+    path: .gitattributes
+    lines:
+      - "# ai-repo-ops managed text files"
+      - .ai/managed/** text eol=lf
+      - .ai/project.yaml text eol=lf
+      - .ai/ai-repo-ops.lock.yaml text eol=lf
+      - .ai/local/knowledge/** text eol=lf
+      - .github/workflows/ai-*.yml text eol=lf
+  - type: append_unique_lines
+    path: .prettierignore
+    lines:
+      - "# ai-repo-ops managed files"
+      - .ai/managed/
+      - .ai/ai-repo-ops.lock.yaml
+created_at: 2026-07-21T14:31:58.122Z
+updated_at: 2026-07-21T14:31:58.122Z
