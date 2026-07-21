@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../managed/schemas/knowledge.schema.json
+schema_version: 1
+entries:
+  - id: product-and-data-model
+    document: product-and-data-model.md
+    verified_at_commit: 2bdbcde464280d80bdcd4e2e2d94c738dca11d5d
+    sources:
+      - path: docs/requirements.md
+      - path: convex/schema.ts
