@@ -10,7 +10,7 @@
 
 1. **Phase 0 から順番に進める**。フェーズを飛ばさない。
 2. 各フェーズの最後にある **「✅ 動作確認」をすべてパスしてから次へ進む**。
-3. フェーズが終わるたびに `git add -A && git commit` する(壊れたら戻れるように)。
+3. **mainに直接コミットしない**。フェーズ(またはひとまとまりの修正)ごとにブランチを切り、終わったらPRを作ってレビュー後にmainへマージする。例: `git checkout -b feature/phase-3-auth` → 作業・コミット → push → PR作成。
 4. 分からないエラーが出たら、エラーメッセージ全文をそのままAI(Claude Code等)に貼って相談する。Convexは日本語情報が少ないため、**公式ドキュメント(docs.convex.dev)+AIへの質問**を基本の調べ方にする。
 
 ## 目次
@@ -151,7 +151,7 @@ warikapp/
 ├── components/
 │   ├── ConvexClientProvider.tsx    # Clerk+Convexのプロバイダ
 │   └── ExpenseEditor.tsx           # 仕分けUI(3画面で共用)
-├── middleware.ts                   # Clerkの認証ミドルウェア
+├── proxy.ts                         # Clerkの認証Proxy(Next.js 16。旧middlewareファイル相当)
 └── docs/
 ```
 
@@ -236,7 +236,15 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // undefinedなら未精算
     deletedAt: v.optional(v.number()),             // 論理削除
-  }).index("by_coupleId", ["coupleId"]),
+  })
+    // 「すべて」表示用: 世帯内を購入日順に読む
+    .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
+    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
+    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+      "coupleId",
+      "settlementId",
+      "purchasedAt",
+    ]),
 
   settlements: defineTable({
     coupleId: v.id("couples"),
@@ -258,16 +266,27 @@ export default defineSchema({
 
 ### 4.3 認可ヘルパー(`convex/lib/auth.ts`)
 
-- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり:
+- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり。ポイントは3つ:
+  1. `requireUser` は `ctx.auth` さえあれば呼べる型(`{ auth: Auth }`)にして、query/mutationだけでなくactionからも使えるようにする
+  2. `requireMember` で世帯所属を確認し、自分のmemberレコードを返す
+  3. `assertCoupleMemberIds` で、クライアントから来た `paidBy` や `shares[].memberId` が**自世帯のメンバーか**を必ず検証する(他世帯のIDを混ぜて送られても弾く)
 
 ```ts
-import { QueryCtx, MutationCtx } from "../_generated/server";
+import { Auth } from "convex/server";
+import { internalQuery, QueryCtx, MutationCtx } from "../_generated/server";
+import { Id } from "../_generated/dataModel";
+
+// ログイン済みか確認。auth さえあれば良いので query/mutation/action どれからも呼べる
+export async function requireUser(ctx: { auth: Auth }) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) throw new Error("ログインしてください");
+  return identity;
+}
 
 // ログイン済み+世帯所属を確認し、自分のmemberレコードを返す。
 // これを呼ばずにDBを触る公開関数を書いてはいけない(セキュリティの要)。
 export async function requireMember(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) throw new Error("ログインしてください");
+  const identity = await requireUser(ctx);
   const member = await ctx.db
     .query("members")
     .withIndex("by_tokenIdentifier", (q) =>
@@ -278,12 +297,27 @@ export async function requireMember(ctx: QueryCtx | MutationCtx) {
   return member;
 }
 
-// ログインのみ確認(世帯未所属でも呼べる。setup画面用)
-export async function requireUser(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) throw new Error("ログインしてください");
-  return identity;
+// paidBy / shares[].memberId など、クライアント由来の member ID が
+// すべて自世帯のメンバーであることを検証する(他世帯IDの混入を防ぐ)
+export async function assertCoupleMemberIds(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+  memberIds: Id<"members">[],
+) {
+  for (const memberId of new Set(memberIds)) {
+    const member = await ctx.db.get("members", memberId);
+    if (member === null || member.coupleId !== coupleId) {
+      throw new Error("権限がありません");
+    }
+  }
 }
+
+// actionはDBに直接触れないので、認証+所属確認は internal query 経由で行う
+// 使い方: await ctx.runQuery(internal.lib.auth.getCurrentMember, {})
+export const getCurrentMember = internalQuery({
+  args: {},
+  handler: async (ctx) => requireMember(ctx),
+});
 ```
 
 さらに、取得した支出などが**自分の世帯のものか**を確認するチェックも徹底する:
@@ -329,9 +363,10 @@ CLERK_SECRET_KEY=sk_test_...
 ### 5.2 Next.js側の組み込み
 
 - [ ] `components/ConvexClientProvider.tsx`(client component): `ClerkProvider` → `ConvexProviderWithClerk`(`convex/react-clerk` パッケージ、Clerkの `useAuth` を渡す)の順で全体をラップし、`app/layout.tsx` から使う
-- [ ] `middleware.ts`: `clerkMiddleware` で `/login` 以外を保護:
+- [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でファイル名が `middleware.ts` から `proxy.ts` に変わった**(置き場所はプロジェクト直下のままで機能も同じ。旧ファイル名は使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
 
 ```ts
+// proxy.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isPublicRoute = createRouteMatcher(["/login(.*)"]);
@@ -345,7 +380,7 @@ export const config = {
 };
 ```
 
-> 実装はClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードをほぼそのまま使えばよい。自己流にアレンジしない。
+> 実装のベースはClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードでよいが、ファイル名は `proxy.ts` に読み替えること。自己流にアレンジしない。Clerk側の最新の組み込み方法(関数名・引数の変更有無)は念のため **Clerk公式のNext.jsガイド参照**で確認する。
 
 ### 5.3 画面とフロー
 
@@ -418,6 +453,7 @@ export type ExpenseItemInput = {
 
 - [ ] mutation `expenses.save`(新規作成と更新を兼ねる):
   - `requireMember` → 更新時は対象支出の `coupleId` が自世帯か確認
+  - `assertCoupleMemberIds` で **`paidBy` と全 `shares[].memberId` が自世帯のメンバーであること**を検証(他世帯のmember IDが紛れ込むテナント境界破りを防ぐ)
   - バリデーション(V-401〜V-403): 各品目の割合合計=100 / 品目1件以上 / 金額は1円以上の整数 / 購入日は未来日不可 / **精算済み(`settlementId`あり)は変更拒否**
   - `totalAmount` は品目合計から算出して保存
   - 引数 `status: "draft" | "confirmed"` で確定状態を制御
@@ -476,6 +512,7 @@ export function calcAdvanceAmount(
 
 - [ ] **ホーム(S-003)**: 未精算差額の常時表示(Phase 7で本実装、まずは枠だけ)+支出一覧
   - query `expenses.list`: `requireMember` → 自世帯の `settlementId` なし・`deletedAt` なし・confirmed を購入日降順で返す。`usePaginatedQuery` で20件ずつ
+  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_purchasedAt` で `.eq("settlementId", undefined)` まで絞る(deletedAt/statusの残りだけコードでfilter)。「すべて」= `by_coupleId_and_purchasedAt`
   - フィルタ「未精算のみ(デフォルト)/すべて」
   - 各行: 店名/名目、日付、合計金額、支払者、精算状態バッジ、ドラフトバッジ
   - 「+レシート」「+手入力」の登録ボタン(レシートはPhase 8までリンクのみ)
@@ -523,9 +560,10 @@ export const execute = mutation({
     // 対象支出を収集
     const expenses = (await ctx.db
       .query("expenses")
-      .withIndex("by_couple", (q) => q.eq("coupleId", member.coupleId))
+      .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
+        q.eq("coupleId", member.coupleId).eq("settlementId", undefined))
       .collect())
-      .filter((e) => e.settlementId === undefined && e.deletedAt === undefined);
+      .filter((e) => e.deletedAt === undefined);
 
     // V-701: ドラフトが残っていたら拒否
     if (expenses.some((e) => e.status === "draft")) {
@@ -659,13 +697,15 @@ export class ClaudeReceiptParser implements ReceiptParser {
 ### 10.3 Convex関数(`convex/receipts.ts`)
 
 - [ ] mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)
+- [ ] mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: coupleId, storageId, index by_storageId)
 - [ ] action `parse`(**ファイル先頭に `"use node";` を書く** — Anthropic SDKを使うためNode.jsランタイムで実行):
-  1. 認証+世帯確認: actionはDBに直接触れないので、`ctx.runQuery(internal.receipts.checkMember)` のように internal query/mutation 経由で行う
-  2. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
-  3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
-  4. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)
-  5. 品目合計 ≠ total_amount のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値: 折半)
-  6. 抽出結果を返す(保存はクライアントが `expenses.save` で行う)
+  1. 認証+世帯確認: actionはDBに直接触れないので、`await ctx.runQuery(internal.lib.auth.getCurrentMember, {})` のように internal query 経由で行う
+  2. **storageIdの帰属検証**: 引数の `storageId` が `uploads` 台帳で自世帯に登録済みかを internal query で確認(他世帯のstorageIdを渡されても読めないようにする)。`expenses.save` でも `imageStorageId` に同じ検証を行う
+  3. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
+  4. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
+  5. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)
+  6. 品目合計 ≠ total_amount のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値: 折半)
+  7. 抽出結果を返す(保存はクライアントが `expenses.save` で行う)
 - [ ] ログ: 成否・所要時間・使用プロバイダを `console.log`(Convexダッシュボード → Logs で見える)。**レシートの中身はログに出さない**(要件 5.4)
 
 ### 10.4 レシート登録画面(S-004)
