@@ -2,31 +2,32 @@ schema_version: 1
 
 project:
   name: "warikapp"
-  type: "generic"
+  type: "node"
   risk_level: "medium"
-  owner: "unknown"
+  owner: "yamk12nfu"
 
 runtime:
   devcontainer: null
 
 commands:
-  setup: ""
-  lint: ""
-  typecheck: ""
+  setup: "npm ci"
+  lint: "npm run lint"
+  typecheck: "npx tsc --noEmit"
   test: ""
-  build: ""
+  build: "npm run build"
 
 quality_gates:
   required:
     - lint
-    - test
+    - typecheck
+    - build
 
 ai:
   max_loops: 4
   max_changed_files: 10
   allowed_paths:
-    - "src/**"
-    - "tests/**"
+    - "app/**"
+    - "convex/**"
     - "docs/**"
     - ".ai/local/knowledge/**"
   forbidden_paths:
