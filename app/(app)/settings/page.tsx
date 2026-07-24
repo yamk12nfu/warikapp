@@ -1,6 +1,8 @@
+import { requireSignedIn } from "@/lib/server-auth";
 import { SignOutButton } from "@clerk/nextjs";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requireSignedIn(); // リソースレベル認証
   return (
     <main className="p-8 space-y-6">
       <h1 className="text-xl font-bold">設定</h1>

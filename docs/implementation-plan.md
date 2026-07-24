@@ -390,6 +390,7 @@ export const config = {
   // Clerk公式推奨: 静的アセットの拡張子のみ除外(「.を含むパス全除外」は動的ルートの保護漏れになる)
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/expenses/:path*", // 動的セグメントを持つルートは明示(拡張子風URLも必ず通す)
     "/(api|trpc)(.*)",
   ],
 };
@@ -397,7 +398,8 @@ export const config = {
 
 > 実装のベースはClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードでよいが、ファイル名は `proxy.ts` に読み替えること。自己流にアレンジしない。Clerk側の最新の組み込み方法(関数名・引数の変更有無)は念のため **Clerk公式のNext.jsガイド参照**で確認する。
 
-- [ ] `app/(app)/layout.tsx`: 保護対象ページをルートグループ `(app)` にまとめ(URLは変わらない)、レイアウトでサーバー側 `auth()` チェックを行う(**リソースレベル認証**)。proxyのmatcherは静的アセット拡張子を除外するため、拡張子付きURL(例: `/expenses/foo.css`)がすり抜けてもここで弾く防衛線。matcher除外パスでは `auth()` が例外を投げるため、catchして未ログイン扱いにする
+- [ ] **リソースレベル認証(Clerkベストプラクティス)**: 共通ヘルパー `lib/server-auth.ts` の `requireSignedIn()` を、**各保護ページの冒頭**と `app/(app)/layout.tsx` で呼ぶ。layoutはクライアント遷移時に再実行されないことがあるため、**ページ側のチェックが本体でlayout/proxyは追加防御**。Clientページ(ホーム)はServerページ+Clientコンポーネント(`home-client.tsx`)に分割する
+- [ ] proxyのmatcherには動的セグメントを持つルート(`/expenses/:path*`)を明示し、拡張子風のURL(例: `/expenses/foo.css`)も必ずclerkMiddlewareを通す(これにより保護ページで `auth()` が例外になる経路を作らない。**以後、動的ルートを追加したらmatcherにも追加する**)
 
 ### 5.3 画面とフロー
 

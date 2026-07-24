@@ -24,6 +24,9 @@ export const config = {
   // (「.を含むパス全除外」だと /expenses/foo.bar 等の動的ルートが保護漏れになる)
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // 動的セグメントを持つルートは明示指定し、拡張子風のURL
+    // (例: /expenses/foo.css)も必ずclerkMiddlewareを通す
+    "/expenses/:path*",
     "/(api|trpc)(.*)",
   ],
 };
