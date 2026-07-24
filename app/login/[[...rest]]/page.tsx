@@ -1,3 +1,9 @@
+import { SignIn } from "@clerk/nextjs";
+
 export default function LoginPage() {
-  return <main className="p-8">TODO: ログイン(S-001)— ClerkのSignInをPhase 3で設置</main>;
+  return (
+    <main className="flex min-h-screen items-center justify-center p-8">
+      <SignIn path="/login" fallbackRedirectUrl="/" />
+    </main>
+  );
 }

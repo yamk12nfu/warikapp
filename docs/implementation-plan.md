@@ -120,17 +120,19 @@ npm install @anthropic-ai/sdk zod
 ```text
 warikapp/
 ├── app/
-│   ├── login/[[...rest]]/page.tsx  # S-001 ログイン(Clerkの<SignIn/>を置くcatch-allルート)
-│   ├── setup/page.tsx              # S-002 世帯セットアップ
-│   ├── page.tsx                    # S-003 ホーム
-│   ├── expenses/
-│   │   ├── new/
-│   │   │   ├── receipt/page.tsx    # S-004 レシート登録
-│   │   │   └── manual/page.tsx     # S-006 手入力登録
-│   │   └── [id]/page.tsx           # S-005 支出詳細・編集
-│   ├── settlement/page.tsx         # S-007 精算確認・実行
-│   ├── settlements/page.tsx        # S-008 精算履歴
-│   └── settings/page.tsx           # S-009 設定
+│   ├── login/[[...rest]]/page.tsx  # S-001 ログイン(Clerkの<SignIn/>・唯一の公開ルート)
+│   └── (app)/                      # 保護ルート群(URLは変わらないルートグループ)
+│       ├── layout.tsx              # サーバー側auth()で未ログインを/loginへ(リソースレベル認証)
+│       ├── page.tsx                # S-003 ホーム
+│       ├── setup/page.tsx          # S-002 世帯セットアップ
+│       ├── expenses/
+│       │   ├── new/
+│       │   │   ├── receipt/page.tsx  # S-004 レシート登録
+│       │   │   └── manual/page.tsx   # S-006 手入力登録
+│       │   └── [id]/page.tsx         # S-005 支出詳細・編集
+│       ├── settlement/page.tsx       # S-007 精算確認・実行
+│       ├── settlements/page.tsx      # S-008 精算履歴
+│       └── settings/page.tsx         # S-009 設定
 ├── convex/                         # ★バックエンド本体(Phase 2で npx convex dev が生成)
 │   ├── schema.ts                   # テーブル定義
 │   ├── auth.config.ts              # Clerk連携設定
@@ -339,7 +341,7 @@ if (expense.coupleId !== member.coupleId) throw new Error("権限がありませ
 ### 5.1 ClerkとConvexの接続
 
 - [ ] Clerkダッシュボード → JWT Templates → **New template → Convex** を選択して作成(名前は `convex` のまま)。表示される **Issuer URL**(`https://xxx.clerk.accounts.dev` 形式)をコピー
-- [ ] Convexダッシュボード → Settings → Environment Variables に `CLERK_JWT_ISSUER_DOMAIN` = (Issuer URL) を登録
+- [ ] Convexダッシュボード → Settings → Environment Variables に `CLERK_JWT_ISSUER_DOMAIN` = (Issuer URL) を登録(CLIなら `npx convex env set CLERK_JWT_ISSUER_DOMAIN <Issuer URL>`)。**auth.config.ts が参照する環境変数が未設定だとConvexへのデプロイ自体が失敗する**ため、Issuer URL取得前に開発を進める場合は一時的なプレースホルダ値を設定しておく
 - [ ] `convex/auth.config.ts` を作成:
 
 ```ts
@@ -366,26 +368,44 @@ CLERK_SECRET_KEY=sk_test_...
 - [ ] `proxy.ts`(プロジェクト直下): **Next.js 16でファイル名が `middleware.ts` から `proxy.ts` に変わった**(置き場所はプロジェクト直下のままで機能も同じ。旧ファイル名は使わない)。Clerk側の関数名は引き続き `clerkMiddleware` なので、`proxy.ts` の中で呼び出す形になる。`/login` 以外を保護:
 
 ```ts
-// proxy.ts
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+// proxy.ts(createRouteMatcherはClerk v7で非推奨のためpathname判定を使う)
+import { clerkMiddleware } from "@clerk/nextjs/server";
 
-const isPublicRoute = createRouteMatcher(["/login(.*)"]);
+const isPublicPath = (pathname: string) =>
+  pathname === "/login" || pathname.startsWith("/login/");
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) await auth.protect();
-});
+export default clerkMiddleware(
+  async (auth, req) => {
+    if (isPublicPath(req.nextUrl.pathname)) return;
+    const { userId, redirectToSignIn } = await auth();
+    if (userId === null) {
+      // returnBackUrlで「復帰後は元のページへ」(要件F-001)を満たす
+      return redirectToSignIn({ returnBackUrl: req.url });
+    }
+  },
+  { signInUrl: "/login" },
+);
 
 export const config = {
-  matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"],
+  // Clerk公式推奨: 静的アセットの拡張子のみ除外(「.を含むパス全除外」は動的ルートの保護漏れになる)
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/expenses/:path*", // 動的セグメントを持つルートは明示(拡張子風URLも必ず通す)
+    "/(api|trpc)(.*)",
+  ],
 };
 ```
 
 > 実装のベースはClerk公式の「Next.js Quickstart」と Convex公式の「Convex & Clerk」ガイドのコードでよいが、ファイル名は `proxy.ts` に読み替えること。自己流にアレンジしない。Clerk側の最新の組み込み方法(関数名・引数の変更有無)は念のため **Clerk公式のNext.jsガイド参照**で確認する。
 
+- [ ] **リソースレベル認証(Clerkベストプラクティス)**: 共通ヘルパー `lib/server-auth.ts` の `requireSignedIn()` を、**各保護ページの冒頭**と `app/(app)/layout.tsx` で呼ぶ。layoutはクライアント遷移時に再実行されないことがあるため、**ページ側のチェックが本体でlayout/proxyは追加防御**。Clientページ(ホーム)はServerページ+Clientコンポーネント(`home-client.tsx`)に分割する
+- [ ] proxyのmatcherには動的セグメントを持つルート(`/expenses/:path*`)を明示し、拡張子風のURL(例: `/expenses/foo.css`)も必ずclerkMiddlewareを通す(これにより保護ページで `auth()` が例外になる経路を作らない。**以後、動的ルートを追加したらmatcherにも追加する**)
+
 ### 5.3 画面とフロー
 
 - [ ] `/login`(S-001): Clerkの `<SignIn />` コンポーネントを配置(Googleボタンが自動で出る)
-- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember`(requireUserで identity 取得 → members を検索して返す。未所属なら null)を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**
+- [ ] ログイン後の振り分け(要件 F-001): Convexに query `couples.currentMember` を作り、ホームで `useQuery` して **null なら `/setup` へリダイレクト**。この queryは**ルーティング用プローブ**で、未ログイン・世帯未所属とも null を返す(認可ゲートではない。世帯データに触る関数は従来どおり requireMember の throw を使う)。返却は `_id / coupleId / displayName` のみに射影する
+- [ ] ホーム側は **`useConvexAuth()` で認証確立を待ってから** queryを実行する(`isAuthenticated ? {} : "skip"`)。待たないと認証確立前の null を「未所属」と誤解し、所属済みユーザーを /setup へ誤誘導するバグになる
 - [ ] `/settings` に仮のログアウトボタン(Clerkの `<UserButton />` か `<SignOutButton />`)を置く
 
 ### ✅ 動作確認
