@@ -442,7 +442,7 @@
     <summary>
       <span class="ph-no">P5</span><span class="ph-name">手入力支出+品目仕分け</span>
       <span class="ph-fn">F-005/004・5〜8h</span><span class="ph-leader"></span>
-      <span class="ph-count" data-count>0/11</span><span class="caret">▶</span>
+      <span class="ph-count" data-count>0/14</span><span class="caret">▶</span>
     </summary>
     <span class="stamp" aria-hidden="true">済</span>
     <div class="ph-body">
@@ -450,14 +450,17 @@
       <h4>TASKS</h4>
       <ul class="tasks">
         <li><label><input type="checkbox" id="p5-t1"><span>lib/types.ts に共通型(ShareRatio / ExpenseItemInput)</span></label></li>
-        <li><label><input type="checkbox" id="p5-t2"><span>expenses.save mutation(V-401〜403+精算済みガード+メンバーID検証(assertCoupleMemberIds)、totalAmountはサーバーで算出)</span></label></li>
-        <li><label><input type="checkbox" id="p5-t3"><span>ExpenseEditor(負担チップ: 折半→自分→相手を循環、カスタム割合、固定フッター)</span></label></li>
-        <li><label><input type="checkbox" id="p5-t4"><span>/expenses/new/manual(名目+金額だけで確定できる)</span></label></li>
-        <li><label><input type="checkbox" id="p5-t5"><span>calcAdvanceAmount 純粋関数(品目ごとに四捨五入)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t2"><span>expenses.save mutation(新規/更新兼用。V-401〜403+精算済みガード+メンバーID検証(assertCoupleMemberIds)、購入日はJST基準で未来日不可、totalAmountはサーバーで算出)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t7"><span>household query の partner に _id を追加(支払者・負担区分の選択に必要)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t3"><span>ExpenseEditor(負担チップ: 折半→自分→相手を循環、「%」ボタンでカスタム割合、固定フッター、数量は1固定)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t4"><span>/expenses/new/manual(品目名+金額だけで確定できる。ExpenseEditorを共用)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t5"><span>calcAdvanceAmount / calcTotalAmount 純粋関数(品目ごとに四捨五入)</span></label></li>
         <li><label><input type="checkbox" id="p5-t6"><span>計算関数の単体テスト(端数 / 100:0 / 70:30)</span></label></li>
+        <li><label><input type="checkbox" id="p5-t8"><span>expenses.save のテスト(V-401〜403・世帯分離・精算済みガード)</span></label></li>
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p5-v6"><span>npm test が通る(端数処理・V-401〜403・世帯分離を自動検証)</span></label></li>
         <li><label><input type="checkbox" id="p5-v1"><span>手入力登録がConvexのDataに保存される</span></label></li>
         <li><label><input type="checkbox" id="p5-v2"><span>フッターの立て替え額が手計算と一致する</span></label></li>
         <li><label><input type="checkbox" id="p5-v3"><span>割合合計≠100の行は赤枠+確定不可</span></label></li>
