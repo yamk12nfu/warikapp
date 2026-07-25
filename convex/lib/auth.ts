@@ -1,4 +1,5 @@
 import { Auth } from "convex/server";
+import { ConvexError } from "convex/values";
 import {
   internalQuery,
   QueryCtx,
@@ -6,12 +7,16 @@ import {
 } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 
+// 画面に出すエラーは ConvexError で投げる。素の Error は本番デプロイでは
+// メッセージがクライアントに届かない(「Server Error」に伏せられる)ため。
+// クライアント側は lib/convex-error.ts の toUserMessage() で取り出す。
+
 // ログイン済みであることを確認する(世帯未所属でも呼べる。setup画面用)。
 // ctx は auth を持てばよいので query / mutation / action のどれからでも呼べる。
 export async function requireUser(ctx: { auth: Auth }) {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
-    throw new Error("ログインしてください");
+    throw new ConvexError("ログインしてください");
   }
   return identity;
 }
@@ -28,7 +33,7 @@ export async function requireMember(ctx: QueryCtx | MutationCtx) {
     )
     .unique();
   if (member === null) {
-    throw new Error("世帯に参加してください");
+    throw new ConvexError("世帯に参加してください");
   }
   return member;
 }
@@ -44,7 +49,7 @@ export async function assertCoupleMemberIds(
   for (const memberId of new Set(memberIds)) {
     const member = await ctx.db.get("members", memberId);
     if (member === null || member.coupleId !== coupleId) {
-      throw new Error("権限がありません");
+      throw new ConvexError("権限がありません");
     }
   }
 }

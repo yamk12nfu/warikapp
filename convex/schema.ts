@@ -35,7 +35,10 @@ export default defineSchema({
     code: v.string(), // 8文字英数字
     expiresAt: v.number(), // 発行から72時間(エポックms)
     usedAt: v.optional(v.number()),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    // 設定画面での有効なコードの表示・再発行時の旧コード削除に使う
+    .index("by_coupleId", ["coupleId"]),
 
   expenses: defineTable({
     coupleId: v.id("couples"),

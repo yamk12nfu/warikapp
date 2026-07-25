@@ -1,6 +1,13 @@
 import { requireSignedIn } from "@/lib/server-auth";
+import SetupClient from "./setup-client";
 
-export default async function SetupPage() {
+// 招待URL(/setup?code=XXXXXXXX)で開かれたときはコードを初期値として渡す
+export default async function SetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   await requireSignedIn(); // リソースレベル認証(ログイン必須・世帯所属は不要)
-  return <main className="p-8">TODO: 世帯セットアップ(S-002)</main>;
+  const { code } = await searchParams;
+  return <SetupClient initialCode={typeof code === "string" ? code : ""} />;
 }

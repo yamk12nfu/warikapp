@@ -408,7 +408,7 @@
     <summary>
       <span class="ph-no">P4</span><span class="ph-name">世帯作成・招待</span>
       <span class="ph-fn">F-002・3〜4h</span><span class="ph-leader"></span>
-      <span class="ph-count" data-count>0/9</span><span class="caret">▶</span>
+      <span class="ph-count" data-count>0/14</span><span class="caret">▶</span>
     </summary>
     <span class="stamp" aria-hidden="true">済</span>
     <div class="ph-body">
@@ -417,15 +417,20 @@
       <ul class="tasks">
         <li><label><input type="checkbox" id="p4-t1"><span>createCouple mutation(世帯+自分を登録、招待コード発行・72h期限)</span></label></li>
         <li><label><input type="checkbox" id="p4-t2"><span>joinCouple mutation(V-201/202/203を検証 → 参加+コード無効化)</span></label></li>
+        <li><label><input type="checkbox" id="p4-t5"><span>household query / updateDisplayName / reissueInvitation(設定画面用)</span></label></li>
         <li><label><input type="checkbox" id="p4-t3"><span>/setup 画面(「作る/参加する」2タブ+招待URLコピー)</span></label></li>
         <li><label><input type="checkbox" id="p4-t4"><span>/settings 最小実装(表示名変更・コード再発行・ログアウト)</span></label></li>
+        <li><label><input type="checkbox" id="p4-t6"><span>InviteCodeCard 共用+ConvexError/toUserMessage でのエラー表示</span></label></li>
+        <li><label><input type="checkbox" id="p4-t7"><span>vitest+convex-test 導入(V-201/202/203・世帯分離のテスト)</span></label></li>
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">
-        <li><label><input type="checkbox" id="p4-v1"><span>Aで世帯作成 → ホームに遷移</span></label></li>
+        <li><label><input type="checkbox" id="p4-v6"><span>npm test が通る(V-201/202/203・世帯分離を自動検証)</span></label></li>
+        <li><label><input type="checkbox" id="p4-v1"><span>Aで世帯作成 → 招待コードが表示・コピーできる</span></label></li>
         <li><label><input type="checkbox" id="p4-v2"><span>別アカウントBが招待コードで参加できる</span></label></li>
-        <li><label><input type="checkbox" id="p4-v3"><span>使用済みコードは「招待コードが無効です」</span></label></li>
-        <li><label><input type="checkbox" id="p4-v4"><span>3人目の参加は「この世帯は満員です」</span></label></li>
+        <li><label><input type="checkbox" id="p4-v7"><span>招待URLを開くと参加タブがコード入力済みで開く</span></label></li>
+        <li><label><input type="checkbox" id="p4-v3"><span>使用済みコードは「招待コードが無効です」(3人目は参加できない)</span></label></li>
+        <li><label><input type="checkbox" id="p4-v4"><span>参加後、Aの設定にパートナー名が出て招待コード欄が消える</span></label></li>
         <li><label><input type="checkbox" id="p4-v5"><span>第三の世帯からA/Bのデータが一切見えない(分離検証)</span></label></li>
       </ul>
       <p class="md-ref">→ 正本 §6</p>
