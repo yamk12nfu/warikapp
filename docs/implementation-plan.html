@@ -476,21 +476,23 @@
     <summary>
       <span class="ph-no">P6</span><span class="ph-name">支出一覧・詳細・編集・削除</span>
       <span class="ph-fn">F-006・4〜6h</span><span class="ph-leader"></span>
-      <span class="ph-count" data-count>0/9</span><span class="caret">▶</span>
+      <span class="ph-count" data-count>0/11</span><span class="caret">▶</span>
     </summary>
     <span class="stamp" aria-hidden="true">済</span>
     <div class="ph-body">
       <p class="ph-goal">useQueryの自動リアルタイム更新により、パートナーの登録が追加実装ゼロで即時反映される。</p>
       <h4>TASKS</h4>
       <ul class="tasks">
-        <li><label><input type="checkbox" id="p6-t1"><span>expenses.list query+usePaginatedQuery(20件)+「未精算のみ/すべて」フィルタ</span></label></li>
+        <li><label><input type="checkbox" id="p6-t1"><span>expenses.list query+usePaginatedQuery(20件)+「未精算のみ/すべて」フィルタ(論理削除の除外はpaginateの前にfilter。ドラフトも含めてバッジ表示)</span></label></li>
         <li><label><input type="checkbox" id="p6-t2"><span>ホームに一覧+「+レシート」「+手入力」ボタン</span></label></li>
-        <li><label><input type="checkbox" id="p6-t3"><span>詳細ページ(内訳・立て替え額・画像URL query)</span></label></li>
-        <li><label><input type="checkbox" id="p6-t4"><span>編集(ExpenseEditor再利用。精算済みは非活性+サーバー側でも拒否)</span></label></li>
+        <li><label><input type="checkbox" id="p6-t3"><span>詳細ページ /expenses/[id](expenses.get・内訳・立て替え額・画像URL query。IDはnormalizeIdで検証し不正なら見つからない扱い)</span></label></li>
+        <li><label><input type="checkbox" id="p6-t4"><span>編集 /expenses/[id]/edit(ExpenseEditor再利用。精算済みは非活性+サーバー側でも拒否)</span></label></li>
         <li><label><input type="checkbox" id="p6-t5"><span>削除(確認ダイアログ → deletedAt で論理削除)</span></label></li>
+        <li><label><input type="checkbox" id="p6-t6"><span>list / get / getImageUrl / remove のテスト(並び順・フィルタ・世帯分離・論理削除・精算済みガード)</span></label></li>
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">
+        <li><label><input type="checkbox" id="p6-v5"><span>npm test が通る(一覧のフィルタ・世帯分離・論理削除を自動検証)</span></label></li>
         <li><label><input type="checkbox" id="p6-v1"><span>支出が新しい順に並ぶ</span></label></li>
         <li><label><input type="checkbox" id="p6-v2"><span>ブラウザ2つでリアルタイム同期される</span></label></li>
         <li><label><input type="checkbox" id="p6-v3"><span>編集が一覧に反映される</span></label></li>
