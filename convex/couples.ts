@@ -268,9 +268,12 @@ export const reissueInvitation = mutation({
       throw new ConvexError(ERR_COUPLE_FULL);
     }
     const unused = await listUnusedInvitations(ctx, member.coupleId);
+    // 旧コードを残したまま発行する。先に削除すると issueInvitation の衝突検査を
+    // すり抜けて旧コードと同じ文字列を引き当てうる(旧招待URLが復活してしまう)
+    const issued = await issueInvitation(ctx, member.coupleId);
     for (const invitation of unused) {
       await ctx.db.delete("invitations", invitation._id);
     }
-    return await issueInvitation(ctx, member.coupleId);
+    return issued;
   },
 });

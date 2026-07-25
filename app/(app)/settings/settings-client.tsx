@@ -115,6 +115,7 @@ export default function SettingsClient() {
             onChange={(event) => {
               setDraftName(event.target.value);
               setNameSaved(false);
+              setNameError(null); // 修正中に前回の失敗メッセージを残さない
             }}
             maxLength={20}
             required
@@ -146,7 +147,10 @@ export default function SettingsClient() {
               まだ参加していません。招待コードを共有してください。
             </p>
             {household.invitation !== null ? (
+              // keyでコードごとに作り直す。再発行時に期限切れ表示や
+              // 「コピーしました」が前のコードのまま残らないようにする
               <InviteCodeCard
+                key={household.invitation.code}
                 code={household.invitation.code}
                 expiresAt={household.invitation.expiresAt}
               />

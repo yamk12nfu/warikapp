@@ -45,6 +45,14 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
     expiresAt: number;
   } | null>(null);
 
+  // 作成直後の画面を開いたままでも、パートナーの参加や別タブでの再発行に
+  // 追従できるよう household を購読する(mutationの戻り値は初期表示用)。
+  // household は requireMember で throw するため、所属が確定してから呼ぶ
+  const household = useQuery(
+    api.couples.household,
+    invitation !== null && member != null ? {} : "skip",
+  );
+
   // 世帯作成直後は招待コードを見せたいので、所属済み判定によるホームへの
   // 自動リダイレクトを止める(refなので再レンダリング順に左右されない)
   const stayOnPage = useRef(false);
@@ -98,21 +106,29 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
     return null; // 所属済み: ホームへ誘導中
   }
 
-  // 世帯作成後: 招待コードを共有してもらう
+  // 世帯作成後: 招待コードを共有してもらう。
+  // household が届いていればそちらを正とし、パートナー参加後や別タブでの
+  // 再発行後に使えなくなったコードを表示し続けないようにする
   if (invitation !== null) {
+    const partnerJoined = household !== undefined && household.partner !== null;
+    const shownInvitation = household?.invitation ?? invitation;
     return (
       <main className="mx-auto w-full max-w-md space-y-6 p-6">
         <div>
           <h1 className="text-xl font-bold">世帯を作成しました</h1>
           <p className="mt-1 text-sm text-gray-500">
-            この招待コード(または招待URL)をパートナーに共有してください。
-            コードは設定画面からいつでも確認・再発行できます。
+            {partnerJoined
+              ? `${household.partner?.displayName} さんが参加しました。`
+              : "この招待コード(または招待URL)をパートナーに共有してください。コードは設定画面からいつでも確認・再発行できます。"}
           </p>
         </div>
-        <InviteCodeCard
-          code={invitation.code}
-          expiresAt={invitation.expiresAt}
-        />
+        {!partnerJoined && (
+          <InviteCodeCard
+            key={shownInvitation.code}
+            code={shownInvitation.code}
+            expiresAt={shownInvitation.expiresAt}
+          />
+        )}
         <Link href="/" className={`${submitClass} block text-center`}>
           ホームへ
         </Link>

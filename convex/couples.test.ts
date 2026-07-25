@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 
@@ -17,6 +17,8 @@ const ALICE = identity("alice");
 const BOB = identity("bob");
 const CAROL = identity("carol");
 
+const INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
+
 // 世帯を1つ作り、招待コードを返す
 async function setupCouple(
   t: ReturnType<typeof convexTest>,
@@ -31,10 +33,16 @@ async function setupCouple(
 describe("createCouple", () => {
   test("世帯とメンバーを作り、招待コードを発行する", async () => {
     const t = convexTest(schema, modules);
+    const before = Date.now();
     const invitation = await setupCouple(t);
+    const after = Date.now();
 
     expect(invitation.code).toMatch(/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/);
-    expect(invitation.expiresAt).toBeGreaterThan(Date.now());
+    // 有効期限はちょうど72時間(単なる「未来」ではなく値を固定する)
+    expect(invitation.expiresAt).toBeGreaterThanOrEqual(
+      before + INVITATION_TTL_MS,
+    );
+    expect(invitation.expiresAt).toBeLessThanOrEqual(after + INVITATION_TTL_MS);
 
     const household = await t
       .withIdentity(ALICE)
@@ -58,6 +66,25 @@ describe("createCouple", () => {
       .query(api.couples.household, {});
     expect(household.coupleName).toBe("あき家");
     expect(household.self.displayName).toBe("あきこ");
+  });
+
+  test("世帯名は30文字まで許可し、31文字は拒否する", async () => {
+    const t = convexTest(schema, modules);
+    await t.withIdentity(ALICE).mutation(api.couples.createCouple, {
+      displayName: "あきこ",
+      coupleName: "あ".repeat(30),
+    });
+    const household = await t
+      .withIdentity(ALICE)
+      .query(api.couples.household, {});
+    expect(household.coupleName).toBe("あ".repeat(30));
+
+    await expect(
+      t.withIdentity(BOB).mutation(api.couples.createCouple, {
+        displayName: "ぼぶ",
+        coupleName: "あ".repeat(31),
+      }),
+    ).rejects.toThrow("世帯名は30文字以内で入力してください");
   });
 
   test("未ログインでは作成できない", async () => {
@@ -180,6 +207,34 @@ describe("joinCouple", () => {
         displayName: "ぼぶ",
       }),
     ).rejects.toThrow("招待コードが無効です");
+  });
+
+  test("V-201: 期限ちょうどのコードは無効(期限は排他的)", async () => {
+    const t = convexTest(schema, modules);
+    const invitation = await setupCouple(t);
+    const deadline = Date.now() + 60_000;
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("invitations")
+        .withIndex("by_code", (q) => q.eq("code", invitation.code))
+        .unique();
+      await ctx.db.patch("invitations", row!._id, { expiresAt: deadline });
+    });
+
+    // 時刻を止めて 現在時刻 === expiresAt を作る。
+    // 実時間のままだと判定が `<` でも通ってしまい、境界を固定できない
+    vi.useFakeTimers();
+    vi.setSystemTime(deadline);
+    try {
+      await expect(
+        t.withIdentity(BOB).mutation(api.couples.joinCouple, {
+          code: invitation.code,
+          displayName: "ぼぶ",
+        }),
+      ).rejects.toThrow("招待コードが無効です");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("V-202: すでに世帯所属なら参加できない", async () => {
@@ -313,6 +368,13 @@ describe("reissueInvitation", () => {
       .mutation(api.couples.reissueInvitation, {});
 
     expect(second.code).not.toBe(first.code);
+
+    // 旧コードの行は削除され、有効なコードが1件だけ残る
+    const remaining = await t.run(async (ctx) => {
+      return await ctx.db.query("invitations").take(10);
+    });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].code).toBe(second.code);
 
     await expect(
       t.withIdentity(BOB).mutation(api.couples.joinCouple, {
