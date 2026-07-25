@@ -9,6 +9,7 @@
  */
 
 import type * as couples from "../couples.js";
+import type * as expenses from "../expenses.js";
 import type * as lib_auth from "../lib/auth.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   couples: typeof couples;
+  expenses: typeof expenses;
   "lib/auth": typeof lib_auth;
 }>;
 

@@ -165,7 +165,11 @@ export const household = query({
       coupleName: couple.name,
       memberCount: members.length,
       self: { _id: member._id, displayName: member.displayName },
-      partner: partner === null ? null : { displayName: partner.displayName },
+      // _id は支出の支払者・負担区分の選択(F-004)で使う
+      partner:
+        partner === null
+          ? null
+          : { _id: partner._id, displayName: partner.displayName },
       invitation,
     };
   },
