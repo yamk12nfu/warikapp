@@ -224,7 +224,10 @@ export default defineSchema({
     code: v.string(),               // 8文字英数字
     expiresAt: v.number(),          // 発行から72時間(エポックms)
     usedAt: v.optional(v.number()),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    // 設定画面での有効コード表示・再発行時の旧コード削除に使う(Phase 4で追加)
+    .index("by_coupleId", ["coupleId"]),
 
   expenses: defineTable({
     coupleId: v.id("couples"),
@@ -268,20 +271,22 @@ export default defineSchema({
 
 ### 4.3 認可ヘルパー(`convex/lib/auth.ts`)
 
-- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり。ポイントは3つ:
+- [ ] **全公開関数の冒頭で必ず呼ぶ**共通関数を作る。これがSupabaseでいうRLSの代わり。ポイントは4つ:
   1. `requireUser` は `ctx.auth` さえあれば呼べる型(`{ auth: Auth }`)にして、query/mutationだけでなくactionからも使えるようにする
   2. `requireMember` で世帯所属を確認し、自分のmemberレコードを返す
   3. `assertCoupleMemberIds` で、クライアントから来た `paidBy` や `shares[].memberId` が**自世帯のメンバーか**を必ず検証する(他世帯のIDを混ぜて送られても弾く)
+  4. **画面に出すエラーは `ConvexError` で投げる**。素の `Error` は本番デプロイではメッセージがクライアントに届かず「Server Error」に伏せられるため、ユーザー向け文言が消える。クライアント側は `lib/convex-error.ts` の `toUserMessage()` で取り出す(想定外の例外は汎用文言にフォールバックし、内部情報を露出させない)
 
 ```ts
 import { Auth } from "convex/server";
+import { ConvexError } from "convex/values";
 import { internalQuery, QueryCtx, MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 
 // ログイン済みか確認。auth さえあれば良いので query/mutation/action どれからも呼べる
 export async function requireUser(ctx: { auth: Auth }) {
   const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) throw new Error("ログインしてください");
+  if (identity === null) throw new ConvexError("ログインしてください");
   return identity;
 }
 
@@ -295,7 +300,7 @@ export async function requireMember(ctx: QueryCtx | MutationCtx) {
       q.eq("tokenIdentifier", identity.tokenIdentifier),
     )
     .unique();
-  if (member === null) throw new Error("世帯に参加してください");
+  if (member === null) throw new ConvexError("世帯に参加してください");
   return member;
 }
 
@@ -309,7 +314,7 @@ export async function assertCoupleMemberIds(
   for (const memberId of new Set(memberIds)) {
     const member = await ctx.db.get("members", memberId);
     if (member === null || member.coupleId !== coupleId) {
-      throw new Error("権限がありません");
+      throw new ConvexError("権限がありません");
     }
   }
 }
@@ -426,29 +431,45 @@ Convexではすべてサーバー関数(mutation)なので、Supabase構成で�
 ### 6.1 実装内容(`convex/couples.ts`)
 
 **A. 世帯を作成する(作成側)** — mutation `createCouple`
-- [ ] 引数: 自分の表示名(必須1〜20文字)、世帯名(任意、省略時「わたしたち」)
-- [ ] 処理: `requireUser` → すでに世帯所属なら拒否 → `couples` 作成 → `members` に自分を登録 → 招待コード発行して返す
-- [ ] 招待コード: 8文字英数字(紛らわしい `0/O/1/I/l` は除くと親切)、有効期限72時間(`Date.now() + 72*3600*1000`)
+- [ ] 引数: 自分の表示名(必須1〜20文字)、世帯名(任意、省略時「わたしたち」・30文字以内)
+- [ ] 処理: `requireUser` → すでに世帯所属なら拒否(V-202) → `couples` 作成 → `members` に自分を登録 → 招待コードを発行して `{ code, expiresAt }` を返す
+- [ ] 招待コード: 8文字英数字(紛らわしい `0/O/1/I/L` を除いた31文字)、有効期限72時間(`Date.now() + 72*3600*1000`)。`crypto.getRandomValues` で生成し、剰余バイアスが出るバイトは捨てる。`by_code` で衝突を確認して数回引き直す
 
 **B. 招待コードで参加する(参加側)** — mutation `joinCouple`
 - [ ] 引数: 招待コード、自分の表示名
 - [ ] 処理(mutationなので全体が自動でトランザクション):
-  1. `requireUser` → コードを `by_code` インデックスで検索。存在しない/使用済み(`usedAt`あり)/期限切れ → 「招待コードが無効です」(V-201)
+  1. `requireUser` → コードを `by_code` インデックスで検索(入力は trim + 大文字化して照合)。存在しない/使用済み(`usedAt`あり)/期限切れ → 「招待コードが無効です」(V-201)
   2. 参加者がすでに世帯所属 → 「既存の世帯から退出してください」(V-202)
   3. 世帯メンバーが既に2名 → 「この世帯は満員です」(V-203)
   4. OKなら `members` に登録し、`invitations.usedAt` を記録(コード無効化)
 
-**C. 画面**
-- [ ] `/setup`(S-002): 「世帯を作る」「招待コードで参加する」の2タブ。`useMutation` で上記を呼び、成功したらホームへ
-- [ ] 招待URL(`/setup?code=XXXXXXXX`)を共有できるコピーUI
-- [ ] `/settings`(S-009)の最小実装: 表示名変更、招待コード再発行(パートナー未参加時のみ)、ログアウト
+**C. 設定画面用** — query `household` / mutation `updateDisplayName` / mutation `reissueInvitation`
+- [ ] query `household`: `requireMember` → 世帯名・メンバー数・自分・パートナー・有効な招待コードを返す。**有効期限の判定はクライアント側で行う**(queryの中で時刻を読むと結果が陳腐化するため、`expiresAt` をそのまま返す)。招待コードはパートナー未参加(1名)のときだけ返す
+- [ ] mutation `updateDisplayName`: `requireMember` → 自分の `members` 行だけを更新
+- [ ] mutation `reissueInvitation`: `requireMember` → 満員なら拒否 → 未使用の旧コードを削除 → 新規発行(有効なコードが常に1つだけになる)
+
+**D. 画面**
+- [ ] `/setup`(S-002): 「世帯を作る」「招待コードで参加する」の2タブ(`setup-client.tsx`)。作成後は招待コードを表示し、共有してからホームへ。参加後はホームへ遷移。所属済みのユーザーがURL直打ちで来た場合はホームへ戻す
+- [ ] 招待URL(`/setup?code=XXXXXXXX`)は**サーバーコンポーネントの `searchParams`(Next.js 16ではPromise)**で受け取り、初期値としてクライアントへ渡す(`useSearchParams` のSuspense要件を避ける)
+- [ ] `components/InviteCodeCard.tsx`: コード・有効期限の表示と「コードをコピー」「招待URLをコピー」。S-002 と S-009 で共用
+- [ ] `/settings`(S-009)の最小実装: 世帯名表示、表示名変更、招待コード再発行(パートナー未参加時のみ)、ログアウト
+- [ ] エラー表示: Convex側は `ConvexError`、画面側は `lib/convex-error.ts` の `toUserMessage()` で文言を取り出す(4.3参照)
+
+### 6.2 テスト(vitest + convex-test)
+
+- [ ] `npm install -D convex-test vitest @edge-runtime/vm` と `vitest.config.ts`(`environment: "edge-runtime"`)を用意し、`npm test` = `vitest run` を追加する
+- [ ] `convex/couples.test.ts` に V-201 / V-202 / V-203 と世帯分離のテストを書く。`t.withIdentity(...)` で複数ユーザーを演じ分けられるため、Googleアカウントを3つ用意しなくてもブラウザ確認の大半を自動化できる
+
+> 💡 当初はPhase 5(`lib/settlement.ts` の単体テスト)でvitestを入れる計画だったが、V-201〜V-203の検証を手作業でやるコストが高いためPhase 4に前倒しした。
 
 ### ✅ 動作確認
 
-- ユーザーAで世帯作成 → ホームに遷移する
+- `npm test` が通る(V-201/V-202/V-203・世帯分離・表示名バリデーション・コード再発行を自動検証)
+- ユーザーAで世帯作成 → 招待コードが表示され、コピーできる
 - 別ブラウザ(シークレットウィンドウ+別Googleアカウント)でユーザーBがコード入力 → 参加できる
-- 参加後、同じコードを使うと「招待コードが無効です」になる
-- 3人目のアカウントが参加しようとすると「この世帯は満員です」になる
+- 招待URLを開くと「招待コードで参加」タブがコード入力済みで開く
+- 参加後、3人目のアカウントが同じコードを使うと「招待コードが無効です」になる(参加時にコードが無効化されるため、ブラウザ操作でV-203の「この世帯は満員です」に到達する経路はない。V-203は多重防御であり `npm test` で検証する)
+- 参加後、Aの設定画面にパートナー名が出て、招待コード欄が消える
 - **分離検証(重要)**: 3つ目のアカウントで別世帯を作成 → A/Bの世帯のデータが一切見えないこと(この後のフェーズでも常に意識する)
 
 ---
@@ -514,7 +535,7 @@ export function calcAdvanceAmount(
 }
 ```
 
-- [ ] この関数には**単体テストを書く**(端数の四捨五入、100:0、70:30のケース)。`npx vitest` を導入するか、最低限手計算と突き合わせる
+- [ ] この関数には**単体テストを書く**(端数の四捨五入、100:0、70:30のケース)。vitestはPhase 4(6.2)で導入済みなので `npm test` に足すだけでよい
 
 ### ✅ 動作確認
 
@@ -795,6 +816,8 @@ export class ClaudeReceiptParser implements ReceiptParser {
 | 9 | **AI応答のパース失敗** | 構造化出力(`output_config.format`)を使えばJSONの手動パースは不要。それでも失敗時のリトライ1回+手入力フォールバックを必ず実装 |
 | 10 | **actionとmutationの役割混同** | actionは外部API呼び出し用でDBに直接触れない(`ctx.runQuery`/`ctx.runMutation` 経由)。トランザクションが必要な書き込みはmutationに寄せる |
 | 11 | **ドキュメント上限** | Convexの1ドキュメントは最大1MB。品目20件程度の支出なら余裕だが、画像などを直接ドキュメントに入れない(必ずFile Storageへ) |
+| 12 | **エラーメッセージが本番で消える** | Convex関数が投げた素の `Error` は、本番デプロイではメッセージがクライアントに届かず「Server Error」に伏せられる(内部情報の漏洩防止)。開発中は見えるので気づきにくい。**画面に出す文言は `ConvexError` で投げる**(4.3) |
+| 13 | **Reactの新lintルールで落ちる** | `next lint` の `react-hooks/purity` はレンダー中の `Date.now()` を、`react-hooks/set-state-in-effect` はeffect本体での `setState` をエラーにする。時刻の判定は `setTimeout` のコールバック側へ、`window` 依存の値は `useSyncExternalStore` で読む(`components/InviteCodeCard.tsx` が実例) |
 
 ---
 
