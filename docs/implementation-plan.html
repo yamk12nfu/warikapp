@@ -373,7 +373,7 @@
     <summary>
       <span class="ph-no">P3</span><span class="ph-name">認証(Clerk)</span>
       <span class="ph-fn">F-001・2〜4h</span><span class="ph-leader"></span>
-      <span class="ph-count" data-count>0/14</span><span class="caret">▶</span>
+      <span class="ph-count" data-count>0/15</span><span class="caret">▶</span>
     </summary>
     <span class="stamp" aria-hidden="true">済</span>
     <div class="ph-body">
@@ -388,6 +388,7 @@
         <li><label><input type="checkbox" id="p3-t6"><span>proxy.ts(Next.js 16。旧middleware)で /login 以外を保護</span></label></li>
         <li><label><input type="checkbox" id="p3-t7"><span>/login に Clerk の SignIn、settings にログアウト</span></label></li>
         <li><label><input type="checkbox" id="p3-t8"><span>currentMember query+世帯未所属なら /setup へ振り分け</span></label></li>
+        <li><label><input type="checkbox" id="p3-t9"><span>リソースレベル認証: 各保護ページ冒頭で requireSignedIn+(app)レイアウト防衛線</span></label></li>
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">

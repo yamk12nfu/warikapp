@@ -18,6 +18,8 @@ disable-model-invocation: true
 
 1. **ブランチ作成**: `git checkout main && git pull` → `git checkout -b feature/phase-<番号>-<内容の短い英語slug>`
 2. **実装**: 計画書のタスクを上から順に実装する。計画書と実装が食い違ったら計画書側を更新して同期を保つ(implementation-plan.html のラベルも対象。ただし input の id 属性は変更しない)
+   - 保護ページを新設する場合は冒頭で `await requireSignedIn()`(`lib/server-auth.ts`)を呼ぶ(リソースレベル認証)
+   - 動的セグメントを持つルートを追加したら `proxy.ts` の matcher にも明示追加する
 3. **検証**(すべて通過するまで次へ進まない):
    - `npx tsc --noEmit`
    - `npm run lint`
