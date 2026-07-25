@@ -2,17 +2,18 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 // 負担割合: 2名で合計100%になること(検証はアプリ層で行う)
-const shareValidator = v.object({
+export const shareValidator = v.object({
   memberId: v.id("members"),
   ratioPercent: v.number(), // 0〜100の整数
 });
 
 // 品目。常に支出単位で読み書きするため expenses ドキュメントに内包する。
 // レシート1枚ぶん(高々数十件)の有界な配列なので1MB上限に対して十分小さい。
-const itemValidator = v.object({
+// expenses.save の引数バリデータとしても再利用する(定義を1箇所に保つ)。
+export const itemValidator = v.object({
   name: v.string(), // 1〜50文字
   price: v.number(), // 税込・円・整数(1〜9,999,999)
-  quantity: v.number(), // 1以上の整数
+  quantity: v.number(), // 1〜999の整数
   shares: v.array(shareValidator),
 });
 
