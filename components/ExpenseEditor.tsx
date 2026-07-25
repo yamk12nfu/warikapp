@@ -1,6 +1,7 @@
 "use client";
 
 import { todayLocalDate } from "@/lib/date";
+import { formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import { toUserMessage } from "@/lib/convex-error";
@@ -42,7 +43,7 @@ const submitClass =
 const chipClass =
   "rounded-full border border-black/15 px-3 py-2 text-sm font-medium whitespace-nowrap dark:border-white/25";
 
-const yen = (amount: number) => `¥${amount.toLocaleString("ja-JP")}`;
+const yen = formatYen;
 
 // 金額は文字列で保持し、整数以外(小数・空欄・記号)は不正として扱う(V-403)
 function parsePrice(priceText: string): number | null {

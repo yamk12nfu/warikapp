@@ -1,6 +1,13 @@
 import { requireSignedIn } from "@/lib/server-auth";
+import ExpenseDetailClient from "./expense-detail-client";
 
-export default async function ExpenseDetailPage() {
+export default async function ExpenseDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   await requireSignedIn(); // リソースレベル認証
-  return <main className="p-8">TODO: 支出詳細・編集(S-005)</main>;
+  const { id } = await params;
+  // IDの形式・所有者の検証はConvex側(expenses.get)で行う
+  return <ExpenseDetailClient expenseId={id} />;
 }
