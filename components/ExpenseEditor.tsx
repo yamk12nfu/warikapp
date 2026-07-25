@@ -55,29 +55,39 @@ function parsePrice(priceText: string): number | null {
   return price;
 }
 
-// 初期値の shares を [自分, 相手] の順に揃える(欠けている側は0%)
+// shares は memberId で引く(要素の並び順に依存しない)
+function ratioOf(shares: ShareRatio[], memberId: string): number {
+  return shares.find((share) => share.memberId === memberId)?.ratioPercent ?? 0;
+}
+
+// shares を [自分, 相手] の順に揃える(欠けている側は0%)。
+// 表示中にパートナーが参加したときの正規化にも使う
 function normalizeShares(
   shares: ShareRatio[],
   selfId: string,
   partnerId: string | null,
 ): ShareRatio[] {
-  const ratioOf = (memberId: string) =>
-    shares.find((share) => share.memberId === memberId)?.ratioPercent ?? 0;
   if (partnerId === null) {
     return [{ memberId: selfId, ratioPercent: 100 }];
   }
   return [
-    { memberId: selfId, ratioPercent: ratioOf(selfId) },
-    { memberId: partnerId, ratioPercent: ratioOf(partnerId) },
+    { memberId: selfId, ratioPercent: ratioOf(shares, selfId) },
+    { memberId: partnerId, ratioPercent: ratioOf(shares, partnerId) },
   ];
 }
 
 type Preset = "split" | "self" | "partner" | "custom";
 
-function presetOf(shares: ShareRatio[]): Preset {
-  const [self, partner] = shares;
-  const selfRatio = self?.ratioPercent ?? 0;
-  const partnerRatio = partner?.ratioPercent ?? 0;
+function presetOf(
+  shares: ShareRatio[],
+  selfId: string,
+  partnerId: string | null,
+): Preset {
+  const selfRatio = ratioOf(shares, selfId);
+  if (partnerId === null) {
+    return selfRatio === 100 ? "self" : "custom";
+  }
+  const partnerRatio = ratioOf(shares, partnerId);
   if (selfRatio === 50 && partnerRatio === 50) {
     return "split";
   }
@@ -109,7 +119,7 @@ function nextPresetShares(
     partner: [50, 50], // 相手の次は「折半」
     custom: [50, 50], // カスタムからは折半に戻す
   };
-  const [selfRatio, partnerRatio] = ratios[presetOf(shares)];
+  const [selfRatio, partnerRatio] = ratios[presetOf(shares, selfId, partnerId)];
   return [
     { memberId: selfId, ratioPercent: selfRatio },
     { memberId: partnerId, ratioPercent: partnerRatio },
@@ -156,19 +166,36 @@ export default function ExpenseEditor({
   const [storeName, setStoreName] = useState(initialValue.storeName);
   const [purchasedAt, setPurchasedAt] = useState(initialValue.purchasedAt);
   const [rows, setRows] = useState<ItemRow[]>(() =>
-    initialValue.items.map((item, index) => ({
-      key: `row-${index}`,
-      name: item.name,
-      priceText: item.price === 0 ? "" : String(item.price),
-      quantity: item.quantity,
-      shares: normalizeShares(item.shares, self._id, partnerId),
-      custom: presetOf(normalizeShares(item.shares, self._id, partnerId)) === "custom",
-    })),
+    initialValue.items.map((item, index) => {
+      const shares = normalizeShares(item.shares, self._id, partnerId);
+      return {
+        key: `row-${index}`,
+        name: item.name,
+        priceText: item.price === 0 ? "" : String(item.price),
+        quantity: item.quantity,
+        shares,
+        custom: presetOf(shares, self._id, partnerId) === "custom",
+      };
+    }),
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // 行の key は追加順の連番で採番する(SSRとクライアントで値がぶれない)
   const nextRowIndex = useRef(initialValue.items.length);
+
+  // 入力中にパートナーが参加した場合、既存行の shares を [自分, 相手] に揃える。
+  // (propsの変化に合わせてレンダー中にstateを調整するReactの推奨パターン。
+  //  揃えないと相手の割合欄が空のまま「折半」に切り替えられなくなる)
+  const [syncedPartnerId, setSyncedPartnerId] = useState(partnerId);
+  if (syncedPartnerId !== partnerId) {
+    setSyncedPartnerId(partnerId);
+    setRows((current) =>
+      current.map((row) => ({
+        ...row,
+        shares: normalizeShares(row.shares, self._id, partnerId),
+      })),
+    );
+  }
 
   function updateRow(key: string, patch: Partial<ItemRow>) {
     setRows((current) =>
@@ -211,9 +238,11 @@ export default function ExpenseEditor({
     }
     const ratioPercent = text === "" ? 0 : Number(text);
     updateRow(row.key, {
-      shares: row.shares.map((share) =>
-        share.memberId === memberId ? { ...share, ratioPercent } : share,
-      ),
+      shares: row.shares.some((share) => share.memberId === memberId)
+        ? row.shares.map((share) =>
+            share.memberId === memberId ? { ...share, ratioPercent } : share,
+          )
+        : [...row.shares, { memberId, ratioPercent }],
     });
   }
 
@@ -225,28 +254,21 @@ export default function ExpenseEditor({
       (total, share) => total + share.ratioPercent,
       0,
     );
-    return {
-      row,
-      price,
-      nameError:
-        trimmedName.length < 1 || trimmedName.length > MAX_ITEM_NAME_LENGTH
-          ? "品目名は1〜50文字で入力してください"
-          : null,
-      priceError:
-        price === null ? "金額は1円以上の整数で入力してください" : null,
-      shareError:
-        shareTotal === 100
-          ? null
-          : `負担割合の合計を100%にしてください(現在 ${shareTotal}%)`,
-    };
+    // 項目ごとのエラーはすべて出す(1件だけ出すと直した先に別のエラーが現れる)
+    const errors: string[] = [];
+    if (trimmedName.length < 1 || trimmedName.length > MAX_ITEM_NAME_LENGTH) {
+      errors.push("品目名は1〜50文字で入力してください");
+    }
+    if (price === null) {
+      errors.push("金額は1円以上の整数で入力してください"); // V-403
+    }
+    if (shareTotal !== 100) {
+      errors.push(`負担割合の合計を100%にしてください(現在 ${shareTotal}%)`); // V-401
+    }
+    return { row, price, errors };
   });
 
-  const hasRowError = checked.some(
-    (item) =>
-      item.nameError !== null ||
-      item.priceError !== null ||
-      item.shareError !== null,
-  );
+  const hasRowError = checked.some((item) => item.errors.length > 0);
   const canSubmit = rows.length > 0 && !hasRowError && !submitting;
 
   // フッターの表示は金額が読める行だけで計算する(入力途中でも壊れないように)
@@ -283,9 +305,10 @@ export default function ExpenseEditor({
           shares: item.row.shares.filter((share) => share.ratioPercent > 0),
         })),
       });
+      // 成功時は submitting を解除しない。親は画面遷移を始めるが遷移の完了は
+      // await の後なので、ここで解除すると遷移前に再送信できてしまう
     } catch (caught) {
       setError(toUserMessage(caught));
-    } finally {
       setSubmitting(false);
     }
   }
@@ -360,16 +383,12 @@ export default function ExpenseEditor({
 
         {checked.map((item) => {
           const { row } = item;
-          const invalid =
-            item.nameError !== null ||
-            item.priceError !== null ||
-            item.shareError !== null;
-          const preset = presetOf(row.shares);
+          const preset = presetOf(row.shares, self._id, partnerId);
           return (
             <div
               key={row.key}
               className={`space-y-2 rounded-lg border p-3 ${
-                invalid
+                item.errors.length > 0
                   ? "border-red-500"
                   : "border-black/15 dark:border-white/25"
               }`}
@@ -442,7 +461,7 @@ export default function ExpenseEditor({
                   <label className="flex items-center gap-1">
                     あなた
                     <input
-                      value={String(row.shares[0].ratioPercent)}
+                      value={String(ratioOf(row.shares, self._id))}
                       onChange={(event) =>
                         setShareRatio(row, self._id, event.target.value)
                       }
@@ -454,7 +473,7 @@ export default function ExpenseEditor({
                   <label className="flex items-center gap-1">
                     {partner.displayName}
                     <input
-                      value={String(row.shares[1].ratioPercent)}
+                      value={String(ratioOf(row.shares, partner._id))}
                       onChange={(event) =>
                         setShareRatio(row, partner._id, event.target.value)
                       }
@@ -466,10 +485,12 @@ export default function ExpenseEditor({
                 </div>
               )}
 
-              {invalid && (
-                <p role="alert" className="text-xs text-red-600">
-                  {item.nameError ?? item.priceError ?? item.shareError}
-                </p>
+              {item.errors.length > 0 && (
+                <ul role="alert" className="space-y-0.5 text-xs text-red-600">
+                  {item.errors.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
               )}
             </div>
           );

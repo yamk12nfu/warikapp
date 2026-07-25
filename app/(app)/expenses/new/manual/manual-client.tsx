@@ -52,11 +52,16 @@ export default function ManualExpenseClient() {
     router.replace("/");
   }
 
-  if (isLoading || member === undefined || (member && household === undefined)) {
+  // 未認証の判定を query の読み込み判定より先に行う(未認証では query が "skip" で
+  // undefined のまま止まるため、順序を逆にすると「読み込み中…」から抜けられない)
+  if (isLoading) {
     return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
+  }
+  if (member === undefined || (member !== null && household === undefined)) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (member === null || household === undefined) {
     return null; // 世帯未所属: /setupへ誘導中
