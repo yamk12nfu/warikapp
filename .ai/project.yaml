@@ -24,12 +24,22 @@ quality_gates:
 
 ai:
   max_loops: 4
-  max_changed_files: 10
+  # フェーズ単位のPR(リネーム含む)が通る現実的な上限(Phase 3実績: 31ファイル)
+  max_changed_files: 40
   allowed_paths:
     - "app/**"
     - "convex/**"
     - "docs/**"
-    - ".ai/local/knowledge/**"
+    - "components/**" # UIコンポーネント(実装計画の正式構成)
+    - "lib/**" # 共有ロジック(実装計画の正式構成)
+    - "proxy.ts" # Next.js 16規約でルート直下必須
+    - ".claude/**" # Claude Codeの設定・skills・agents
+    - ".mcp.json" # プロジェクトMCP設定
+    - ".ai/**" # aro設定・Repo Knowledge
+    - "package.json"
+    - "package-lock.json"
+    - "tsconfig.json"
+    - "*.config.*" # next/eslint/postcss/vitest等のルート設定ファイル
   forbidden_paths:
     - ".env"
     - "secrets/**"
