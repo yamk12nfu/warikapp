@@ -119,7 +119,10 @@ export default function SettingsClient() {
             }}
             maxLength={20}
             required
-            className={inputClass}
+            // 保存中は編集させない。送信値はクロージャで固定されるため、
+            // 保存中に書き換えられるとその編集が完了時に破棄されてしまう
+            disabled={savingName}
+            className={`${inputClass} disabled:opacity-50`}
           />
           <button
             type="submit"
