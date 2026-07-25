@@ -29,6 +29,8 @@ type ItemRow = {
   quantity: number;
   shares: ShareRatio[]; // 常に [自分, 相手] の順(相手がいなければ自分のみ)
   custom: boolean; // カスタム割合の入力欄を開いているか
+  // 一度でも編集された行か。まだ触っていない空行を赤枠にしないための判定
+  touched: boolean;
 };
 
 const inputClass =
@@ -175,6 +177,8 @@ export default function ExpenseEditor({
         quantity: item.quantity,
         shares,
         custom: presetOf(shares, self._id, partnerId) === "custom",
+        // 既存の支出を読み込んだ行は最初から検証結果を出す(空の新規行だけ抑える)
+        touched: item.name !== "" || item.price !== 0,
       };
     }),
   );
@@ -216,6 +220,7 @@ export default function ExpenseEditor({
         quantity: item.quantity,
         shares: item.shares,
         custom: false,
+        touched: false,
       },
     ]);
   }
@@ -229,7 +234,7 @@ export default function ExpenseEditor({
       return; // 相手が未参加のうちは自分100%しかない
     }
     const shares = nextPresetShares(row.shares, self._id, partnerId);
-    updateRow(row.key, { shares, custom: false });
+    updateRow(row.key, { shares, custom: false, touched: true });
   }
 
   function setShareRatio(row: ItemRow, memberId: string, text: string) {
@@ -243,6 +248,7 @@ export default function ExpenseEditor({
             share.memberId === memberId ? { ...share, ratioPercent } : share,
           )
         : [...row.shares, { memberId, ratioPercent }],
+      touched: true,
     });
   }
 
@@ -265,10 +271,19 @@ export default function ExpenseEditor({
     if (shareTotal !== 100) {
       errors.push(`負担割合の合計を100%にしてください(現在 ${shareTotal}%)`); // V-401
     }
-    return { row, price, errors };
+    return {
+      row,
+      price,
+      shareTotal,
+      errors,
+      // まだ触っていない空行は赤枠にしない(画面を開いた直後に全行が赤くなるのを防ぐ)
+      showErrors: row.touched && errors.length > 0,
+    };
   });
 
   const hasRowError = checked.some((item) => item.errors.length > 0);
+  // 割合が100%でない行があるあいだ立て替え額は確定できない
+  const shareIncomplete = checked.some((item) => item.shareTotal !== 100);
   const canSubmit = rows.length > 0 && !hasRowError && !submitting;
 
   // フッターの表示は金額が読める行だけで計算する(入力途中でも壊れないように)
@@ -388,7 +403,7 @@ export default function ExpenseEditor({
             <div
               key={row.key}
               className={`space-y-2 rounded-lg border p-3 ${
-                item.errors.length > 0
+                item.showErrors
                   ? "border-red-500"
                   : "border-black/15 dark:border-white/25"
               }`}
@@ -396,7 +411,10 @@ export default function ExpenseEditor({
               <input
                 value={row.name}
                 onChange={(event) =>
-                  updateRow(row.key, { name: event.target.value })
+                  updateRow(row.key, {
+                    name: event.target.value,
+                    touched: true,
+                  })
                 }
                 maxLength={MAX_ITEM_NAME_LENGTH}
                 placeholder="品目名(例: 牛肉)"
@@ -412,7 +430,10 @@ export default function ExpenseEditor({
                   <input
                     value={row.priceText}
                     onChange={(event) =>
-                      updateRow(row.key, { priceText: event.target.value })
+                      updateRow(row.key, {
+                        priceText: event.target.value,
+                        touched: true,
+                      })
                     }
                     inputMode="numeric"
                     maxLength={7}
@@ -485,7 +506,7 @@ export default function ExpenseEditor({
                 </div>
               )}
 
-              {item.errors.length > 0 && (
+              {item.showErrors && (
                 <ul role="alert" className="space-y-0.5 text-xs text-red-600">
                   {item.errors.map((message) => (
                     <li key={message}>{message}</li>
@@ -520,11 +541,23 @@ export default function ExpenseEditor({
           <div className="flex items-baseline justify-between">
             <span className="text-sm text-gray-500">立て替え額</span>
             <span className="text-sm">
-              {advanceAmount === 0
-                ? "なし"
-                : `${payerName} → ${otherName} ${yen(advanceAmount)}`}
+              {shareIncomplete
+                ? "—" /* 割合が未確定のあいだは金額を出さない(誤解を招くため) */
+                : advanceAmount === 0
+                  ? "なし"
+                  : `${payerName} → ${otherName} ${yen(advanceAmount)}`}
             </span>
           </div>
+          {/* 確定できない理由を控えめに示す(空行を赤枠にしない代わりの案内) */}
+          {!canSubmit && !submitting && (
+            <p className="text-xs text-gray-500">
+              {rows.length === 0
+                ? "品目を1件以上入力してください"
+                : shareIncomplete
+                  ? "負担割合の合計を100%にしてください"
+                  : "品目名と金額を入力すると登録できます"}
+            </p>
+          )}
           <button type="submit" disabled={!canSubmit} className={submitClass}>
             {submitting ? submittingLabel : submitLabel}
           </button>
