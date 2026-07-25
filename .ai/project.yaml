@@ -35,7 +35,7 @@ ai:
     - "proxy.ts" # Next.js 16規約でルート直下必須
     - ".claude/**" # Claude Codeの設定・skills・agents
     - ".mcp.json" # プロジェクトMCP設定
-    - ".ai/**" # aro設定・Repo Knowledge
+    - ".ai/local/knowledge/**" # Repo Knowledgeのみ(project.yaml/managed/lockはAIの書き込み対象外)
     - "package.json"
     - "package-lock.json"
     - "tsconfig.json"
