@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { calcAdvanceAmount, calcTotalAmount } from "./settlement";
+import {
+  calcAdvanceAmount,
+  calcItemShareAmount,
+  calcTotalAmount,
+} from "./settlement";
 import type { ExpenseItemInput } from "./types";
 
 const SELF = "self";
@@ -28,6 +32,22 @@ describe("calcTotalAmount", () => {
 
   test("品目が空なら0", () => {
     expect(calcTotalAmount([])).toBe(0);
+  });
+});
+
+describe("calcItemShareAmount", () => {
+  test("指定メンバーの負担割合ぶんの金額を返す", () => {
+    expect(calcItemShareAmount(item(5000, split()), SELF)).toBe(2500);
+    expect(calcItemShareAmount(item(1000, split(), 3), PARTNER)).toBe(1500);
+  });
+
+  test("負担0%(sharesに居ない)なら0", () => {
+    expect(calcItemShareAmount(item(5000, onlySelf()), PARTNER)).toBe(0);
+  });
+
+  test("端数は品目ごとに四捨五入する", () => {
+    // 333円の折半は166.5 → 167(立て替え額の計算と同じ丸め方)
+    expect(calcItemShareAmount(item(333, split()), SELF)).toBe(167);
   });
 });
 

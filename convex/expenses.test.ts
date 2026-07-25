@@ -601,3 +601,374 @@ describe("expenses.save(更新)", () => {
     expect(expense!.source).toBe("receipt");
   });
 });
+
+// 支出を精算済みにする(精算そのものは Phase 7。ここではガードの検証用)
+async function markSettled(
+  t: ReturnType<typeof convexTest>,
+  members: Members,
+  expenseId: Id<"expenses">,
+) {
+  await t.run(async (ctx) => {
+    const expense = await ctx.db.get("expenses", expenseId);
+    const settlementId = await ctx.db.insert("settlements", {
+      coupleId: expense!.coupleId,
+      fromMemberId: members.partner._id,
+      toMemberId: members.self._id,
+      amount: 2500,
+      settledBy: members.self._id,
+    });
+    await ctx.db.patch("expenses", expenseId, { settlementId });
+  });
+}
+
+const listArgs = (
+  filter: "unsettled" | "all",
+  numItems = 20,
+  cursor: string | null = null,
+) => ({ paginationOpts: { numItems, cursor }, filter });
+
+describe("expenses.list", () => {
+  test("購入日の降順に返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    for (const purchasedAt of [jstDate(-2), jstDate(), jstDate(-1)]) {
+      await t
+        .withIdentity(ALICE)
+        .mutation(api.expenses.save, manualArgs(members, { purchasedAt }));
+    }
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(result.page.map((row) => row.purchasedAt)).toEqual([
+      jstDate(),
+      jstDate(-1),
+      jstDate(-2),
+    ]);
+    expect(result.isDone).toBe(true);
+  });
+
+  test("行には見出し・合計・支払者・状態を含む", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        storeName: "やまだ精肉店",
+        items: [
+          { name: "牛肉", price: 3000, quantity: 2, shares: split(members) },
+          { name: "ビール", price: 500, quantity: 1, shares: split(members) },
+        ],
+      }),
+    );
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(result.page[0]).toMatchObject({
+      title: "やまだ精肉店",
+      itemCount: 2,
+      totalAmount: 6500,
+      paidBy: members.self._id,
+      status: "confirmed",
+      settled: false,
+    });
+  });
+
+  test("店名が無ければ先頭の品目名を見出しにする", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members)); // 品目は「焼肉」
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(result.page[0].title).toBe("焼肉");
+  });
+
+  test("未精算のみ(既定)は精算済みを除き、すべてなら含める", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const settledId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { storeName: "精算済み" }));
+    await markSettled(t, members, settledId);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { storeName: "未精算" }));
+
+    const unsettled = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(unsettled.page.map((row) => row.title)).toEqual(["未精算"]);
+
+    const all = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("all"));
+    expect(all.page.map((row) => row.title).sort()).toEqual([
+      "未精算",
+      "精算済み",
+    ]);
+    expect(all.page.find((row) => row.title === "精算済み")!.settled).toBe(true);
+  });
+
+  test("論理削除された支出はどちらのフィルタでも出さない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId });
+
+    for (const filter of ["unsettled", "all"] as const) {
+      const result = await t
+        .withIdentity(ALICE)
+        .query(api.expenses.list, listArgs(filter));
+      expect(result.page).toHaveLength(0);
+    }
+  });
+
+  test("ドラフトも一覧に含める(確定させる導線を残すため)", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { status: "draft" }));
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(result.page[0].status).toBe("draft");
+  });
+
+  test("ページングで続きを読める", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    for (const offset of [-2, -1, 0]) {
+      await t.withIdentity(ALICE).mutation(
+        api.expenses.save,
+        manualArgs(members, { purchasedAt: jstDate(offset) }),
+      );
+    }
+
+    const first = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled", 2));
+    expect(first.page).toHaveLength(2);
+    expect(first.isDone).toBe(false);
+
+    const second = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled", 2, first.continueCursor));
+    expect(second.page).toHaveLength(1);
+    expect(second.page[0].purchasedAt).toBe(jstDate(-2));
+  });
+
+  test("他世帯の支出は一覧に出ない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { storeName: "自世帯" }));
+
+    const other = await setupCouple(t, CAROL, identity("dave"));
+    await t
+      .withIdentity(CAROL)
+      .mutation(api.expenses.save, manualArgs(other, { storeName: "他世帯" }));
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("all"));
+    expect(result.page.map((row) => row.title)).toEqual(["自世帯"]);
+  });
+
+  test("未ログイン・世帯未所属では読めない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    await expect(
+      t.query(api.expenses.list, listArgs("unsettled")),
+    ).rejects.toThrow("ログインしてください");
+    await expect(
+      t.withIdentity(CAROL).query(api.expenses.list, listArgs("unsettled")),
+    ).rejects.toThrow("世帯に参加してください");
+  });
+});
+
+describe("expenses.get", () => {
+  test("自世帯の支出を品目つきで返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { storeName: "焼肉屋" }));
+
+    const expense = await t
+      .withIdentity(BOB)
+      .query(api.expenses.get, { expenseId });
+    expect(expense).toMatchObject({
+      _id: expenseId,
+      storeName: "焼肉屋",
+      totalAmount: 5000,
+      paidBy: members.self._id,
+      status: "confirmed",
+      source: "manual",
+      settled: false,
+      hasImage: false,
+    });
+    expect(expense!.items[0].shares).toHaveLength(2);
+  });
+
+  test("精算済みは settled: true になる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await markSettled(t, members, expenseId);
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(expense!.settled).toBe(true);
+  });
+
+  test("他世帯・削除済み・不正なIDはすべて null", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    const deletedId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.remove, { expenseId: deletedId });
+
+    await setupCouple(t, CAROL, identity("dave"));
+    expect(
+      await t.withIdentity(CAROL).query(api.expenses.get, { expenseId }),
+    ).toBeNull();
+    expect(
+      await t
+        .withIdentity(ALICE)
+        .query(api.expenses.get, { expenseId: deletedId }),
+    ).toBeNull();
+    // URLに直接打たれた不正なIDでも引数検証エラーにせず「見つからない」を返す
+    expect(
+      await t
+        .withIdentity(ALICE)
+        .query(api.expenses.get, { expenseId: "not-an-id" }),
+    ).toBeNull();
+  });
+
+  test("未ログイン・世帯未所属では読めない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await expect(t.query(api.expenses.get, { expenseId })).rejects.toThrow(
+      "ログインしてください",
+    );
+    await expect(
+      t.withIdentity(CAROL).query(api.expenses.get, { expenseId }),
+    ).rejects.toThrow("世帯に参加してください");
+  });
+});
+
+describe("expenses.getImageUrl", () => {
+  test("画像が無ければ null", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    expect(
+      await t.withIdentity(ALICE).query(api.expenses.getImageUrl, { expenseId }),
+    ).toBeNull();
+  });
+
+  test("画像付きの支出はURLを返し、他世帯には返さない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await t.run(async (ctx) => {
+      const imageStorageId = await ctx.storage.store(
+        new Blob(["receipt"], { type: "image/png" }),
+      );
+      await ctx.db.patch("expenses", expenseId, { imageStorageId });
+    });
+
+    expect(
+      await t.withIdentity(BOB).query(api.expenses.getImageUrl, { expenseId }),
+    ).toEqual(expect.any(String));
+
+    await setupCouple(t, CAROL, identity("dave"));
+    expect(
+      await t.withIdentity(CAROL).query(api.expenses.getImageUrl, { expenseId }),
+    ).toBeNull();
+  });
+});
+
+describe("expenses.remove", () => {
+  test("deletedAt を立てる論理削除で、ドキュメントは残る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    await t.withIdentity(BOB).mutation(api.expenses.remove, { expenseId });
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense).not.toBeNull();
+    expect(expense!.deletedAt).toEqual(expect.any(Number));
+  });
+
+  test("精算済みは削除できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await markSettled(t, members, expenseId);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId }),
+    ).rejects.toThrow("精算済みの支出は変更できません");
+  });
+
+  test("他世帯・削除済みの支出は削除できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    await setupCouple(t, CAROL, identity("dave"));
+    await expect(
+      t.withIdentity(CAROL).mutation(api.expenses.remove, { expenseId }),
+    ).rejects.toThrow("支出が見つかりません");
+
+    await t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId });
+    await expect(
+      t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId }),
+    ).rejects.toThrow("支出が見つかりません");
+  });
+
+  test("未ログイン・世帯未所属では削除できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await expect(t.mutation(api.expenses.remove, { expenseId })).rejects.toThrow(
+      "ログインしてください",
+    );
+    await expect(
+      t.withIdentity(CAROL).mutation(api.expenses.remove, { expenseId }),
+    ).rejects.toThrow("世帯に参加してください");
+  });
+});

@@ -1,6 +1,7 @@
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import { mutation } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
 import { itemValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
@@ -119,6 +120,24 @@ function normalizeItems(items: ItemInput[]): ItemInput[] {
   });
 }
 
+// 自世帯の生きている支出を引く。存在しない・他世帯・論理削除済みはすべて null を
+// 返す(他世帯の支出の存在を漏らさないため、呼び出し側でも区別しないこと)。
+async function findOwnExpense(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+  expenseId: Id<"expenses">,
+): Promise<Doc<"expenses"> | null> {
+  const expense = await ctx.db.get("expenses", expenseId);
+  if (
+    expense === null ||
+    expense.coupleId !== coupleId ||
+    expense.deletedAt !== undefined
+  ) {
+    return null;
+  }
+  return expense;
+}
+
 // 支出の新規作成と更新を兼ねる。expenseId を渡すと更新。
 // source は新規作成時のみ使う(既存支出の由来は変えない)。
 export const save = mutation({
@@ -138,13 +157,9 @@ export const save = mutation({
     const existing =
       args.expenseId === undefined
         ? null
-        : await ctx.db.get("expenses", args.expenseId);
+        : await findOwnExpense(ctx, member.coupleId, args.expenseId);
     if (args.expenseId !== undefined) {
-      if (
-        existing === null ||
-        existing.coupleId !== member.coupleId ||
-        existing.deletedAt !== undefined
-      ) {
+      if (existing === null) {
         throw new ConvexError(ERR_NOT_FOUND);
       }
       if (existing.settlementId !== undefined) {
@@ -186,5 +201,126 @@ export const save = mutation({
       status: args.status,
     });
     return existing._id;
+  },
+});
+
+// 一覧の1行分。items をそのまま返すと転送量が無駄なので、行の表示に必要な
+// フィールドだけに射影する(詳細は expenses.get で読む)。
+function toListRow(expense: Doc<"expenses">) {
+  return {
+    _id: expense._id,
+    // 店名は任意項目。未設定なら先頭の品目名を見出しに使う
+    title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+    itemCount: expense.items.length,
+    purchasedAt: expense.purchasedAt,
+    totalAmount: expense.totalAmount,
+    paidBy: expense.paidBy,
+    status: expense.status,
+    settled: expense.settlementId !== undefined,
+  };
+}
+
+// ホーム(S-003)の支出一覧。購入日の降順で20件ずつページングする。
+// フィルタでインデックスを使い分ける:
+//   "unsettled" = by_coupleId_and_settlementId_and_purchasedAt(未精算をインデックス範囲で絞る)
+//   "all"       = by_coupleId_and_purchasedAt
+// 論理削除の除外は .filter() で行う。ページを取得したあとに配列から捨てると
+// 1ページの件数が削除済みのぶんだけ目減りするため、ページング前に適用する。
+// ドラフト(未確定)も含めて返し、行にバッジを出す(除外すると確定させる導線が
+// 画面から消えてしまう。差額計算からの除外は Phase 7 の精算側で行う)。
+export const list = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    filter: v.union(v.literal("unsettled"), v.literal("all")),
+  },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+
+    const scoped =
+      args.filter === "unsettled"
+        ? ctx.db
+            .query("expenses")
+            .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
+              q.eq("coupleId", member.coupleId).eq("settlementId", undefined),
+            )
+        : ctx.db
+            .query("expenses")
+            .withIndex("by_coupleId_and_purchasedAt", (q) =>
+              q.eq("coupleId", member.coupleId),
+            );
+
+    const result = await scoped
+      .order("desc")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .paginate(args.paginationOpts);
+
+    return { ...result, page: result.page.map(toListRow) };
+  },
+});
+
+// 支出詳細(S-005)。URLのパスから来た文字列をそのまま受けるため、
+// normalizeId で ID の形式を検証する(v.id だと不正な文字列で引数検証エラーになり、
+// 画面が「見つかりません」ではなくクラッシュしてしまう)。
+// 見つからない・他世帯・削除済みはすべて null(存在を漏らさない)。
+export const get = query({
+  args: { expenseId: v.string() },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const expenseId = ctx.db.normalizeId("expenses", args.expenseId);
+    if (expenseId === null) {
+      return null;
+    }
+    const expense = await findOwnExpense(ctx, member.coupleId, expenseId);
+    if (expense === null) {
+      return null;
+    }
+    return {
+      _id: expense._id,
+      paidBy: expense.paidBy,
+      storeName: expense.storeName,
+      purchasedAt: expense.purchasedAt,
+      totalAmount: expense.totalAmount,
+      items: expense.items,
+      source: expense.source,
+      status: expense.status,
+      settled: expense.settlementId !== undefined,
+      hasImage: expense.imageStorageId !== undefined,
+    };
+  },
+});
+
+// レシート画像の署名付きURL(Phase 8で画像が付いてから中身が出る)。
+// 画像が無い場合・自世帯の支出でない場合は null。
+export const getImageUrl = query({
+  args: { expenseId: v.string() },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const expenseId = ctx.db.normalizeId("expenses", args.expenseId);
+    if (expenseId === null) {
+      return null;
+    }
+    const expense = await findOwnExpense(ctx, member.coupleId, expenseId);
+    if (expense === null || expense.imageStorageId === undefined) {
+      return null;
+    }
+    return await ctx.storage.getUrl(expense.imageStorageId);
+  },
+});
+
+// 支出の削除(F-006)。物理削除せず deletedAt を立てる論理削除。
+// 精算済みは拒否する(画面側でもボタンを非活性にするが、サーバーでも二重に防ぐ)。
+export const remove = mutation({
+  args: { expenseId: v.id("expenses") },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const expense = await findOwnExpense(ctx, member.coupleId, args.expenseId);
+    if (expense === null) {
+      throw new ConvexError(ERR_NOT_FOUND);
+    }
+    if (expense.settlementId !== undefined) {
+      throw new ConvexError(ERR_SETTLED);
+    }
+    await ctx.db.patch("expenses", expense._id, { deletedAt: Date.now() });
+    return null;
   },
 });
