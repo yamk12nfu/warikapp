@@ -217,6 +217,24 @@ describe("normalizeParsedReceipt", () => {
     expect(sumItems(result.items)).toBe(12_000);
   });
 
+  test("上限で切る前に捨てる行を除くので、有効な品目が目減りしない", () => {
+    const items = [
+      { name: "  ", price: 100, quantity: 1 }, // 捨てられる行
+      ...Array.from({ length: 99 }, (_, index) => ({
+        name: `品目${index}`,
+        price: 100,
+        quantity: 1,
+      })),
+    ];
+    const result = normalizeParsedReceipt(
+      raw({ items, total_amount: 9900 }),
+      TODAY,
+    );
+    // 先に99件で切っていると有効な品目が98件になってしまう
+    expect(result.sourceItemCount).toBe(99);
+    expect(result.items).toHaveLength(99); // 差額0なので調整行は増えない
+  });
+
   test("店名の空白のみ・購入日の判読不能はnullにする", () => {
     const result = normalizeParsedReceipt(
       raw({ store_name: "   ", purchased_at: null }),

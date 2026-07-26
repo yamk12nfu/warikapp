@@ -11,6 +11,7 @@ import { todayLocalDate } from "@/lib/date";
 import { compressReceiptImage } from "@/lib/image";
 import type { ExpenseItemInput } from "@/lib/types";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useState } from "react";
@@ -180,10 +181,14 @@ export default function ReceiptExpenseClient() {
         setStorageId(uploaded);
       }
     } catch (caught) {
+      // Convex由来のエラーは message に内部診断([CONVEX M(...)] …)が混ざるので
+      // data から取り出す。圧縮など画面内で投げたエラーは message をそのまま出す
       setError(
-        caught instanceof Error && caught.message !== ""
-          ? caught.message
-          : ERR_UPLOAD,
+        caught instanceof ConvexError
+          ? toUserMessage(caught, ERR_UPLOAD)
+          : caught instanceof Error && caught.message !== ""
+            ? caught.message
+            : ERR_UPLOAD,
       );
       setFailedStep("upload");
       setPhase("select");

@@ -181,10 +181,12 @@ export function normalizeParsedReceipt(
   parsed: RawParsedReceipt,
   today: string,
 ): NormalizedReceipt {
+  // 上限で切るのは「保存できる品目」を数えたあと。先に切ると、前の方に
+  // 捨てられる行があったぶんだけ後ろの有効な品目まで落ちてしまう
   const sanitized = parsed.items
-    .slice(0, MAX_AI_ITEMS)
     .map(sanitizeItem)
-    .filter((item): item is SanitizedItem => item !== null);
+    .filter((item): item is SanitizedItem => item !== null)
+    .slice(0, MAX_AI_ITEMS);
 
   const rawTotal = Math.round(parsed.total_amount);
   const hasTotal = Number.isFinite(rawTotal) && rawTotal > 0;
