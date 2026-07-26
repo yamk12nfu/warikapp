@@ -1,6 +1,7 @@
 "use node";
 
-import { GoogleGenAI } from "@google/genai";
+import { ApiError, GoogleGenAI } from "@google/genai";
+import { ConvexError } from "convex/values";
 import {
   ReceiptSchemaError,
   type ParsedReceipt,
@@ -43,8 +44,13 @@ export class GeminiReceiptParser implements ReceiptParser {
       apiKey: requireApiKey(process.env.GEMINI_API_KEY, "GEMINI_API_KEY"),
     });
 
-    const response = await client.models.generateContent({
-      model: resolveModel("gemini", process.env.RECEIPT_AI_MODEL, DEFAULT_MODEL),
+    const model = resolveModel(
+      "gemini",
+      process.env.RECEIPT_AI_MODEL,
+      DEFAULT_MODEL,
+    );
+    const request = {
+      model,
       contents: [
         {
           role: "user",
@@ -60,7 +66,24 @@ export class GeminiReceiptParser implements ReceiptParser {
         // 読み取り全体のタイムアウト(要件30秒)から割り当てられた残り時間
         httpOptions: { timeout: options.timeoutMs },
       },
-    });
+    };
+
+    let response;
+    try {
+      response = await client.models.generateContent(request);
+    } catch (caught) {
+      // モデルIDの綴り間違い・提供終了は404で返る。汎用の
+      // 「読み取りに失敗しました」だと原因にたどり着けないので、
+      // 設定を直せる文言にして画面に出す(環境変数を変えるだけで直る)。
+      // モデルIDはSDKの型では縛れない(model は任意の文字列)ので、
+      // 間違いは実行時にしか分からない
+      if (caught instanceof ApiError && caught.status === 404) {
+        throw new ConvexError(
+          `AIモデル「${model}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`,
+        );
+      }
+      throw caught;
+    }
 
     const text = response.text;
     if (text === undefined || text.trim() === "") {

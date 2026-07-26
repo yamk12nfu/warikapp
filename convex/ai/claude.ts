@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { ConvexError } from "convex/values";
 import {
   ReceiptSchemaError,
   type ParsedReceipt,
@@ -35,6 +36,11 @@ const MAX_TOKENS = 16_000;
 // SDKはこれを AnthropicError で投げるので、response.parsed_output が null に
 // なるより先に例外になる。スキーマ不適合として1回だけリトライしたいので、
 // API側のエラー(APIError系。リトライしない)と区別してから変換する。
+//
+// ⚠️ SDK 0.112.3 には専用のエラークラスが無く(lib/parser.js は AnthropicError に
+// 文言を載せて投げるだけ)、やむなく文言で判定している。**SDKを上げたときは
+// ここを確認すること**。文言が変われば要件F-003の「1回リトライ」が静かに
+// 効かなくなる(専用クラスが公開されたらそちらでの判定に切り替える)。
 function isStructuredOutputFailure(error: unknown): boolean {
   return (
     error instanceof Anthropic.AnthropicError &&
@@ -84,8 +90,20 @@ export class ClaudeReceiptParser implements ReceiptParser {
       if (isStructuredOutputFailure(caught)) {
         throw new ReceiptSchemaError();
       }
+      // モデルIDの綴り間違い・提供終了は404で返る。汎用の
+      // 「読み取りに失敗しました」だと原因にたどり着けないので、
+      // 設定を直せる文言にして画面に出す(環境変数を変えるだけで直る)
+      if (caught instanceof Anthropic.NotFoundError) {
+        throw new ConvexError(
+          `AIモデル「${this.modelId()}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`,
+        );
+      }
       throw caught;
     }
+  }
+
+  private modelId(): string {
+    return resolveModel("claude", process.env.RECEIPT_AI_MODEL, DEFAULT_MODEL);
   }
 
   private async request(
@@ -94,7 +112,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
     options: ReceiptParseOptions,
   ) {
     return await this.client(options.timeoutMs).messages.parse({
-      model: resolveModel("claude", process.env.RECEIPT_AI_MODEL, DEFAULT_MODEL),
+      model: this.modelId(),
       max_tokens: MAX_TOKENS,
       messages: [
         {
