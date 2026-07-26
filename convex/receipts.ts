@@ -8,7 +8,11 @@ import { ReceiptSchemaError, type ReceiptMediaType } from "./ai/types";
 import { describeError } from "./ai/config";
 import { RECEIPT_PARSE_LIMIT_NAME, rateLimiter } from "./rateLimits";
 import { todayInJst } from "../lib/date";
-import { normalizeParsedReceipt, type NormalizedReceipt } from "../lib/receipt";
+import {
+  ERR_UNREADABLE_RECEIPT,
+  normalizeParsedReceipt,
+  type NormalizedReceipt,
+} from "../lib/receipt";
 
 // レシートのAI読み取り(F-003 / SR-001)。
 //
@@ -37,7 +41,6 @@ const FIRST_ATTEMPT_TIMEOUT_MS = TOTAL_TIMEOUT_MS - MIN_RETRY_MS;
 
 const ERR_IMAGE_MISSING = "画像が見つかりません。もう一度アップロードしてください";
 const ERR_IMAGE_TOO_LARGE = "画像が大きすぎます(20MBまで)";
-const ERR_UNREADABLE = "レシートを読み取れませんでした。撮り直してください";
 const ERR_FAILED = "読み取りに失敗しました。手入力に切り替えますか?";
 
 const ALLOWED_MEDIA_TYPES: ReceiptMediaType[] = [
@@ -130,7 +133,7 @@ export const parse = action({
       console.error(
         `receipts.parse unreadable provider=${parser.providerName} ms=${Date.now() - startedAt}`,
       );
-      throw new ConvexError(ERR_UNREADABLE);
+      throw new ConvexError(ERR_UNREADABLE_RECEIPT);
     }
 
     console.log(
