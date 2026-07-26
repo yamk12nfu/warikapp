@@ -982,11 +982,14 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 
 | # | 経路 | 台帳(`uploads`)の行 | 回収方法 |
 |---|---|---|---|
-| A | アップロード・`registerUpload` は成功したが、読み取りに失敗してそのまま画面を離脱した | **ある**(`usedByExpenseId` が未設定) | `uploads` を走査すれば引ける |
-| B | Storageへの POST は成功したが、続く `registerUpload` が失敗した(通信断・レート制限)。`storageId` は画面のstateにも入らない | **ない** | `uploads` からは引けない。**`_storage` 側を走査して台帳に無いものを消す**必要がある |
+| A | `registerUpload` までは成功したが、その先で止まって画面を離脱した(読み取り失敗のまま離脱、ドラフト保存の失敗、撮り直し時の `discardUpload` の失敗) | **ある**(`usedByExpenseId` が未設定) | `uploads` を走査すれば引ける |
+| B | Storageへの POST は成功したが、続く `registerUpload` が失敗した(通信断など)。`storageId` は画面のstateにも入らない | **ない** | `uploads` からは引けない。**`_storage` 側を走査して台帳に無いものを消す**必要がある |
 
-B は `receipt-client.tsx` の `upload()` が `registerUpload` の手前で `storageId` を返さないために起きる。
-`discardUpload` の失敗を握り潰している箇所(撮り直し時)も同じく B と同じ形で残る。
+B は `receipt-client.tsx` の `upload()` が `registerUpload` を通ってからでないと `storageId` を返さない
+ために起きる。この一瞬だけ、実体はあるのに台帳にも画面にも記録が無い状態になる。
+
+> レート制限は `generateUploadUrl`(`convex/uploads.ts:99`)で消費するので、**POSTより手前**で
+> 断られる。制限に引っかかっても実体は作られないため、置き去りの原因にはならない。
 
 Phase 9 では実装しない。理由:
 
