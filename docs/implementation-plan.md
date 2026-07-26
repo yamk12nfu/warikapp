@@ -742,6 +742,7 @@ export class ReceiptSchemaError extends Error {}
 ```
 
 - [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` は型だけなので不要)
+- [x] **モデルIDの設定ミスは専用の文言で出す**: 綴り間違い・提供終了は404で返るが、汎用の「読み取りに失敗しました」だと原因にたどり着けない。「AIモデル『◯◯』が使えません。ConvexのRECEIPT_AI_MODELを確認してください」にして、環境変数を直せば済むと分かるようにする(モデルIDはSDKの型では縛れない=`model` は任意の文字列なので、間違いは実行時にしか出ない)
 - [x] ⚠️ **スキーマ不適合は例外で飛んでくる**: SDKの `messages.parse()` は不正JSON・Zod検証エラーを `AnthropicError("Failed to parse structured output: ...")` として**throwする**(`parsed_output` が null になるより先に例外)。これを `ReceiptSchemaError` に変換しないと「1回だけリトライ」が動かない。API側のエラー(`APIError` 系)はリトライ対象外なので、変換前に除外する
 - [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
   - `ANTHROPIC_API_KEY`

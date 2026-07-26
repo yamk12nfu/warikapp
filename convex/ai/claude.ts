@@ -2,6 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { ConvexError } from "convex/values";
 import { z } from "zod";
 import {
   ReceiptSchemaError,
@@ -106,8 +107,20 @@ export class ClaudeReceiptParser implements ReceiptParser {
       if (isStructuredOutputFailure(caught)) {
         throw new ReceiptSchemaError();
       }
+      // モデルIDの綴り間違い・提供終了は404で返る。汎用の
+      // 「読み取りに失敗しました」だと原因にたどり着けないので、
+      // 設定を直せる文言にして画面に出す(環境変数を変えるだけで直る)
+      if (caught instanceof Anthropic.NotFoundError) {
+        throw new ConvexError(
+          `AIモデル「${this.modelId()}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`,
+        );
+      }
       throw caught;
     }
+  }
+
+  private modelId(): string {
+    return process.env.RECEIPT_AI_MODEL ?? DEFAULT_MODEL;
   }
 
   private async request(
@@ -116,7 +129,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
     options: ReceiptParseOptions,
   ) {
     return await this.client(options.timeoutMs).messages.parse({
-      model: process.env.RECEIPT_AI_MODEL ?? DEFAULT_MODEL,
+      model: this.modelId(),
       max_tokens: MAX_TOKENS,
       messages: [
         {
