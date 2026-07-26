@@ -75,6 +75,7 @@ function manualArgs(
     }[];
     source: "receipt" | "manual";
     status: "draft" | "confirmed";
+    imageStorageId: Id<"_storage">;
   }> = {},
 ) {
   return {
@@ -600,6 +601,86 @@ describe("expenses.save(更新)", () => {
       );
     const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
     expect(expense!.source).toBe("receipt");
+  });
+});
+
+// レシート画像の紐付け(Phase 8)。クライアント由来の storageId は
+// uploads 台帳で自世帯のものかを検証してから保存する
+describe("expenses.save(レシート画像)", () => {
+  // 画像を保存し、指定したユーザーの世帯のものとして台帳に登録する
+  async function uploadFor(t: ReturnType<typeof convexTest>, who = ALICE) {
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["receipt"], { type: "image/jpeg" })),
+    );
+    await t
+      .withIdentity(who)
+      .mutation(api.uploads.registerUpload, { storageId });
+    return storageId;
+  }
+
+  test("自世帯がアップロードした画像を紐付けられる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const imageStorageId = await uploadFor(t);
+
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { source: "receipt", imageStorageId }),
+    );
+
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(expense!.hasImage).toBe(true);
+    expect(
+      await t.withIdentity(ALICE).query(api.expenses.getImageUrl, { expenseId }),
+    ).toEqual(expect.any(String));
+  });
+
+  test("台帳にないstorageIdは紐付けられない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const imageStorageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob(["receipt"], { type: "image/jpeg" })),
+    );
+
+    await expect(
+      t.withIdentity(ALICE).mutation(
+        api.expenses.save,
+        manualArgs(members, { source: "receipt", imageStorageId }),
+      ),
+    ).rejects.toThrow("この画像は利用できません");
+  });
+
+  test("他世帯がアップロードした画像は紐付けられない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    const imageStorageId = await uploadFor(t);
+
+    const others = await setupCouple(t, CAROL, identity("dave"));
+    await expect(
+      t.withIdentity(CAROL).mutation(
+        api.expenses.save,
+        manualArgs(others, { source: "receipt", imageStorageId }),
+      ),
+    ).rejects.toThrow("この画像は利用できません");
+  });
+
+  test("更新時に省略しても画像は消えない(編集画面は画像を扱わない)", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const imageStorageId = await uploadFor(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { source: "receipt", imageStorageId, status: "draft" }),
+    );
+
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { expenseId }));
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.imageStorageId).toBe(imageStorageId);
   });
 });
 

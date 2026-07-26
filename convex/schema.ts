@@ -80,8 +80,17 @@ export default defineSchema({
     expenseCount: v.number(),
   }).index("by_coupleId", ["coupleId"]),
 
-  // AI読み取りのレート制限用(要件: 30回/時/世帯)。時刻は _creationTime を使う
-  parseLogs: defineTable({
+  // アップロードした画像の世帯帰属台帳(Phase 8)。
+  // Convexのstorage IDはURLを知っていれば誰でも指定できてしまうため、
+  // 「このstorageIdはどの世帯がアップロードしたか」をここに記録し、
+  // receipts.parse / expenses.save で自世帯のものかを検証する。
+  uploads: defineTable({
     coupleId: v.id("couples"),
-  }).index("by_coupleId", ["coupleId"]),
+    storageId: v.id("_storage"),
+    uploadedBy: v.id("members"),
+  }).index("by_storageId", ["storageId"]),
 });
+
+// レート制限(要件: AI読み取り30回/時/世帯)は @convex-dev/rate-limiter
+// コンポーネントが自前のテーブルで持つため、ここにはテーブルを置かない。
+// 経緯は convex/rateLimits.ts のコメントを参照。

@@ -3,8 +3,10 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
+import { assertOwnedUpload } from "./uploads";
 import { itemValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
+import { todayInJst } from "../lib/date";
 
 // 支出の保存。クライアント由来の member ID(paidBy / shares[].memberId)は
 // 必ず assertCoupleMemberIds を通してから保存する(他世帯IDの混入=テナント境界破りを防ぐ)。
@@ -15,7 +17,6 @@ const MAX_ITEM_NAME_LENGTH = 50;
 const MAX_PRICE = 9_999_999; // 要件 V-403
 const MAX_QUANTITY = 999; // 総額が非現実的な桁にならないための上限
 const MAX_ITEMS = 100; // レシート1枚の想定(数十品目)に対する安全弁
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 // 他世帯の支出を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "支出が見つかりません";
@@ -24,12 +25,6 @@ const ERR_ITEMS_REQUIRED = "品目を1件以上入力してください"; // V-4
 const ERR_SHARE_TOTAL = "負担割合の合計が100%になるようにしてください"; // V-401
 const ERR_PRICE = "金額は1円以上9,999,999円以下の整数で入力してください"; // V-403
 const ERR_PURCHASED_AT = "購入日を正しく入力してください";
-
-// JST(UTC+9)基準の今日。Convexの実行環境はUTCのため加算して求める。
-// mutationでの Date.now() は許容される(queryでは結果が陳腐化するため禁止)。
-function todayInJst(): string {
-  return new Date(Date.now() + JST_OFFSET_MS).toISOString().slice(0, 10);
-}
 
 function normalizeStoreName(raw: string | undefined): string | undefined {
   const storeName = (raw ?? "").trim();
@@ -140,6 +135,8 @@ async function findOwnExpense(
 
 // 支出の新規作成と更新を兼ねる。expenseId を渡すと更新。
 // source は新規作成時のみ使う(既存支出の由来は変えない)。
+// imageStorageId は省略時「変更しない」。編集画面は画像を扱わないため、
+// undefined を「画像を消す」と解釈するとレシートの画像が編集のたびに消えてしまう。
 export const save = mutation({
   args: {
     expenseId: v.optional(v.id("expenses")),
@@ -149,6 +146,7 @@ export const save = mutation({
     items: v.array(itemValidator),
     source: v.optional(v.union(v.literal("receipt"), v.literal("manual"))),
     status: v.union(v.literal("draft"), v.literal("confirmed")),
+    imageStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
@@ -177,6 +175,12 @@ export const save = mutation({
       ...items.flatMap((item) => item.shares.map((share) => share.memberId)),
     ]);
 
+    // クライアント由来の storageId も member ID と同じく帰属を検証する
+    // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)
+    if (args.imageStorageId !== undefined) {
+      await assertOwnedUpload(ctx, member.coupleId, args.imageStorageId);
+    }
+
     const totalAmount = calcTotalAmount(items);
 
     if (existing === null) {
@@ -187,6 +191,7 @@ export const save = mutation({
         purchasedAt: args.purchasedAt,
         totalAmount,
         items,
+        imageStorageId: args.imageStorageId,
         source: args.source ?? "manual",
         status: args.status,
       });
@@ -199,6 +204,10 @@ export const save = mutation({
       totalAmount,
       items,
       status: args.status,
+      // 省略時は既存の画像を残す(patchに undefined を渡すとフィールドが消えるため)
+      ...(args.imageStorageId === undefined
+        ? {}
+        : { imageStorageId: args.imageStorageId }),
     });
     return existing._id;
   },
