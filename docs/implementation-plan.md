@@ -951,10 +951,13 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
   - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。Vercel側にも同じドメインを追加する。DNS登録後は Clerk の **Deploy certificates** を押して有効化するところまでが1セット
   - ⚠️ **開発インスタンス(`pk_test_...`)のまま公開しないこと**。Clerkは開発インスタンスを「本番のワークロードには適さない」と明言している。ユーザー数上限100だけでなく、セッションを `__clerk_db_jwt` としてクエリ文字列で運ぶ(サーバーログ・ブラウザ履歴に残る)ため。ドメインが間に合わないときの暫定運用は `docs/deployment.md` §1-alt にあるが、実データを入れる前に本番インスタンスへ移ること
   - ⚠️ GoogleのOAuthクライアントには**リダイレクトURIだけでなく「承認済みのJavaScript生成元」にもアプリのドメインを入れる**(Clerkの手順が要求している)
+  - ⚠️ Clerkの **Allowed Subdomains** を有効にして、このアプリが使うサブドメインだけに絞る。既定ではルートドメイン配下のどのサブドメインからでもClerkのFrontend APIを叩けるため、同じルートドメインに置いた別サイトが乗っ取られると認証フローに手が届く。**`CLERK_AUTHORIZED_PARTIES`(Vercel側)では代替できない** — あちらが効くのはNext.jsのProxyを通るリクエストだけで、画面のデータはClerkのJWTを直接Convexへ送る経路で流れており、Convexは Issuer と `applicationID` しか検証しない
 - [ ] **Convex本番環境の環境変数**: `CLERK_JWT_ISSUER_DOMAIN`(本番ClerkのIssuer URL)と `GEMINI_API_KEY` の**2つが必須**。`RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` はコード側に既定値(`gemini` / `gemini-3.6-flash`)があるので任意
 - [ ] **Vercelデプロイ**:
   - GitHubリポジトリをVercelにImport(**Build Commandは触らない**。`vercel.json` が優先される)
-  - 環境変数: `CONVEX_DEPLOY_KEY`(Convexダッシュボード → Settings → Deploy Keysで生成。**Environmentは Production だけ**)、`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY`(本番キー)
+  - Import時の環境変数3つ: `CONVEX_DEPLOY_KEY`(Convexダッシュボード → Settings → Deploy Keysで生成。**Environmentは Production だけ**)、`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY`(本番キー)
+  - Deploy後に **Settings → Domains** でカスタムドメインを追加(ドメインはプロジェクト作成後でないと足せないので、この順になる)
+  - 本番URLが確定したら `CLERK_AUTHORIZED_PARTIES` に本番URL(`https://` から書く)を足して再デプロイ。`proxy.ts` がオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収されるが、スキームの無い値は無視される
   - `NEXT_PUBLIC_CONVEX_URL` は**設定しない**(`npx convex deploy --cmd` がビルド時に渡す)
 - [ ] **スマホ実機テスト**: 本番URLをiPhone(Safari)とAndroid(Chrome)で開き、撮影→仕分け→確定→精算の一連を実施
 - [ ] **表示速度**: 主要画面の初期表示が体感2秒以内か確認
@@ -974,18 +977,32 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 
 ### 置き去りアップロードの掃除(TBD-002)— 運用開始後に回す
 
-読み取りに成功した画像は必ずドラフト支出に紐付き、撮り直し・差し替えぶんは `uploads.discard` /
-`releaseUpload` が回収する。**残るのは「アップロードは成功したが読み取りに失敗し、そのまま画面を
-離脱した」ぶんだけ**で、経路がここ1本に絞れている。
+読み取りに成功した画像は必ずドラフト支出に紐付き、撮り直しぶんは `uploads.discard` が回収する。
+置き去りになる経路は**2種類**あり、掃除の方法が違う:
+
+| # | 経路 | 台帳(`uploads`)の行 | 回収方法 |
+|---|---|---|---|
+| A | アップロード・`registerUpload` は成功したが、読み取りに失敗してそのまま画面を離脱した | **ある**(`usedByExpenseId` が未設定) | `uploads` を走査すれば引ける |
+| B | Storageへの POST は成功したが、続く `registerUpload` が失敗した(通信断・レート制限)。`storageId` は画面のstateにも入らない | **ない** | `uploads` からは引けない。**`_storage` 側を走査して台帳に無いものを消す**必要がある |
+
+B は `receipt-client.tsx` の `upload()` が `registerUpload` の手前で `storageId` を返さないために起きる。
+`discardUpload` の失敗を握り潰している箇所(撮り直し時)も同じく B と同じ形で残る。
 
 Phase 9 では実装しない。理由:
 
-- 圧縮後の画像は数百KB。この経路で置き去りになる枚数を月10枚と見ても年間で数MBにしかならず、ConvexのFile Storage枠に対して誤差
-- 掃除には「参照されていない」を引くための `usedByExpenseId` インデックス追加(=スキーマ変更)と、データを消す定期実行の追加が要る。**本番稼働の直前に、消す方向の変更を入れるのは割に合わない**
-- 実装するなら難しくない: `uploads` に `usedByExpenseId` のインデックスを足し、`convex/crons.ts` から「未参照かつ `_creationTime` が24時間以上前」のものを消す internal mutation を日次で回す。24時間空ければ確認画面を開いたままの利用者を巻き込む心配もない
+- 圧縮後の画像は数百KB。両経路合わせて月10枚と見ても年間で数MBにしかならず、ConvexのFile Storage枠に対して誤差
+- 掃除には A 用の `usedByExpenseId` インデックス追加(=スキーマ変更)と、**B 用の `_storage` 走査**、そしてデータを消す定期実行の追加が要る。**本番稼働の直前に、消す方向の変更を入れるのは割に合わない**
+- 実装の方針:
+  - A: `uploads` に `usedByExpenseId` のインデックスを足し、「未参照かつ `_creationTime` が24時間以上前」を消す
+  - B: `ctx.db.system.query("_storage")` を回して、`uploads` に行が無く24時間以上前のファイルを消す。**A だけ実装しても B は残る**ので、やるなら両方
+  - どちらも `convex/crons.ts` から日次で回す。24時間空ければ確認画面を開いたままの利用者を巻き込む心配もない
 
 判断の閾値: **Convexダッシュボードの File Storage が無料枠の50%を超えたら**上記を実装する。
 それまでは `docs/deployment.md` §5 のとおり使用量を眺めるだけでよい。
+
+> なお `releaseUpload`(支出の画像が差し替わったとき、古い画像を消す)は `expenses.save` の
+> 安全網としては効いているが、**現状のUIからは到達できない**。読み取り成功後は編集モードに入って
+> ファイル選択が出ず、編集画面(`/expenses/[id]/edit`)にも画像の差し替えUIが無いため。
 
 ### 表示速度のローカル実測(2026-07-27 / 本番ビルド + localhost)
 

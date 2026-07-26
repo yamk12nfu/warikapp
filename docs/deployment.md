@@ -23,7 +23,7 @@
 
 **Clerkの本番インスタンスは、自分が所有するドメインが必須**。Clerkのダッシュボードが指示する
 CNAMEレコードを自分で追加する必要があるため、`*.vercel.app` のような借り物のドメインでは作れない。
-Vercel側にもそのドメインを追加する(§3-2)。
+Vercel側にもそのドメインを追加する(§3-3)。
 
 **開発インスタンス(`pk_test_...`)のまま公開するのは避けること。** Clerkは開発インスタンスを
 「本番のワークロードには適さない」と明言していて、理由はユーザー数上限(100)だけではない:
@@ -55,10 +55,11 @@ DNSの反映待ちを除いて 1〜1.5時間。DNSを待つ場合はそこで一
 §1-2 Clerk Domains にドメイン登録 → CNAMEをDNSに追加(反映待ち)
 §1-3 Clerk でリダイレクトURIを表示 → Google Cloud で OAuthクライアント作成 → Clerkに貼る
 §1-4 JWTテンプレート convex を作成 → Issuer URL を控える
-§1-5 Clerk で「Deploy certificates」を押して本番インスタンスを有効化
-§1-6 pk_live / sk_live を控える
+§1-5 Allowed Subdomains を絞る
+§1-6 Clerk で「Deploy certificates」を押して本番インスタンスを有効化
+§1-7 pk_live / sk_live を控える
 §2   Convex prod に環境変数を登録
-§3   Vercel に Import → ドメイン追加 → 環境変数 → Deploy
+§3   Vercel に Import(環境変数3つ)→ Deploy → ドメイン追加 → 許可オリジンを足して再デプロイ
 §4   ローカルでの事前確認(§3 の前にやってもよい)
 ```
 
@@ -80,12 +81,19 @@ DNSの反映待ちを除いて 1〜1.5時間。DNSを待つ場合はそこで一
 
 1. Clerk Dashboard → **Domains**
 2. 使うドメイン(例: `warikapp.example.com`)を入力
-3. 表示されるCNAMEレコード(5件前後。`clerk`, `accounts`, `clkmail`, `clk._domainkey` など)を
+3. **サブドメインを入れた場合、Clerkは「Primary application か Secondary application か」を聞いてくる。**
+   どちらを選ぶかでClerk基盤のホスト名が変わる(`clerk.example.com` になるか
+   `clerk.warikapp.example.com` になるか)。**どちらでも動く**が、以降の手順で使う
+   リダイレクトURIとIssuer URLは**必ずClerkの画面に出ている実物をコピーする**こと
+   (この手順書の `clerk.<あなたのドメイン>` はあくまで例)
+4. 表示されるCNAMEレコード(5件前後。`clerk`, `accounts`, `clkmail`, `clk._domainkey` など)を
    **画面に出ているとおりに**ドメインのDNS設定に追加する
-4. Clerkの画面でレコードが緑になるまで待つ
+5. Clerkの画面でレコードが緑になるまで待つ
 
 > ⚠️ Cloudflare をDNSに使っている場合、**プロキシ(オレンジの雲)はOFF**にする。ONだとClerkの
 > 検証が通らない。
+
+> Vercel用のDNSレコード(§3-3)とは別名なので競合しない。両方が要る。
 
 ### 1-3. Google Cloud Console で OAuth クライアントを作る
 
@@ -125,7 +133,22 @@ Clerkに戻る:
    `applicationID: "convex"` と一致している必要がある
 3. 保存し、**Issuer URL**(`https://clerk.<あなたのドメイン>` の形)をコピー → §2 で使う
 
-### 1-5. 証明書をデプロイして本番インスタンスを有効化する
+### 1-5. Allowed Subdomains を絞る
+
+1. Clerk Dashboard(本番インスタンス)→ **Allowed Subdomains**
+2. **Enable allowed subdomains** をONにする
+3. このアプリが使うサブドメインだけを登録する(例: `warikapp`)
+
+**なぜ必要か**: Clerkは既定でルートドメイン配下の**どのサブドメインからでも**Frontend APIへの
+リクエストを許す。同じルートドメインに別のサイト(ブログなど)を置いていて、そちらが乗っ取られると、
+そこからこのアプリの認証フローに手が届く。Clerkも本番では有効化を強く推奨している。
+
+⚠️ **`CLERK_AUTHORIZED_PARTIES`(§3-4)だけでは足りない。** あちらが効くのは Next.js の Proxy を
+通るリクエストだけで、**画面のデータはClerkのJWTを直接Convexへ送る経路で流れている**。
+Convex側(`convex/auth.config.ts`)は Issuer と `applicationID` しか検証しないため、Proxy側の
+検査は迂回できる。Clerk側で塞ぐのがこの設定。
+
+### 1-6. 証明書をデプロイして本番インスタンスを有効化する
 
 1. Clerk Dashboard → **Domains**
 2. DNSレコードがすべて緑になっていることを確認
@@ -133,7 +156,7 @@ Clerkに戻る:
 
 ⚠️ **この操作を飛ばすと本番インスタンスが有効にならない。** DNSを張っただけでは動かない。
 
-### 1-6. 本番APIキーを控える
+### 1-7. 本番APIキーを控える
 
 Clerk Dashboard → **API Keys** → `pk_live_...`(Publishable key)と `sk_live_...`(Secret key)を
 コピー → §3 で使う。
@@ -161,7 +184,7 @@ Clerkの**開発インスタンスは本番URLからでも動く**ので、ド�
 | 本番への移行 | あとからドメインを取って §1 をやり直せる。**そのときユーザーは作り直しになる**(招待からやり直し) |
 
 > **§2 以降では「本番Clerkの値」を「開発Clerkの値」に読み替えること**
-> (Convexのprodには開発ClerkのIssuer URLを入れる)。§1-5 の証明書デプロイは不要。
+> (Convexのprodには開発ClerkのIssuer URLを入れる)。§1-5 / §1-6 は不要。
 >
 > 暫定で始めた場合は、レシートや精算の実データを入れる前にドメインを用意して §1 に移ること。
 > データが増えてからだとユーザーの作り直しが痛くなる。
@@ -212,11 +235,26 @@ npx convex env list --names-only --prod
 
 ## 3. Vercel
 
+> **順序に注意**: 環境変数は Import 画面(Configure Project)で入れられるが、
+> **ドメインはプロジェクトが作られてからでないと追加できない**。
+> `CLERK_AUTHORIZED_PARTIES` は本番URLが確定してから入れるので、最後に足して再デプロイになる。
+>
+> ```
+> 3-1 Import(Configure Project で 3-2 の環境変数を入れてから Deploy)
+> 3-2 環境変数(CLERK_AUTHORIZED_PARTIES を除く3つ)
+> 3-3 Settings → Domains でカスタムドメインを追加
+> 3-4 CLERK_AUTHORIZED_PARTIES を足して再デプロイ
+> 3-5 仕上げ
+> ```
+
 ### 3-1. Import
 
 1. [Vercel](https://vercel.com/new) → GitHub の `warikapp` リポジトリを Import
 2. Framework Preset は `Next.js` が自動検出される(そのままでよい)
-3. ⚠️ **Build Command は触らない**。リポジトリの `vercel.json` に書いてあり、そちらが
+3. **Configure Project の画面で §3-2 の環境変数3つを入れてから** Deploy を押す
+   (入れずにDeployすると `CONVEX_DEPLOY_KEY` が無くて初回ビルドが落ちる。落ちても
+   あとから環境変数を入れて再デプロイすれば直る)
+4. ⚠️ **Build Command は触らない**。リポジトリの `vercel.json` に書いてあり、そちらが
    ダッシュボードの設定より優先される:
 
    ```json
@@ -234,31 +272,15 @@ npx convex env list --names-only --prod
      事故を、設定ミスがあっても起きないようにするため。プレビュー環境が欲しくなったら
      Convex側でプレビュー用デプロイキーを発行したうえで、この行を消す
 
-### 3-2. カスタムドメインを追加する
+### 3-2. 環境変数(Import時に入れる3つ)
 
-**Clerk本番インスタンスを使うなら必須。** `*.vercel.app` のままでは本番の
-Clerkキーが使えない(§0)。
-
-1. Vercel の **Settings → Domains** → §1-2 で Clerk に登録したのと**同じドメイン**を追加
-2. 表示されたDNSレコード(A または CNAME)をドメインのDNS設定に追加する
-   - Clerkが要求する `clerk.` などのサブドメイン用CNAMEとは**別のレコード**。両方が要る
-3. Vercelの画面でドメインが有効になるまで待つ
-
-### 3-3. 環境変数
-
-Vercel の **Settings → Environment Variables** に3つ(+推奨1つ)。
+Import画面の **Environment Variables**(あとから足すなら Settings → Environment Variables)。
 
 | 変数 | 値 | Environment |
 |---|---|---|
 | `CONVEX_DEPLOY_KEY` | Convex Dashboard → **Production** → Settings → **Deploy Keys** → *Generate Production Deploy Key* | ⚠️ **Production だけにチェック** |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_...`(§1-6) | Production |
-| `CLERK_SECRET_KEY` | `sk_live_...`(§1-6) | Production |
-| `CLERK_AUTHORIZED_PARTIES`(推奨) | 本番URL(例: `https://warikapp.example.com`。複数あればカンマ区切り) | Production |
-
-> `CLERK_AUTHORIZED_PARTIES` を入れると、`proxy.ts` が「このオリジンから来たトークンだけを
-> 受け付ける」ようClerkに指示する。指定しないと、同じルートドメイン配下の別サブドメインに
-> 渡ったcookieでも検証が通ってしまう(cookie leaking → CSRF)。未設定でも動くが、
-> 本番では入れておく。**末尾スラッシュは付けない**。
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_...`(§1-7) | Production |
+| `CLERK_SECRET_KEY` | `sk_live_...`(§1-7) | Production |
 
 > ⚠️ Vercelで環境変数を足すと **既定で Production / Preview / Development の3つ全部にチェックが入る**。
 > `CONVEX_DEPLOY_KEY` は必ず Production だけに絞る(`ignoreCommand` で二重に防いではいるが、
@@ -268,10 +290,37 @@ Vercel の **Settings → Environment Variables** に3つ(+推奨1つ)。
 > 本番のURL(`https://accurate-capybara-527.convex.cloud`)を自動で渡す。手で入れると、将来
 > デプロイ先を変えたときに古い値が残って「本番なのに開発のデータが見える」状態になる。
 
-### 3-4. Deploy
+Deployが成功すると、ビルドログに `Deploying to https://accurate-capybara-527.convex.cloud` の
+ような行が出る。これが出ていれば Convex 側も一緒にデプロイされている。
 
-**Deploy** を押す。ビルドログに `Deploying to https://accurate-capybara-527.convex.cloud` のような
-行が出れば Convex 側も一緒に出ている。
+### 3-3. カスタムドメインを追加する
+
+**Clerk本番インスタンスを使うなら必須。** `*.vercel.app` のままでは本番のClerkキーが使えない(§0)。
+
+1. Vercel の **Settings → Domains** → §1-2 で Clerk に登録したのと**同じドメイン**を追加
+2. 表示されたDNSレコード(A または CNAME)をドメインのDNS設定に追加する
+   - Clerkが要求する `clerk.` などのサブドメイン用CNAMEとは**別名のレコード**。競合しないので両方入れる
+3. Vercelの画面でドメインが有効になるまで待つ
+
+### 3-4. `CLERK_AUTHORIZED_PARTIES` を足して再デプロイ
+
+本番URLが確定してから入れる。
+
+| 変数 | 値 | Environment |
+|---|---|---|
+| `CLERK_AUTHORIZED_PARTIES` | 本番URL(例: `https://warikapp.example.com`。複数あればカンマ区切り) | Production |
+
+入れたら **Deployments → 最新 → Redeploy**。
+
+> これを入れると `proxy.ts` が「このオリジンから来たトークンだけを受け付ける」ようClerkに指示する。
+> Clerkは `azp` と**完全一致**で判定するので、表記ゆれがあると**全員ログインできなくなる**。
+> `proxy.ts` 側でURLとして解釈してオリジンに正規化している(末尾スラッシュ・大文字・`:443` は吸収される)
+> が、**URLとして解釈できない値(`example.com` のようにスキームが無いもの)は無視される**。
+> 必ず `https://` から書くこと。設定後は必ずログインし直して確認する。
+
+> ⚠️ **これだけでは足りない。** 効くのは Next.js の Proxy を通るリクエストだけで、画面のデータは
+> ClerkのJWTを直接Convexへ送る経路で流れている。サブドメインからの迂回は
+> **Clerkの Allowed Subdomains(§1-5)** で塞ぐこと。
 
 ### 3-5. デプロイ後の仕上げ
 
@@ -366,8 +415,8 @@ Limits でワークスペースの月額上限を設定する。
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| Vercelのビルドが `CONVEX_DEPLOY_KEY` 関連で落ちる | キーが未設定、またはEnvironmentがProductionになっていない | §3-3 |
-| ビルドは通るが、開いたら画面が真っ白 | `NEXT_PUBLIC_CONVEX_URL` を手で入れて古い値を指している | Vercelから消して再デプロイ(§3-3) |
+| Vercelのビルドが `CONVEX_DEPLOY_KEY` 関連で落ちる | キーが未設定、またはEnvironmentがProductionになっていない | §3-2 |
+| ビルドは通るが、開いたら画面が真っ白 | `NEXT_PUBLIC_CONVEX_URL` を手で入れて古い値を指している | Vercelから消して再デプロイ(§3-2) |
 | Convexのデプロイが auth.config で落ちる | prod に `CLERK_JWT_ISSUER_DOMAIN` が無い | §2 |
 | ログイン画面までは出るが Google を押すとエラー | GoogleのOAuthクライアントのリダイレクトURIがClerkのものと一致していない | §1-3。**貼り直す**(手打ちしない) |
 | 自分はログインできるがパートナーができない | OAuth同意画面が「テスト」のままで、相手がテストユーザーに入っていない | §1-3 の2 |
@@ -376,4 +425,6 @@ Limits でワークスペースの月額上限を設定する。
 | レシート読み取りが「AIモデル『…』が使えません」 | `RECEIPT_AI_MODEL` の綴り間違い、またはそのキーで使えないモデル | §2。消せばコード側の既定に戻る |
 | レシート読み取りが「AIの利用上限に達したか、残高が不足」 | Gemini側のレート制限か残高切れ | §5 |
 | PRを出すとVercelのチェックが「Skipped」になる | `ignoreCommand` の意図どおりの動作 | 問題なし(§3-1) |
+| **昨日まで入れていたのに急に全員ログインできなくなった** | `CLERK_AUTHORIZED_PARTIES` の値が本番URLと一致していない(スキーム無し・別ドメイン・タイポ)。Clerkは完全一致で判定する | §3-4。切り分けは変数を消して再デプロイ(消せば検査なしに戻る) |
+| ログインは通るのに、別サブドメインからもデータが取れてしまう | Clerkの **Allowed Subdomains** が未設定。`CLERK_AUTHORIZED_PARTIES` はConvexへの直接アクセスには効かない | §1-5 |
 | 本番でエラーが「Server Error」としか出ない | 素の `Error` を投げている箇所がある | 画面に出す文言は `ConvexError` で投げる(計画書 §12-12) |

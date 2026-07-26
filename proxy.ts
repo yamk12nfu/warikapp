@@ -11,10 +11,44 @@ const isPublicPath = (pathname: string) =>
 // Vercelの環境変数 CLERK_AUTHORIZED_PARTIES に本番URLを入れる
 // (複数あればカンマ区切り。例: "https://warikapp.example.com")。
 // 未設定なら指定なし = 従来どおりの挙動。開発では設定しなくてよい。
-const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter((origin) => origin !== "");
+//
+// ⚠️ これが効くのは **このProxyを通るリクエストだけ**。画面のデータは
+// ConvexProviderWithClerk が Clerk のJWTを直接Convexへ送る経路で流れており、
+// Convex側(convex/auth.config.ts)は issuer と applicationID しか検証しない
+// ため、azp の検査は掛からない。サブドメインからの迂回を塞ぐには
+// **Clerkダッシュボードの Allowed Subdomains** も設定すること
+// (docs/deployment.md §1-5)。ここは多層防御の1枚目という位置づけ。
+const authorizedParties = parseAuthorizedParties(
+  process.env.CLERK_AUTHORIZED_PARTIES,
+);
+
+// Clerkは azp と**完全一致**で判定する(@clerk/backend の verifyToken)。
+// 末尾スラッシュ・大文字・明示的な :443 のような表記ゆれがあるだけで
+// 誰もログインできなくなるので、URLとして解釈してオリジンに正規化する。
+// 解釈できない値は捨てるが、黙って落とすと「設定したのに効いていない」に
+// 気づけないのでログに残す(Vercelのビルド/実行ログに出る)。
+function parseAuthorizedParties(raw: string | undefined): string[] {
+  const entries = (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  const origins: string[] = [];
+  for (const entry of entries) {
+    try {
+      origins.push(new URL(entry).origin);
+    } catch {
+      console.warn(
+        `CLERK_AUTHORIZED_PARTIES: URLとして解釈できない値を無視しました: ${entry}`,
+      );
+    }
+  }
+  if (entries.length > 0 && origins.length === 0) {
+    console.warn(
+      "CLERK_AUTHORIZED_PARTIES: 有効なオリジンが1つもないため、許可オリジンの検査を行いません",
+    );
+  }
+  return origins;
+}
 
 export default clerkMiddleware(
   async (auth, req) => {
