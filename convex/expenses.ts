@@ -222,10 +222,12 @@ function toListRow(expense: Doc<"expenses">) {
 
 // ホーム(S-003)の支出一覧。購入日の降順で20件ずつページングする。
 // フィルタでインデックスを使い分ける:
-//   "unsettled" = by_coupleId_and_settlementId_and_purchasedAt(未精算をインデックス範囲で絞る)
-//   "all"       = by_coupleId_and_purchasedAt
-// 論理削除の除外は .filter() で行う。ページを取得したあとに配列から捨てると
-// 1ページの件数が削除済みのぶんだけ目減りするため、ページング前に適用する。
+//   "unsettled" = by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt
+//                 (未精算と未削除の両方をインデックス範囲で絞る)
+//   "all"       = by_coupleId_and_purchasedAt(論理削除の除外は .filter())
+// .filter() は両方に掛けたままにする("all" に必要で、"unsettled" では冗長なだけ)。
+// ページを取得したあとに配列から捨てると1ページの件数が削除済みのぶんだけ
+// 目減りするため、除外はページング前に適用する。
 // ドラフト(未確定)も含めて返し、行にバッジを出す(除外すると確定させる導線が
 // 画面から消えてしまう。差額計算からの除外は Phase 7 の精算側で行う)。
 export const list = query({
@@ -240,8 +242,13 @@ export const list = query({
       args.filter === "unsettled"
         ? ctx.db
             .query("expenses")
-            .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
-              q.eq("coupleId", member.coupleId).eq("settlementId", undefined),
+            .withIndex(
+              "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+              (q) =>
+                q
+                  .eq("coupleId", member.coupleId)
+                  .eq("settlementId", undefined)
+                  .eq("deletedAt", undefined),
             )
         : ctx.db
             .query("expenses")

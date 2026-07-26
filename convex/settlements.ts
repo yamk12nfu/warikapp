@@ -15,12 +15,15 @@ const MAX_MEMO_LENGTH = 100;
 // 1回の精算が対象にする未精算支出の上限。
 // ガイドラインは .collect()(件数無制限の読み取り)を禁じている。かといって
 // 上限超過をエラーにすると、差額が表示できないうえ精算もできない詰みになるため、
-// 「古い順に MAX_UNSETTLED_EXPENSES 件までを今回の精算対象として切り出し、
+// 「古い順に MAX_UNSETTLED_EXPENSES 件までを1回の精算の対象として切り出し、
 // あふれたぶんは次回の精算に回す」方針にした(truncated で画面に伝える)。
-// 500件とした根拠: 2人世帯で数ヶ月ぶんの支出に相当し実質到達しない件数であること、
-// かつ execute が同数の patch を1トランザクションで行っても、Convexの
-// 読み書き上限(16,384件 / 8MB)に対して十分な余裕があること。
-const MAX_UNSETTLED_EXPENSES = 500;
+// 200件とした根拠は読み取りバイト数。支出1件は最大でも
+// 100品目 × (品目名50文字 + 金額・数量 + 2名の負担割合) ≒ 35KB(expenses.ts の
+// MAX_ITEMS などの上限から算出)なので、200件でも約7MBとConvexの
+// トランザクション読み取り上限(16MiB)に収まる。件数だけ見て500件などにすると、
+// 最大サイズの支出が並んだ最悪ケースで上限を超えて query ごと落ちる。
+// 2人世帯なら200件は2ヶ月以上ぶんの支出に相当し、実運用では到達しない。
+const MAX_UNSETTLED_EXPENSES = 200;
 
 const ERR_NO_PARTNER = "パートナーが参加してから精算してください";
 const ERR_DRAFT_REMAINS = "未確定のレシートがあります"; // V-701
@@ -29,6 +32,11 @@ const ERR_MEMO_TOO_LONG = "メモは100文字以内で入力してください";
 // 他世帯の精算を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "精算が見つかりません";
 const ERR_NOT_LATEST = "直近の精算のみ取り消せます";
+const ERR_CANCEL_MISMATCH =
+  "精算の対象が変わっているため取り消せません。時間をおいて再度お試しください";
+// V-702: 確認画面に出ていた差額と、実行時にサーバーが計算した差額が違う場合
+const ERR_AMOUNT_CHANGED =
+  "精算対象が変わりました。内容を確認して、もう一度お試しください";
 
 // 自分以外の世帯メンバー。招待前(1名)の世帯では null
 async function findPartner(
@@ -45,6 +53,8 @@ async function findPartner(
 // 未精算(settlementId 未設定)・未削除の支出を購入日の古い順に読む。
 // 上限の扱いは MAX_UNSETTLED_EXPENSES のコメントを参照。currentBalance と
 // execute が同じ集合を見るよう、取得条件と並び順はこの関数に集約する。
+// 論理削除の除外は .filter() ではなくインデックス範囲で行う(.filter() だと
+// 走査した行は読み取りに数えられるため、削除済みが溜まるほど走査量が増える)。
 async function collectUnsettled(
   ctx: QueryCtx | MutationCtx,
   coupleId: Id<"couples">,
@@ -52,10 +62,14 @@ async function collectUnsettled(
   // 上限+1件読んで「まだ続きがあるか」を判定する
   const rows = await ctx.db
     .query("expenses")
-    .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
-      q.eq("coupleId", coupleId).eq("settlementId", undefined),
+    .withIndex(
+      "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+      (q) =>
+        q
+          .eq("coupleId", coupleId)
+          .eq("settlementId", undefined)
+          .eq("deletedAt", undefined),
     )
-    .filter((q) => q.eq(q.field("deletedAt"), undefined))
     .take(MAX_UNSETTLED_EXPENSES + 1);
 
   const truncated = rows.length > MAX_UNSETTLED_EXPENSES;
@@ -163,8 +177,13 @@ function normalizeMemo(raw: string | undefined): string | undefined {
 // 「対象の確定 → 精算レコード作成 → 支出への紐付け」を1つの関数に素直に書ける。
 // V-702(二重実行防止): 先に走ったほうが対象支出すべてに settlementId を付けるため、
 // 後続は対象0件になって ERR_NO_TARGET で失敗する(UI側でもボタンを無効化する)。
+//
+// expectedAmount は「確認画面に出ていた差額」。金額の決定には使わず(差額は必ず
+// サーバー側で計算し直す)、一致しなければ実行を中止するためだけに使う。
+// 確認直後にパートナーが支出を追加・変更した場合に、ユーザーが見ていない金額で
+// 精算してしまうのを防ぐ(要件 V-702「競合時は再計算して確認画面を再表示」)。
 export const execute = mutation({
-  args: { memo: v.optional(v.string()) },
+  args: { memo: v.optional(v.string()), expectedAmount: v.number() },
   handler: async (ctx, args): Promise<Id<"settlements">> => {
     const member = await requireMember(ctx);
     const memo = normalizeMemo(args.memo);
@@ -187,6 +206,11 @@ export const execute = mutation({
 
     // クライアントの表示値は信用せず、サーバー側で差額を計算し直す
     const balance = calcNetBalance(member._id, partner._id, expenses);
+
+    // 計算し直した結果が確認画面の表示と違う = 確認後に対象が変わった(V-702)
+    if (balance.amount !== args.expectedAmount) {
+      throw new ConvexError(ERR_AMOUNT_CHANGED);
+    }
 
     // 差額0でも「ここで区切る」ことに意味があるので実行を許す。方向に意味が
     // ないため、実行者 → パートナー の向きで記録する
@@ -253,15 +277,27 @@ export const cancel = mutation({
       throw new ConvexError(ERR_NOT_LATEST);
     }
 
-    // 1回の精算が抱える件数は execute 側の上限と同じなので、同じ値で有界に読む。
-    // 論理削除済みも含めて外す(精算済みは削除できないので通常は存在しないが、
-    // 取りこぼすと settlementId だけが残った孤児レコードになる)
+    // 1回の精算が抱える件数は execute 側の上限と同じなので、同じ値で有界に読む
     const settled = await ctx.db
       .query("expenses")
-      .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
-        q.eq("coupleId", member.coupleId).eq("settlementId", settlement._id),
+      .withIndex(
+        "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+        (q) =>
+          q
+            .eq("coupleId", member.coupleId)
+            .eq("settlementId", settlement._id)
+            .eq("deletedAt", undefined),
       )
       .take(MAX_UNSETTLED_EXPENSES);
+
+    // 精算時に数えた件数と一致しなければ、この取り消しでは戻しきれない支出が
+    // ある(= settlementId だけが残った孤児レコードを作る)。精算済み支出は
+    // 編集も削除もできないので通常は起こりえないが、取りこぼすくらいなら
+    // 取り消し全体を失敗させる
+    if (settled.length !== settlement.expenseCount) {
+      throw new ConvexError(ERR_CANCEL_MISMATCH);
+    }
+
     for (const expense of settled) {
       // undefined を渡すとフィールドが消える = 未精算に戻る
       await ctx.db.patch("expenses", expense._id, { settlementId: undefined });

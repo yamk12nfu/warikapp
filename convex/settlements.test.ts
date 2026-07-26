@@ -90,6 +90,22 @@ async function addExpense(
   });
 }
 
+// 精算を実行する。画面と同じく「いま表示されている差額」を expectedAmount として
+// 渡す(V-702のガード)。ずれを試したいテストは expectedAmount を明示する
+async function settle(
+  t: ReturnType<typeof convexTest>,
+  who: typeof ALICE,
+  overrides: { memo?: string; expectedAmount?: number } = {},
+) {
+  const balance = await t
+    .withIdentity(who)
+    .query(api.settlements.currentBalance, {});
+  return await t.withIdentity(who).mutation(api.settlements.execute, {
+    memo: overrides.memo,
+    expectedAmount: overrides.expectedAmount ?? balance.amount,
+  });
+}
+
 const listArgs = (numItems = 20, cursor: string | null = null) => ({
   paginationOpts: { numItems, cursor },
 });
@@ -164,7 +180,7 @@ describe("settlements.currentBalance", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {});
+    await settle(t, ALICE);
 
     // 精算後は差額0に戻る
     expect(
@@ -291,9 +307,7 @@ describe("settlements.execute", () => {
       price: 2000,
     });
 
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, { memo: "  6月分  " });
+    const settlementId = await settle(t, ALICE, { memo: "  6月分  " });
 
     const settlement = await t.run(async (ctx) =>
       ctx.db.get("settlements", settlementId),
@@ -320,9 +334,7 @@ describe("settlements.execute", () => {
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 3000 });
     // execute は金額を引数に取らない(差額を渡す余地がない)
-    const settlementId = await t
-      .withIdentity(BOB)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, BOB);
     const settlement = await t.run(async (ctx) =>
       ctx.db.get("settlements", settlementId),
     );
@@ -333,6 +345,26 @@ describe("settlements.execute", () => {
     expect(settlement!.settledBy).toBe(members.partner._id);
   });
 
+  test("V-702: 確認画面の差額と食い違ったら実行しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+
+    // 確認画面が2,500円を出したあとに相手が支出を足した状況を、
+    // 古い表示値(2,500円)を渡すことで再現する
+    await addExpense(t, members, ALICE, { price: 3000 });
+    await expect(
+      settle(t, ALICE, { expectedAmount: 2500 }),
+    ).rejects.toThrow("精算対象が変わりました");
+
+    // 精算レコードは作られず、支出も未精算のまま
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(balance.amount).toBe(4000);
+    expect(balance.expenseCount).toBe(2);
+  });
+
   test("V-701: ドラフトが残っていたら拒否する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -340,7 +372,7 @@ describe("settlements.execute", () => {
     await addExpense(t, members, ALICE, { status: "draft" });
 
     await expect(
-      t.withIdentity(ALICE).mutation(api.settlements.execute, {}),
+      settle(t, ALICE),
     ).rejects.toThrow("未確定のレシートがあります");
   });
 
@@ -348,7 +380,7 @@ describe("settlements.execute", () => {
     const t = convexTest(schema, modules);
     await setupCouple(t);
     await expect(
-      t.withIdentity(ALICE).mutation(api.settlements.execute, {}),
+      settle(t, ALICE),
     ).rejects.toThrow("精算対象がありません");
   });
 
@@ -357,9 +389,9 @@ describe("settlements.execute", () => {
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
 
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {});
+    await settle(t, ALICE);
     await expect(
-      t.withIdentity(ALICE).mutation(api.settlements.execute, {}),
+      settle(t, ALICE),
     ).rejects.toThrow("精算対象がありません");
 
     const settlements = await t
@@ -377,9 +409,7 @@ describe("settlements.execute", () => {
       price: 4000,
     });
 
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
     const settlement = await t.run(async (ctx) =>
       ctx.db.get("settlements", settlementId),
     );
@@ -396,14 +426,10 @@ describe("settlements.execute", () => {
     await addExpense(t, members, ALICE);
 
     await expect(
-      t
-        .withIdentity(ALICE)
-        .mutation(api.settlements.execute, { memo: "あ".repeat(101) }),
+      settle(t, ALICE, { memo: "あ".repeat(101) }),
     ).rejects.toThrow("メモは100文字以内で入力してください");
 
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, { memo: "   " });
+    const settlementId = await settle(t, ALICE, { memo: "   " });
     const settlement = await t.run(async (ctx) =>
       ctx.db.get("settlements", settlementId),
     );
@@ -419,9 +445,7 @@ describe("settlements.execute", () => {
       .withIdentity(ALICE)
       .mutation(api.expenses.remove, { expenseId: removedId });
 
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
     const settlement = await t.run(async (ctx) =>
       ctx.db.get("settlements", settlementId),
     );
@@ -440,7 +464,7 @@ describe("settlements.execute", () => {
     const other = await setupCouple(t, CAROL, identity("dave"));
     const otherExpenseId = await addExpense(t, other, CAROL, { price: 8000 });
 
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {});
+    await settle(t, ALICE);
 
     const otherExpense = await t.run(async (ctx) =>
       ctx.db.get("expenses", otherExpenseId),
@@ -454,18 +478,62 @@ describe("settlements.execute", () => {
       .withIdentity(ALICE)
       .mutation(api.couples.createCouple, { displayName: "あきこ" });
     await expect(
-      t.withIdentity(ALICE).mutation(api.settlements.execute, {}),
+      settle(t, ALICE),
     ).rejects.toThrow("パートナーが参加してから精算してください");
+  });
+
+  test("上限を超える未精算支出は古い順に切り出し、残りは次回に回す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    // 上限(200件)+1件を直接insertする。mutation経由だと時間がかかるうえ、
+    // ここで見たいのは収集側の上限の振る舞いだけ
+    const coupleId = await t.run(async (ctx) => {
+      const self = await ctx.db.get("members", members.self._id);
+      for (let i = 0; i < 201; i++) {
+        await ctx.db.insert("expenses", {
+          coupleId: self!.coupleId,
+          paidBy: members.self._id,
+          // 購入日の古い順に切り出されることを確かめるため日付をずらす
+          purchasedAt: `2026-01-${String((i % 28) + 1).padStart(2, "0")}`,
+          totalAmount: 1000,
+          items: [
+            { name: "食材", price: 1000, quantity: 1, shares: split(members) },
+          ],
+          source: "manual",
+          status: "confirmed",
+        });
+      }
+      return self!.coupleId;
+    });
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(balance.truncated).toBe(true);
+    expect(balance.expenseCount).toBe(200);
+    expect(balance.amount).toBe(200 * 500);
+
+    // 1回目の精算は200件。残り1件は未精算のまま次回に回る
+    await settle(t, ALICE);
+    const after = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(after.truncated).toBe(false);
+    expect(after.expenseCount).toBe(1);
+    expect(after.amount).toBe(500);
+    expect(coupleId).toBeDefined();
   });
 
   test("未ログイン・世帯未所属では精算できない", async () => {
     const t = convexTest(schema, modules);
     await setupCouple(t);
-    await expect(t.mutation(api.settlements.execute, {})).rejects.toThrow(
-      "ログインしてください",
-    );
     await expect(
-      t.withIdentity(CAROL).mutation(api.settlements.execute, {}),
+      t.mutation(api.settlements.execute, { expectedAmount: 0 }),
+    ).rejects.toThrow("ログインしてください");
+    await expect(
+      t
+        .withIdentity(CAROL)
+        .mutation(api.settlements.execute, { expectedAmount: 0 }),
     ).rejects.toThrow("世帯に参加してください");
   });
 });
@@ -475,16 +543,12 @@ describe("settlements.list", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, { memo: "1回目" });
+    await settle(t, ALICE, { memo: "1回目" });
     await addExpense(t, members, BOB, {
       paidBy: members.partner._id,
       price: 3000,
     });
-    await t
-      .withIdentity(BOB)
-      .mutation(api.settlements.execute, { memo: "2回目" });
+    await settle(t, BOB, { memo: "2回目" });
 
     const result = await t
       .withIdentity(ALICE)
@@ -505,7 +569,7 @@ describe("settlements.list", () => {
     const members = await setupCouple(t);
     for (const price of [1000, 2000, 3000]) {
       await addExpense(t, members, ALICE, { price });
-      await t.withIdentity(ALICE).mutation(api.settlements.execute, {});
+      await settle(t, ALICE);
     }
 
     const first = await t
@@ -524,11 +588,11 @@ describe("settlements.list", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {});
+    await settle(t, ALICE);
 
     const other = await setupCouple(t, CAROL, identity("dave"));
     await addExpense(t, other, CAROL, { price: 8000 });
-    await t.withIdentity(CAROL).mutation(api.settlements.execute, {});
+    await settle(t, CAROL);
 
     const result = await t
       .withIdentity(ALICE)
@@ -554,9 +618,7 @@ describe("settlements.cancel", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
 
     await t
       .withIdentity(BOB)
@@ -581,13 +643,9 @@ describe("settlements.cancel", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    const older = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const older = await settle(t, ALICE);
     await addExpense(t, members, ALICE, { price: 3000 });
-    const latest = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const latest = await settle(t, ALICE);
 
     await expect(
       t
@@ -612,13 +670,9 @@ describe("settlements.cancel", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     const settledId = await addExpense(t, members, ALICE, { price: 5000 });
-    const firstSettlement = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const firstSettlement = await settle(t, ALICE);
     await addExpense(t, members, ALICE, { price: 3000 });
-    const latest = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const latest = await settle(t, ALICE);
 
     await t
       .withIdentity(ALICE)
@@ -630,13 +684,36 @@ describe("settlements.cancel", () => {
     expect(stillSettled!.settlementId).toBe(firstSettlement);
   });
 
+  test("対象支出を戻しきれない場合は取り消し全体を失敗させる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+
+    // 精算済み支出が1件消えた状況(通常は起こりえない)を作る
+    await t.run(async (ctx) => {
+      await ctx.db.patch("settlements", settlementId, { expenseCount: 2 });
+    });
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.settlements.cancel, { settlementId }),
+    ).rejects.toThrow("精算の対象が変わっているため取り消せません");
+
+    // 中途半端に戻さず、精算レコードも支出もそのまま
+    expect(
+      await t.run(async (ctx) => ctx.db.get("settlements", settlementId)),
+    ).not.toBeNull();
+    const expense = await t.run(async (ctx) =>
+      ctx.db.get("expenses", expenseId),
+    );
+    expect(expense!.settlementId).toBe(settlementId);
+  });
+
   test("他世帯の精算は取り消せない", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
 
     await setupCouple(t, CAROL, identity("dave"));
     await expect(
@@ -650,9 +727,7 @@ describe("settlements.cancel", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
     await t
       .withIdentity(ALICE)
       .mutation(api.settlements.cancel, { settlementId });
@@ -666,9 +741,7 @@ describe("settlements.cancel", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
 
     await expect(
       t.mutation(api.settlements.cancel, { settlementId }),
@@ -684,9 +757,7 @@ describe("精算済み支出の保護(Phase 6のガード再確認)", () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {});
+    const settlementId = await settle(t, ALICE);
 
     await expect(
       t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId }),

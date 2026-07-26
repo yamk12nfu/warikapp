@@ -127,6 +127,13 @@ export default function HomeClient() {
           <>
             <p className="text-2xl font-bold">{formatYen(balance.amount)}</p>
             <p className="mt-1 text-xs text-gray-500">{balanceLabel()}</p>
+            {/* 1回の精算で扱える件数を超えている = ここの金額は一部のぶんだけ */}
+            {balance.truncated && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                未精算の支出が多いため、古い{balance.expenseCount}
+                件ぶんの差額を表示しています
+              </p>
+            )}
           </>
         )}
       </Link>

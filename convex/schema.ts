@@ -56,10 +56,14 @@ export default defineSchema({
   })
     // 「すべて」表示用: 世帯内を購入日順に読む
     .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
-    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
-    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+    // 「未精算のみ」(デフォルト表示)と精算対象の収集用。
+    // deletedAt もインデックスに含める: 論理削除された支出は settlementId が
+    // 未設定のまま永久にこの範囲に残るため、.filter() で落とす作りだと
+    // 削除が積み上がるほど走査行数が増えていく(取得件数は有界でも走査は有界でない)
+    .index("by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt", [
       "coupleId",
       "settlementId",
+      "deletedAt",
       "purchasedAt",
     ]),
 

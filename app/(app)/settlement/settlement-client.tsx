@@ -37,10 +37,18 @@ export default function SettlementClient() {
   }, [isAuthenticated, member, router]);
 
   async function handleExecute() {
+    if (pending === undefined) {
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
-      await execute({ memo: memo.trim() === "" ? undefined : memo });
+      await execute({
+        memo: memo.trim() === "" ? undefined : memo,
+        // 画面に出ている差額。サーバーは金額の決定にはこれを使わず、
+        // 計算し直した差額と食い違ったら実行を中止する(V-702)
+        expectedAmount: pending.amount,
+      });
       // 記録できたことが分かるよう履歴へ送る。ホームの差額は0に戻る
       router.replace("/settlements");
       // 成功時は submitting を解除しない(V-702: 遷移前の二重送信を防ぐ)

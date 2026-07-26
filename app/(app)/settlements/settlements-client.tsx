@@ -89,12 +89,17 @@ export default function SettlementsClient() {
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
   }
+  // 精算の方向(誰から誰へ)の表示に household の名前が要る。先に一覧だけ出すと
+  // 「メンバー → メンバー」と表示されてしまうため、揃うまで待つ
+  if (household === undefined) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
+  }
 
   const memberName = (memberId: string) => {
-    if (memberId === household?.self._id) {
+    if (memberId === household.self._id) {
       return "あなた";
     }
-    if (memberId === household?.partner?._id) {
+    if (memberId === household.partner?._id) {
       return household.partner.displayName;
     }
     return "メンバー";
