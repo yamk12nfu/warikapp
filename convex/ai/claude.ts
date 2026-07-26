@@ -11,7 +11,12 @@ import {
   type ReceiptParser,
 } from "./types";
 import { PROMPT, ReceiptSchema } from "./schema";
-import { configErrorMessage, requireApiKey, resolveModel } from "./config";
+import {
+  configErrorMessage,
+  requireApiKey,
+  resolveModel,
+  withCause,
+} from "./config";
 
 // Claude によるレシート読み取り(F-003)。
 // 構造化出力(output_config.format)を使うので、JSONの手パースもリトライ用の
@@ -99,7 +104,8 @@ export class ClaudeReceiptParser implements ReceiptParser {
           this.modelId(),
         );
         if (message !== null) {
-          throw new ConvexError(message);
+          // 元のAPIエラーは cause に残す(ログでステータスと文言を出すため)
+          throw withCause(new ConvexError(message), caught);
         }
       }
       throw caught;

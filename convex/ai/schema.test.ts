@@ -30,6 +30,17 @@ describe("receiptJsonSchema", () => {
     );
   });
 
+  // 説明が落ちると、購入日が「2026年7月21日」の形で返ってきて静かに捨てられる
+  test("各フィールドの説明がJSON Schemaに載る(AIに渡る)", () => {
+    const properties = jsonSchema.properties as Record<
+      string,
+      { description?: string }
+    >;
+    expect(properties.purchased_at.description).toContain("YYYY-MM-DD");
+    expect(properties.store_name.description).toBeTruthy();
+    expect(properties.total_amount.description).toBeTruthy();
+  });
+
   test("金額と数量は整数として要求する", () => {
     const items = (jsonSchema.properties as Record<string, never>)
       .items as unknown as {

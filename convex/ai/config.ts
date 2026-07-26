@@ -57,6 +57,30 @@ export function configErrorMessage(
   }
 }
 
+// 画面用の文言(ConvexError)に置き換えるときも、元のAPIエラーは cause に残す。
+// 残さないと、ログに出るのが置き換え後の文言だけになり、HTTPステータスや
+// API側の説明が消える(=設定ミスの切り分けが効かなくなる)。
+export function withCause<T extends Error>(error: T, cause: unknown): T {
+  error.cause = cause;
+  return error;
+}
+
+// ログ用のエラー説明。種別・HTTPステータス・API側の文言(先頭のみ)を出す。
+// どれもリクエストの作り方に対するAPIの説明で、レシートの中身は含まれない。
+// 画面用に置き換えたエラーは cause 側に元の情報があるので1段だけ辿る。
+export function describeError(error: unknown, unwrapCause = true): string {
+  if (!(error instanceof Error)) {
+    return "error=unknown";
+  }
+  const status = (error as { status?: unknown }).status;
+  const statusPart = typeof status === "number" ? ` status=${status}` : "";
+  const base = `error=${error.name}${statusPart} message=${error.message.slice(0, 300)}`;
+  if (unwrapCause && error.cause instanceof Error) {
+    return `${base} cause=(${describeError(error.cause, false)})`;
+  }
+  return base;
+}
+
 // APIキーの未設定は「読み取り失敗」で片付けず、何を設定すればよいかを出す
 // (このアプリの利用者=設定する本人なので、伏せる意味がない)。
 export function requireApiKey(

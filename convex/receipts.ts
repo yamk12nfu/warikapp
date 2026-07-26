@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { createReceiptParser } from "./ai";
 import { ReceiptSchemaError, type ReceiptMediaType } from "./ai/types";
+import { describeError } from "./ai/config";
 import { RECEIPT_PARSE_LIMIT_NAME, rateLimiter } from "./rateLimits";
 import { todayInJst } from "../lib/date";
 import { normalizeParsedReceipt, type NormalizedReceipt } from "../lib/receipt";
@@ -45,17 +46,6 @@ const ALLOWED_MEDIA_TYPES: ReceiptMediaType[] = [
   "image/gif",
   "image/webp",
 ];
-
-// ログ用のエラー説明。種別・HTTPステータス・API側の文言(先頭のみ)を出す。
-// どれもリクエストの作り方に対するAPIの説明で、レシートの中身は含まれない。
-function describeError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "error=unknown";
-  }
-  const status = (error as { status?: unknown }).status;
-  const statusPart = typeof status === "number" ? ` status=${status}` : "";
-  return `error=${error.name}${statusPart} message=${error.message.slice(0, 300)}`;
-}
 
 // クライアントはJPEGに再エンコードして送るが、念のため実際のContent-Typeを見る。
 // 判別できない場合はJPEGとして送る(AI側は中身から判断できる)。

@@ -10,7 +10,12 @@ import {
   type ReceiptParser,
 } from "./types";
 import { PROMPT, ReceiptSchema, receiptJsonSchema } from "./schema";
-import { configErrorMessage, requireApiKey, resolveModel } from "./config";
+import {
+  configErrorMessage,
+  requireApiKey,
+  resolveModel,
+  withCause,
+} from "./config";
 
 // Gemini によるレシート読み取り(TBD-006)。
 // 構造化出力(responseMimeType + responseJsonSchema)でJSONを受け取り、
@@ -77,7 +82,8 @@ export class GeminiReceiptParser implements ReceiptParser {
       if (caught instanceof ApiError) {
         const message = configErrorMessage(caught.status, "gemini", model);
         if (message !== null) {
-          throw new ConvexError(message);
+          // 元のAPIエラーは cause に残す(ログでステータスと文言を出すため)
+          throw withCause(new ConvexError(message), caught);
         }
       }
       throw caught;

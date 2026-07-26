@@ -1,6 +1,12 @@
 import { ConvexError } from "convex/values";
 import { describe, expect, test } from "vitest";
-import { configErrorMessage, requireApiKey, resolveModel } from "./config";
+import {
+  configErrorMessage,
+  describeError,
+  requireApiKey,
+  resolveModel,
+  withCause,
+} from "./config";
 
 // プロバイダ設定の読み取り。AI呼び出しを伴わないのでここだけで検証できる。
 
@@ -61,6 +67,39 @@ describe("configErrorMessage", () => {
   test("一時的な障害(5xx)は汎用文言に任せる", () => {
     expect(configErrorMessage(500, "gemini", "m")).toBeNull();
     expect(configErrorMessage(503, "claude", "m")).toBeNull();
+  });
+});
+
+// 画面用の文言に置き換えたエラーでも、ログには元のAPIエラーの情報が残ること。
+// 残らないと、設定ミスの切り分け(モデルID・キー・課金)ができなくなる
+describe("describeError", () => {
+  test("HTTPステータスとAPI側の文言を出す", () => {
+    const apiError = Object.assign(new Error("quota exhausted"), {
+      name: "ApiError",
+      status: 429,
+    });
+    const described = describeError(apiError);
+    expect(described).toContain("error=ApiError");
+    expect(described).toContain("status=429");
+    expect(described).toContain("quota exhausted");
+  });
+
+  test("画面用の文言に置き換えても、元のエラーを cause から拾う", () => {
+    const apiError = Object.assign(new Error("credits are depleted"), {
+      name: "ApiError",
+      status: 429,
+    });
+    const wrapped = withCause(new ConvexError("利用上限に達しました"), apiError);
+
+    const described = describeError(wrapped);
+    expect(described).toContain("利用上限に達しました");
+    // ここが欠けると、原因(残高切れ)がログから消える
+    expect(described).toContain("status=429");
+    expect(described).toContain("credits are depleted");
+  });
+
+  test("Errorでないものが飛んできても落ちない", () => {
+    expect(describeError("なにか")).toBe("error=unknown");
   });
 });
 

@@ -143,10 +143,20 @@ function toLineTotals(
   return multiplied.some((item) => item.price > MAX_PRICE) ? items : multiplied;
 }
 
+// 品目名の末尾にすでに同じ数量が書かれているか(「牛乳 x2」「牛乳 ×2」など)。
+// AIは数量を name に含めたり含めなかったりするので、含んでいるときに
+// さらに「×2」を足すと「牛乳 x2 ×2」のように二重になる
+function hasQuantitySuffix(name: string, quantity: number): boolean {
+  return new RegExp(`[×xX*]\\s*${quantity}\\s*$`).test(name);
+}
+
 // 数量を品目名に畳み込んで quantity を1にする
 function flattenQuantity(item: SanitizedItem): ReceiptDraftItem {
   // 数量を名前の末尾に付ける。付けたうえで50文字に収める
-  const suffix = item.quantity > 1 ? ` ×${item.quantity}` : "";
+  const suffix =
+    item.quantity > 1 && !hasQuantitySuffix(item.name, item.quantity)
+      ? ` ×${item.quantity}`
+      : "";
   const name =
     item.name.slice(0, MAX_ITEM_NAME_LENGTH - suffix.length) + suffix;
   return { name, price: item.price, quantity: 1 };
