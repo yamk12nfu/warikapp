@@ -31,6 +31,32 @@ export function resolveModel(
   return model;
 }
 
+// AI側が「設定を直せば解決する」と言っているエラーを、画面に出せる文言にする。
+// 汎用の「読み取りに失敗しました」に丸めると、モデルIDの綴り間違い・キーの
+// 権限・課金切れのどれなのかが分からず、原因究明に時間を取られる。
+// 該当しないもの(一時的な障害など)は null を返し、呼び出し側で汎用文言にする。
+export function configErrorMessage(
+  status: number,
+  provider: ProviderName,
+  model: string,
+): string | null {
+  const keyName = provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
+  switch (status) {
+    case 400:
+    case 404:
+      // モデルIDの綴り間違い・提供終了。型では縛れないので実行時にしか出ない
+      return `AIモデル「${model}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`;
+    case 401:
+    case 403:
+      return `AIのAPIキーが受け付けられませんでした。Convexの${keyName}を確認してください`;
+    case 429:
+      // 利用上限(レート制限)と残高切れの両方がここに来る
+      return "AIの利用上限に達したか、残高が不足しています。時間をおくか、AIプロバイダの課金設定を確認してください";
+    default:
+      return null;
+  }
+}
+
 // APIキーの未設定は「読み取り失敗」で片付けず、何を設定すればよいかを出す
 // (このアプリの利用者=設定する本人なので、伏せる意味がない)。
 export function requireApiKey(

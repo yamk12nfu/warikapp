@@ -46,6 +46,17 @@ const ALLOWED_MEDIA_TYPES: ReceiptMediaType[] = [
   "image/webp",
 ];
 
+// ログ用のエラー説明。種別・HTTPステータス・API側の文言(先頭のみ)を出す。
+// どれもリクエストの作り方に対するAPIの説明で、レシートの中身は含まれない。
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "error=unknown";
+  }
+  const status = (error as { status?: unknown }).status;
+  const statusPart = typeof status === "number" ? ` status=${status}` : "";
+  return `error=${error.name}${statusPart} message=${error.message.slice(0, 300)}`;
+}
+
 // クライアントはJPEGに再エンコードして送るが、念のため実際のContent-Typeを見る。
 // 判別できない場合はJPEGとして送る(AI側は中身から判断できる)。
 function toMediaType(blobType: string): ReceiptMediaType {
@@ -106,9 +117,12 @@ export const parse = action({
       }
     } catch (caught) {
       // ログにレシートの中身は出さない(要件 5.4)。出すのは成否・所要時間・
-      // プロバイダ名と、API側のエラー種別だけ
+      // プロバイダ名と、API側のエラー情報だけ。
+      // ステータスと文言も出す: これらは「リクエストの作り方が悪い」という
+      // API側の説明で、画像や抽出結果は含まれない。無いと設定ミス
+      // (モデルID・スキーマ・キーの権限)の切り分けができない
       console.error(
-        `receipts.parse failed provider=${parser.providerName} ms=${Date.now() - startedAt} error=${caught instanceof Error ? caught.name : "unknown"}`,
+        `receipts.parse failed provider=${parser.providerName} ms=${Date.now() - startedAt} ${describeError(caught)}`,
       );
       if (caught instanceof ConvexError) {
         throw caught; // 未実装プロバイダなど、そのまま画面に出してよいもの

@@ -11,7 +11,7 @@ import {
   type ReceiptParser,
 } from "./types";
 import { PROMPT, ReceiptSchema } from "./schema";
-import { requireApiKey, resolveModel } from "./config";
+import { configErrorMessage, requireApiKey, resolveModel } from "./config";
 
 // Claude によるレシート読み取り(F-003)。
 // 構造化出力(output_config.format)を使うので、JSONの手パースもリトライ用の
@@ -90,13 +90,17 @@ export class ClaudeReceiptParser implements ReceiptParser {
       if (isStructuredOutputFailure(caught)) {
         throw new ReceiptSchemaError();
       }
-      // モデルIDの綴り間違い・提供終了は404で返る。汎用の
-      // 「読み取りに失敗しました」だと原因にたどり着けないので、
-      // 設定を直せる文言にして画面に出す(環境変数を変えるだけで直る)
-      if (caught instanceof Anthropic.NotFoundError) {
-        throw new ConvexError(
-          `AIモデル「${this.modelId()}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`,
+      // モデルIDの綴り間違い・キーの権限・課金切れは、いずれも設定を直せば
+      // 解決する。汎用の「読み取りに失敗しました」に丸めると原因にたどり着けない
+      if (caught instanceof Anthropic.APIError && caught.status !== undefined) {
+        const message = configErrorMessage(
+          caught.status,
+          "claude",
+          this.modelId(),
         );
+        if (message !== null) {
+          throw new ConvexError(message);
+        }
       }
       throw caught;
     }

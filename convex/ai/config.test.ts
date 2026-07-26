@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 import { describe, expect, test } from "vitest";
-import { requireApiKey, resolveModel } from "./config";
+import { configErrorMessage, requireApiKey, resolveModel } from "./config";
 
 // プロバイダ設定の読み取り。AI呼び出しを伴わないのでここだけで検証できる。
 
@@ -33,6 +33,34 @@ describe("resolveModel", () => {
     expect(() =>
       resolveModel("claude", "gemini-2.5-flash", "claude-opus-5"),
     ).toThrow("RECEIPT_AI_PROVIDER");
+  });
+});
+
+// 「設定を直せば解決する」エラーは、汎用の「読み取りに失敗しました」に
+// 丸めずに原因を出す(丸めると、モデルID・キー・課金のどれか分からない)
+describe("configErrorMessage", () => {
+  test("モデルIDの問題(400/404)はRECEIPT_AI_MODELを案内する", () => {
+    for (const status of [400, 404]) {
+      const message = configErrorMessage(status, "gemini", "gemini-x");
+      expect(message).toContain("gemini-x");
+      expect(message).toContain("RECEIPT_AI_MODEL");
+    }
+  });
+
+  test("キーの問題(401/403)はプロバイダごとのキー名を案内する", () => {
+    expect(configErrorMessage(401, "gemini", "m")).toContain("GEMINI_API_KEY");
+    expect(configErrorMessage(403, "claude", "m")).toContain(
+      "ANTHROPIC_API_KEY",
+    );
+  });
+
+  test("利用上限・残高不足(429)は課金設定を案内する", () => {
+    expect(configErrorMessage(429, "gemini", "m")).toContain("課金設定");
+  });
+
+  test("一時的な障害(5xx)は汎用文言に任せる", () => {
+    expect(configErrorMessage(500, "gemini", "m")).toBeNull();
+    expect(configErrorMessage(503, "claude", "m")).toBeNull();
   });
 });
 

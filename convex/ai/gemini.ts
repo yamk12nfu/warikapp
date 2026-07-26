@@ -10,7 +10,7 @@ import {
   type ReceiptParser,
 } from "./types";
 import { PROMPT, ReceiptSchema, receiptJsonSchema } from "./schema";
-import { requireApiKey, resolveModel } from "./config";
+import { configErrorMessage, requireApiKey, resolveModel } from "./config";
 
 // Gemini によるレシート読み取り(TBD-006)。
 // 構造化出力(responseMimeType + responseJsonSchema)でJSONを受け取り、
@@ -72,15 +72,13 @@ export class GeminiReceiptParser implements ReceiptParser {
     try {
       response = await client.models.generateContent(request);
     } catch (caught) {
-      // モデルIDの綴り間違い・提供終了は404で返る。汎用の
-      // 「読み取りに失敗しました」だと原因にたどり着けないので、
-      // 設定を直せる文言にして画面に出す(環境変数を変えるだけで直る)。
-      // モデルIDはSDKの型では縛れない(model は任意の文字列)ので、
-      // 間違いは実行時にしか分からない
-      if (caught instanceof ApiError && caught.status === 404) {
-        throw new ConvexError(
-          `AIモデル「${model}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`,
-        );
+      // モデルIDの綴り間違い・キーの権限・課金切れは、いずれも設定を直せば
+      // 解決する。汎用の「読み取りに失敗しました」に丸めると原因にたどり着けない
+      if (caught instanceof ApiError) {
+        const message = configErrorMessage(caught.status, "gemini", model);
+        if (message !== null) {
+          throw new ConvexError(message);
+        }
       }
       throw caught;
     }
