@@ -263,14 +263,18 @@ export default defineSchema({
     expenseCount: v.number(),      // 履歴に出す対象支出数(Phase 7で追加)
   }).index("by_coupleId", ["coupleId"]),
 
-  // AI読み取りのレート制限用(要件: 30回/時/世帯)
-  parseLogs: defineTable({
+  // アップロードした画像の世帯帰属台帳(Phase 8で追加)
+  uploads: defineTable({
     coupleId: v.id("couples"),
-  }).index("by_coupleId", ["coupleId"]),
+    storageId: v.id("_storage"),
+    uploadedBy: v.id("members"),
+  }).index("by_storageId", ["storageId"]),
 });
 ```
 
-> 💡 作成日時はConvexが自動で付ける `_creationTime` を使う(自分でcreatedAtカラムを作らない)。精算日時・レート制限の集計もこれで足りる。
+> 💡 作成日時はConvexが自動で付ける `_creationTime` を使う(自分でcreatedAtカラムを作らない)。精算日時もこれで足りる。
+>
+> 💡 AI読み取りのレート制限(30回/時/世帯)用のテーブルはここには作らない。`@convex-dev/rate-limiter` コンポーネントが自前のテーブルで持つため(Phase 8 / §10.3)。
 
 ### 4.3 認可ヘルパー(`convex/lib/auth.ts`)
 
@@ -339,7 +343,7 @@ if (expense.coupleId !== member.coupleId) throw new Error("権限がありませ
 
 ### ✅ 動作確認
 
-- `npx convex dev` がエラーなく起動し、Convexダッシュボード → Data に6テーブル(couples, members, invitations, expenses, settlements, parseLogs)が表示される
+- `npx convex dev` がエラーなく起動し、Convexダッシュボード → Data に5テーブル(couples, members, invitations, expenses, settlements)が表示される(uploads はPhase 8で追加。テーブルは最初のデータ投入時に現れる)
 - ダッシュボードのDataタブから `couples` にテスト行を手動追加→削除できる
 
 ---
@@ -716,7 +720,7 @@ export const execute = mutation({
 
 ### 10.1 プロバイダ抽象化レイヤー
 
-- [ ] `convex/ai/types.ts`:
+- [x] `convex/ai/types.ts`(型だけ。SDKに依存させない):
 
 ```ts
 export type ParsedReceipt = {
@@ -726,16 +730,23 @@ export type ParsedReceipt = {
   items: { name: string; price: number; quantity: number }[];
 };
 
+export type ReceiptMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
 export interface ReceiptParser {
-  parse(imageBase64: string, mediaType: string): Promise<ParsedReceipt>;
+  readonly providerName: string;
+  parse(imageBase64: string, mediaType: ReceiptMediaType): Promise<ParsedReceipt>;
 }
+
+// スキーマ不適合だけを区別する(これだけ1回リトライする。通信エラーはしない)
+export class ReceiptSchemaError extends Error {}
 ```
 
-- [ ] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」でよい**(TBD-006)
-- [ ] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
+- [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` は型だけなので不要)
+- [x] ⚠️ **スキーマ不適合は例外で飛んでくる**: SDKの `messages.parse()` は不正JSON・Zod検証エラーを `AnthropicError("Failed to parse structured output: ...")` として**throwする**(`parsed_output` が null になるより先に例外)。これを `ReceiptSchemaError` に変換しないと「1回だけリトライ」が動かない。API側のエラー(`APIError` 系)はリトライ対象外なので、変換前に除外する
+- [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
   - `ANTHROPIC_API_KEY`
   - `RECEIPT_AI_PROVIDER` = `claude`
-  - `RECEIPT_AI_MODEL` = `claude-opus-4-8`
+  - `RECEIPT_AI_MODEL` = `claude-opus-5`(省略時もこの値。下記参照)
 
 ### 10.2 Claude実装(`convex/ai/claude.ts`)
 
@@ -767,71 +778,95 @@ const PROMPT = `このレシート画像から購入情報を抽出してくだ�
 - 店名・購入日が判読できなければ null`;
 
 export class ClaudeReceiptParser implements ReceiptParser {
-  private client = new Anthropic(); // ANTHROPIC_API_KEY を自動で読む
+  readonly providerName = "claude";
 
-  async parse(imageBase64: string, mediaType: string): Promise<ParsedReceipt> {
-    const response = await this.client.messages.parse(
-      {
-        model: process.env.RECEIPT_AI_MODEL ?? "claude-opus-4-8",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: mediaType as "image/jpeg", data: imageBase64 } },
-              { type: "text", text: PROMPT },
-            ],
-          },
-        ],
-        output_config: { format: zodOutputFormat(ReceiptSchema) },
-      },
-      { timeout: 30_000 }, // 要件: タイムアウト30秒(ms指定)
-    );
-    if (!response.parsed_output) throw new Error("AI応答がスキーマ不適合");
+  // APIキーが未設定だとコンストラクタが例外を投げるので、生成はparse()の中で行う。
+  // SDK側の自動リトライ(既定2回)は切る: 1リクエストで最大90秒かかり
+  // 「タイムアウト30秒」を満たせなくなるため。リトライはスキーマ不適合時の1回だけ
+  private client() {
+    return new Anthropic({ maxRetries: 0, timeout: 30_000 }); // timeoutはms指定
+  }
+
+  async parse(imageBase64: string, mediaType: ReceiptMediaType): Promise<ParsedReceipt> {
+    const response = await this.client().messages.parse({
+      model: process.env.RECEIPT_AI_MODEL ?? "claude-opus-5",
+      max_tokens: 16_000, // 思考(adaptive thinking)の出力も含むため余裕を持たせる
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+            { type: "text", text: PROMPT },
+          ],
+        },
+      ],
+      // 読み取りは推論より知覚が主なので effort は低くてよい(「通常15秒以内」のため)
+      output_config: { effort: "low", format: zodOutputFormat(ReceiptSchema) },
+    });
+    if (response.parsed_output === null) throw new ReceiptSchemaError();
     return response.parsed_output;
   }
 }
 ```
 
-> 💡 モデルは既定 `claude-opus-4-8`(精度優先)。コスト優先ならConvexの環境変数で `claude-haiku-4-5` に変更可(TBD-001)。実レシート数枚で両方試して決める。
+> 💡 既定モデルは `claude-opus-5`(精度優先)。計画時点では `claude-opus-4-8` を想定していたが、実装時の最新世代(Claude 5系)のOpusに更新した。コスト・速度優先ならConvexの環境変数 `RECEIPT_AI_MODEL` で `claude-sonnet-5` / `claude-haiku-4-5` に差し替えられる(TBD-001)。実レシート数枚で試して決める。
 
-### 10.3 Convex関数(`convex/receipts.ts`)
+### 10.3 Convex関数(`convex/uploads.ts` と `convex/receipts.ts`)
 
-- [ ] mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)
-- [ ] mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: coupleId, storageId, index by_storageId)
-- [ ] action `parse`(**ファイル先頭に `"use node";` を書く** — Anthropic SDKを使うためNode.jsランタイムで実行):
-  1. 認証+世帯確認: actionはDBに直接触れないので、`await ctx.runQuery(internal.lib.auth.getCurrentMember, {})` のように internal query 経由で行う
-  2. **storageIdの帰属検証**: 引数の `storageId` が `uploads` 台帳で自世帯に登録済みかを internal query で確認(他世帯のstorageIdを渡されても読めないようにする)。`expenses.save` でも `imageStorageId` に同じ検証を行う
-  3. **レート制限**: internal mutationで「直近1時間の `parseLogs` を数え、30件以上なら例外。OKなら1件insert」
-  4. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化
-  5. `ReceiptParser.parse()` を呼ぶ。**スキーマ不適合エラー時は1回だけ自動リトライ**(要件)
-  6. 品目合計 ≠ total_amount のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値: 折半)
-  7. 抽出結果を返す(保存はクライアントが `expenses.save` で行う)
-- [ ] ログ: 成否・所要時間・使用プロバイダを `console.log`(Convexダッシュボード → Logs で見える)。**レシートの中身はログに出さない**(要件 5.4)
+**ファイル分割**: Convexのガイドラインは「`"use node"` のファイルに query / mutation を同居させない」(Node.jsランタイムで動かせるのは action だけ)。当初は両方を `convex/receipts.ts` に置く想定だったが、**mutation は `convex/uploads.ts`、action は `convex/receipts.ts`** に分けた。
+
+- [x] `convex/uploads.ts`(V8ランタイム):
+  - mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)。**ここにも世帯ごとの回数制限(60回/時)を掛ける**: 読み取りを呼ばずにURL発行だけを繰り返せば、読み取りの制限を迂回して無制限にファイルを置けてしまうため。圧縮のやり直しや再試行があるので読み取りの上限より緩めにしてある
+  - mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId, uploadedBy)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: index by_storageId)。実体のないIDは拒否し、同じIDの再登録は自世帯なら何もしない(通信リトライで壊れないように)/他世帯なら拒否する
+  - mutation `discard`: 撮り直しで使わなくなった画像を消す。**どの支出からも参照されていない(`usedByExpenseId` 未設定)ものだけ**消せる
+  - `assertOwnedUpload()` / `attachUpload()` / `releaseUpload()`(共通ヘルパー)と internalQuery `authorizeUpload`(認証+帰属検証をまとめて1回で行う。actionからの往復を減らすため)
+  - 台帳は「使った時刻」ではなく **`usedByExpenseId`(参照している支出)** を持つ。こうしておくと、**支出の画像が差し替わったときに「その支出のものだった画像」だけを安全に消せる**(`expenses.save` が新しい画像を `attachUpload`、古い画像を `releaseUpload` する)。1枚の画像を2つの支出で共有することは拒否する(共有を許すと、片方が差し替えたときに消してよいか判断できなくなる)
+  - ⚠️ **残課題**: 画面から離脱して置き去りになったアップロードは消えない。撮り直し・差し替えぶんは回収できるが、恒久対応(`usedByExpenseId` 未設定のまま一定時間経った行をcronで掃除する等)は運用を見てから決める(TBD-002)
+- [x] `convex/receipts.ts`(**ファイル先頭に `"use node";`** — Anthropic SDKを使うため)。action `parse`:
+  1. 認証+storageIdの帰属検証: actionはDBに触れないので `await ctx.runQuery(internal.uploads.authorizeUpload, { storageId })` で行う(他世帯のstorageIdを渡されても読めない)。`expenses.save` の `imageStorageId` にも同じ検証を掛ける
+  2. **レート制限**: `@convex-dev/rate-limiter` コンポーネントで「30回/時/世帯」(fixed window、キーは `coupleId`)。AI呼び出しの前に消費する(失敗した呼び出しも数えることで連打による暴走を止める)
+  3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化(20MB超は拒否)
+  4. `ReceiptParser.parse()` を呼ぶ。**`ReceiptSchemaError` のときだけ1回自動リトライ**(要件)。タイムアウト30秒は**読み取り全体**の上限なので、1回目と2回目で残り時間を分け合う(2回目にも30秒渡すと合計60秒かかってしまう)。ただし1回目に全時間を渡すとリトライ枠が残らないので、**1回目の上限は「全体 − リトライの最低枠(5秒)」= 25秒**にする(半分に切ると、正常だが遅いだけの読み取りまで落としてしまう)
+  5. `lib/receipt.ts` の `normalizeParsedReceipt()` で整形(下記)
+  6. **調整行を足す前のAI由来の品目数(`sourceItemCount`)が0なら**「レシートを読み取れませんでした」(レシート以外・不鮮明な画像)。整形後の `items` で判定すると、品目0件でも合計金額だけ返ってきたときに「調整行だけの支出」ができてしまう。成功ログもこの判定の後に出す
+- [x] `lib/receipt.ts`(**純粋関数。AI呼び出しと切り分けてテストする**。`lib/settlement.ts` と同じ方針):
+  - AIの返り値を `expenses.save` の制約(V-402 / V-403)に均す(名前50字・金額1〜9,999,999の整数・数量1〜999、保存できない行は捨てる、品目は99件まで)
+  - **数量は品目名に畳み込んで `quantity` は常に1にする**(「牛乳 ×3」)。理由: (1) `price` は「その行の合計金額」なので `price × quantity` にすると数量ぶん二重に効く、(2) 仕分けUIに数量の入力欄が無く(Phase 5の設計)、残すと画面に出ない値が合計に効いてユーザーが読み取り誤りを確認・修正できない
+  - AIが `price` を単価で返してしまった場合の救済: 行合計として足すと `total_amount` に合わず、`price × quantity` なら一致するときは単価とみなして行合計に直す(どちらとも判定できなければ指示どおり行合計として扱い、ズレは調整行が吸収する)
+  - 品目合計 ≠ `total_amount` のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値は画面側の既定=折半)
+  - ⚠️ **差額がマイナス(品目合計 > 合計金額)のとき、または上限9,999,999円を超えるときは調整行を作らない**。金額は「1円以上9,999,999円以下の整数」(V-403)で、そのままでは `expenses.save` が必ず弾くため。代わりに `adjustmentSkipped: true` を返し、画面が「金額を確認してください」と促す(TBD-003で運用しながら見直す)
+- [x] `expenses.save` に `imageStorageId`(任意)を追加。**省略時は既存の画像を変更しない**(編集画面は画像を扱わないので、undefinedを「削除」と解釈するとレシート画像が編集のたびに消える)
+- [x] ログ: 成否・所要時間・使用プロバイダを `console.log` / `console.error`(Convexダッシュボード → Logs で見える)。**レシートの中身はログに出さない**(要件 5.4。失敗時もエラーの種別名だけを出す)
+
+> 💡 **レート制限に `parseLogs` テーブルを使わなかった理由**: 「直近1時間のログ行を数える」実装は (1) 件数カウントに必要な `.collect().length` がガイドラインで禁止されている(Convexに件数演算子はなく、行が増えるほど読み取り量が伸びる)、(2) ログ行が無限に溜まり続けて掃除のcronが要る、の2点で不利。ガイドラインが per-key quota に推奨している `@convex-dev/rate-limiter` は世帯ごとに1行の集計値しか持たないため、どちらも起きない。これに伴い `parseLogs` テーブルは廃止した(`convex/convex.config.ts` でコンポーネントを登録する)。
 
 ### 10.4 レシート登録画面(S-004)
 
-- [ ] `/expenses/new/receipt`:
+- [x] `/expenses/new/receipt`:
   1. `<input type="file" accept="image/*" capture="environment">` で撮影/選択
-  2. **クライアント側で縮小・圧縮**: Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換(HEIC対策にもなる)。20MB超は弾く
-  3. `generateUploadUrl` で得たURLに画像をPOST → `storageId` を取得
-  4. `useAction` で `receipts.parse` を呼ぶ。処理中はスケルトン+「読み取り中…」表示(通常15秒以内)
+  2. **クライアント側で縮小・圧縮**(`lib/image.ts`): Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換。20MB超は弾く。寸法計算は純粋関数 `fitWithinLongEdge()` に切り出してテストする
+     - ⚠️ **HEICの扱い**: Canvasで拾えるのは「ブラウザがデコードできる画像」だけ。iPhoneは選択時にJPEGへ変換して渡すことが多く、iOS Safari自体もHEICをデコードできるので実運用(スマホ撮影)はこれで足りる。デコードできない環境(デスクトップChromeでHEICを選ぶ等)では「この画像は読み込めませんでした。JPEGまたはPNGでお試しください」を出す。デコーダライブラリの追加やサーバー変換はMVPの対象外
+  3. `generateUploadUrl` で得たURLに画像をPOST(**60秒で打ち切る**。応答が返らないままだと画面が「アップロード中…」で固まり、撮り直しにも戻れなくなる)→ `storageId` を取得 → `registerUpload` で台帳に登録。撮り直したときは前の画像を `discard` で消す(置き去りのファイルを残さない)
+  4. `useAction` で `receipts.parse` を呼ぶ。処理中はスケルトン+「レシートを読み取っています…」表示(通常15秒以内)
   5. 結果を `ExpenseEditor` に流し込み、**まず `expenses.save`(status: "draft")で保存**(ドラフト)
-  6. ユーザーが修正・仕分けして「確定」→ `status: "confirmed"` で保存し直す
-- [ ] エラーハンドリング(要件の表どおり):
-  - 読み取り失敗/タイムアウト → 「読み取りに失敗しました。手入力に切り替えますか?」→ `storageId` を保持したまま手入力フォームへ
-  - レシート以外/不鮮明 → 「レシートを読み取れませんでした。撮り直してください」+手入力導線
+  6. ユーザーが修正・仕分けして「確定」→ 同じ `expenseId` に `status: "confirmed"` で保存し直す
+- [x] エラーハンドリング(要件の表どおり):
+  - 読み取り失敗/タイムアウト → 「読み取りに失敗しました。手入力に切り替えますか?」→ `storageId` を保持したまま手入力(空の品目1件のExpenseEditor)へ。画像は確定時に紐付く
+  - レシート以外/不鮮明 → 「レシートを読み取れませんでした。撮り直してください」+ 再読み取り・手入力導線
   - アップロード失敗 → 再試行ボタン(画像はクライアントに保持)
+- [x] **ドラフトの再開**: ホームの「未確定」バッジ → 詳細 → 編集 が再開導線になる。編集画面(`/expenses/[id]/edit`)は、開いた支出がドラフトなら見出しとボタンを「確定」に変え、保存時に `status: "confirmed"` にする(ここで確定できないと再開しても確定できないため)
 
 ### ✅ 動作確認
 
 - 実物のレシートをスマホで撮影(またはPCで画像選択)→ 品目・金額・店名・日付が自動入力される
 - 品目合計と合計金額がズレるレシートで「調整(税・割引等)」行が自動追加される
 - 読み取り結果を修正して確定 → ホームの一覧と未精算差額に反映される
-- 確定前に離脱したドラフトがホームに「ドラフト」バッジ付きで表示され、再開できる
+- 確定前に離脱したドラフトがホームに「未確定」バッジ付きで表示され、詳細 → 編集から確定できる
 - 詳細画面で元のレシート画像が閲覧できる
 - レシート以外(風景写真など)を送るとエラーメッセージと手入力導線が出る
-- 31回連続で解析するとレート制限エラーになる(確認は任意)
+- 31回連続で解析するとレート制限エラーになる(確認は任意。`convex/receipts.test.ts` で自動テスト済み)
+
+> ⚠️ AI読み取りの実地確認には Convexダッシュボードでの環境変数登録(`ANTHROPIC_API_KEY` / `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL`)が必要。未登録のうちは読み取りが「読み取りに失敗しました。手入力に切り替えますか?」になる(圧縮・アップロード・帰属検証・レート制限・調整行・ドラフト復帰はテストで検証済み)。
 
 ---
 
@@ -867,7 +902,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 |---|---|---|
 | 1 | **`requireMember` の呼び忘れ** | Convexの公開関数は誰でも呼べる。認可ヘルパーを呼ばない関数が1つあるだけで他世帯のデータが漏れる。**公開query/mutation/actionの1行目は必ず認可チェック**、をルール化する(SupabaseのRLS忘れに相当する最重要の罠) |
 | 2 | **環境変数の置き場所間違い** | Convexのaction(AI呼び出し)が読む環境変数は**Convexダッシュボード**に登録する。`.env.local` やVercelに置いても届かない。逆にClerkのキーはNext.js側(`.env.local` / Vercel)に置く |
-| 3 | **`"use node"` の付け忘れ** | Anthropic SDKなどNode依存のパッケージを使うactionファイルは先頭に `"use node";` が必要。無いとデプロイ時にバンドルエラーになる |
+| 3 | **`"use node"` の付け忘れ・同居** | Anthropic SDKなどNode依存のパッケージを使うactionファイルは先頭に `"use node";` が必要(無いとデプロイ時にバンドルエラー)。逆に **`"use node"` のファイルに query / mutation を同居させてはいけない**(Node.jsランタイムで動かせるのは action だけ)。Phase 8では mutation を `convex/uploads.ts`、action を `convex/receipts.ts` に分けている |
 | 4 | **devとprodは別世界** | `npx convex dev` の開発環境と本番デプロイはデータも環境変数も完全に別。本番で「データがない」「APIキーがない」と焦ったらこれ |
 | 5 | **本番でGoogleログインが失敗** | Clerkの開発インスタンスはGoogle設定不要だが、**本番インスタンスは自前のGoogle OAuth認証情報が必須**(Phase 9)。設定漏れが本番ログイン失敗のほぼすべて |
 | 6 | **iPhoneのHEIC画像** | `accept="image/*"` で受けてもHEICが来ることがある。Canvasで再エンコードしてJPEG化する実装(10.4)で吸収する |

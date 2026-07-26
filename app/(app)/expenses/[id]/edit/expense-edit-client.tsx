@@ -13,6 +13,10 @@ import { useEffect } from "react";
 // 支出の編集(S-005 / F-006)。仕分けUI(ExpenseEditor)をそのまま再利用し、
 // expenses.save を expenseId 付きで呼ぶ。
 // 精算済みは編集させない(サーバー側の expenses.save でも拒否する)。
+//
+// ドラフト(レシート読み取りの途中で離脱したもの)を開いた場合は、この画面が
+// 「確定」の導線を兼ねる(保存すると status を confirmed にする)。
+// ここで確定できないと、ホームの「未確定」バッジから再開しても確定できない。
 
 export default function ExpenseEditClient({
   expenseId,
@@ -55,8 +59,9 @@ export default function ExpenseEditClient({
           memberId: share.memberId as Id<"members">,
         })),
       })),
-      // 由来(source)は更新時に変えない。確定状態も元のまま引き継ぐ
-      status: expense.status,
+      // 由来(source)は更新時に変えない。
+      // ドラフトはこの保存で確定させる(確定済みはそのまま確定のまま)
+      status: "confirmed",
     });
     router.replace(`/expenses/${expense._id}`);
   }
@@ -110,7 +115,14 @@ export default function ExpenseEditClient({
         >
           ← 詳細に戻る
         </Link>
-        <h1 className="mt-2 text-xl font-bold">支出を編集</h1>
+        <h1 className="mt-2 text-xl font-bold">
+          {expense.status === "draft" ? "下書きを確認" : "支出を編集"}
+        </h1>
+        {expense.status === "draft" && (
+          <p className="mt-1 text-sm text-gray-500">
+            確定するとホームの未精算差額に反映されます。
+          </p>
+        )}
       </div>
 
       <ExpenseEditor
@@ -122,8 +134,10 @@ export default function ExpenseEditClient({
           purchasedAt: expense.purchasedAt,
           items: expense.items,
         }}
-        submitLabel="変更を保存する"
-        submittingLabel="保存中…"
+        submitLabel={
+          expense.status === "draft" ? "この支出を確定する" : "変更を保存する"
+        }
+        submittingLabel={expense.status === "draft" ? "確定中…" : "保存中…"}
         onSubmit={handleSubmit}
       />
     </main>
