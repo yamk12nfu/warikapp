@@ -156,14 +156,16 @@ Clerkの**開発インスタンスは本番URLからでも動く**。§1 の代�
 npx convex env set CLERK_JWT_ISSUER_DOMAIN 'https://clerk.example.com' --prod
 ```
 
+APIキーはシェル履歴に残したくないので、値を省いて対話入力にする:
+
 ```bash
-npx convex env set GEMINI_API_KEY 'AIza...' --prod
+npx convex env set GEMINI_API_KEY --prod
 ```
 
-登録できたか確認:
+登録できたか確認(名前だけ見るなら `--names-only` を付ける。値も出るので画面共有中は注意):
 
 ```bash
-npx convex env list --prod
+npx convex env list --names-only --prod
 ```
 
 ダッシュボードからやる場合は [Convex Dashboard](https://dashboard.convex.dev/d/accurate-capybara-527) →
