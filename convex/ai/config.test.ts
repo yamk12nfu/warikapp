@@ -53,12 +53,23 @@ describe("resolveModel", () => {
 // 「設定を直せば解決する」エラーは、汎用の「読み取りに失敗しました」に
 // 丸めずに原因を出す(丸めると、モデルID・キー・課金のどれか分からない)
 describe("configErrorMessage", () => {
-  test("モデルIDの問題(400/404)はRECEIPT_AI_MODELを案内する", () => {
-    for (const status of [400, 404]) {
-      const message = configErrorMessage(status, "gemini", "gemini-x");
-      expect(message).toContain("gemini-x");
-      expect(message).toContain("RECEIPT_AI_MODEL");
-    }
+  test("モデルIDの問題(404)はRECEIPT_AI_MODELを案内する", () => {
+    const message = configErrorMessage(404, "gemini", "gemini-x");
+    expect(message).toContain("gemini-x");
+    expect(message).toContain("RECEIPT_AI_MODEL");
+  });
+
+  // 400は「リクエストのどこかがおかしい」の総称。GeminiはAPIキーが無効な
+  // ときもここに落ちるので、中身を見ずにモデルIDのせいにすると
+  // 間違った設定を直させてしまう
+  test("400はAPIキーだと分かるときだけ案内し、それ以外は汎用に任せる", () => {
+    expect(
+      configErrorMessage(400, "gemini", "m", "API key not valid. Please pass a valid API key."),
+    ).toContain("GEMINI_API_KEY");
+    expect(
+      configErrorMessage(400, "gemini", "m", "Invalid JSON payload received."),
+    ).toBeNull();
+    expect(configErrorMessage(400, "gemini", "m")).toBeNull();
   });
 
   test("キーの問題(401/403)はプロバイダごとのキー名を案内する", () => {

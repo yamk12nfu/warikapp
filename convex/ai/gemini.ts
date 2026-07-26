@@ -80,7 +80,12 @@ export class GeminiReceiptParser implements ReceiptParser {
       // モデルIDの綴り間違い・キーの権限・課金切れは、いずれも設定を直せば
       // 解決する。汎用の「読み取りに失敗しました」に丸めると原因にたどり着けない
       if (caught instanceof ApiError) {
-        const message = configErrorMessage(caught.status, "gemini", model);
+        const message = configErrorMessage(
+          caught.status,
+          "gemini",
+          model,
+          caught.message,
+        );
         if (message !== null) {
           // 元のAPIエラーは cause に残す(ログでステータスと文言を出すため)
           throw withCause(new ConvexError(message), caught);

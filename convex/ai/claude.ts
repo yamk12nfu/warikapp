@@ -102,6 +102,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
           caught.status,
           "claude",
           this.modelId(),
+          caught.message,
         );
         if (message !== null) {
           // 元のAPIエラーは cause に残す(ログでステータスと文言を出すため)

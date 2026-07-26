@@ -48,16 +48,23 @@ export function configErrorMessage(
   status: number,
   provider: ProviderName,
   model: string,
+  apiMessage = "",
 ): string | null {
   const keyName = provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
+  const keyError = `AIのAPIキーが受け付けられませんでした。Convexの${keyName}を確認してください`;
   switch (status) {
-    case 400:
     case 404:
       // モデルIDの綴り間違い・提供終了。型では縛れないので実行時にしか出ない
       return `AIモデル「${model}」が使えません。ConvexのRECEIPT_AI_MODELを確認してください`;
     case 401:
     case 403:
-      return `AIのAPIキーが受け付けられませんでした。Convexの${keyName}を確認してください`;
+      return keyError;
+    case 400:
+      // 400 は「リクエストのどこかがおかしい」の総称で、Geminiは
+      // APIキーが無効なときもここに落ちる(INVALID_ARGUMENT)。
+      // 中身を見ずにモデルIDのせいにすると、間違った設定を直させてしまう。
+      // キーだと分かるときだけ案内し、それ以外は汎用文言に任せる
+      return /api\s*key/i.test(apiMessage) ? keyError : null;
     case 429:
       // 利用上限(レート制限)と残高切れの両方がここに来る
       return "AIの利用上限に達したか、残高が不足しています。時間をおくか、AIプロバイダの課金設定を確認してください";
