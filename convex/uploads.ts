@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internalQuery, mutation, QueryCtx, MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
+import { RECEIPT_UPLOAD_LIMIT_NAME, rateLimiter } from "./rateLimits";
 
 // レシート画像のアップロード窓口(Phase 8 / F-003)。
 //
@@ -15,9 +16,7 @@ import { requireMember } from "./lib/auth";
 
 const ERR_FOREIGN_STORAGE = "この画像は利用できません";
 
-// storageId の世帯帰属を確認し、自世帯のものでなければ例外。
-// expenses.save(imageStorageId)と receipts.parse の両方から使う。
-export async function assertOwnedUpload(
+async function findOwnUpload(
   ctx: QueryCtx | MutationCtx,
   coupleId: Id<"couples">,
   storageId: Id<"_storage">,
@@ -30,6 +29,30 @@ export async function assertOwnedUpload(
     // 未登録も他世帯も同じ文言にする(他世帯の画像の存在を漏らさない)
     throw new ConvexError(ERR_FOREIGN_STORAGE);
   }
+  return upload;
+}
+
+// storageId の世帯帰属を確認し、自世帯のものでなければ例外。
+// receipts.parse から使う(読み取るだけで支出には紐付けない)。
+export async function assertOwnedUpload(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+  storageId: Id<"_storage">,
+) {
+  await findOwnUpload(ctx, coupleId, storageId);
+}
+
+// 帰属を確認したうえで「支出から参照済み」の印を付ける(expenses.save から呼ぶ)。
+// 印が付いた画像は uploads.discard で消せない(参照中の画像を消さないため)。
+export async function markUploadUsed(
+  ctx: MutationCtx,
+  coupleId: Id<"couples">,
+  storageId: Id<"_storage">,
+) {
+  const upload = await findOwnUpload(ctx, coupleId, storageId);
+  if (upload.usedAt === undefined) {
+    await ctx.db.patch("uploads", upload._id, { usedAt: Date.now() });
+  }
 }
 
 // アップロード用URLの発行。クライアントはこのURLに画像をPOSTして storageId を得る。
@@ -38,7 +61,19 @@ export async function assertOwnedUpload(
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireMember(ctx);
+    const member = await requireMember(ctx);
+    // 読み取り(receipts.parse)を呼ばずにURL発行だけを繰り返せば、
+    // 読み取りの回数制限を迂回して無制限にファイルを置けてしまうので、
+    // この入口にも世帯ごとの枠を掛ける
+    const limit = await rateLimiter.limit(ctx, RECEIPT_UPLOAD_LIMIT_NAME, {
+      key: member.coupleId,
+    });
+    if (!limit.ok) {
+      const minutes = Math.max(1, Math.ceil(limit.retryAfter / 60_000));
+      throw new ConvexError(
+        `アップロードの回数制限に達しました。約${minutes}分後にもう一度お試しください`,
+      );
+    }
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -73,6 +108,24 @@ export const registerUpload = mutation({
       storageId: args.storageId,
       uploadedBy: member._id,
     });
+    return null;
+  },
+});
+
+// 撮り直しなどで使わなくなった画像を捨てる。
+// どの支出からも参照されていない(usedAt 未設定)ものだけ消せる。
+// 画面から離脱して置き去りになったぶんの掃除は運用側の課題として残している
+// (計画書 §10.3 の注記 / TBD-002)。
+export const discard = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const upload = await findOwnUpload(ctx, member.coupleId, args.storageId);
+    if (upload.usedAt !== undefined) {
+      return null; // 支出に紐付いている画像は消さない
+    }
+    await ctx.storage.delete(args.storageId);
+    await ctx.db.delete("uploads", upload._id);
     return null;
   },
 });

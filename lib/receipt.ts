@@ -37,10 +37,14 @@ export type NormalizedReceipt = {
   purchasedAt: string | null; // 妥当でなければ null(画面側で当日を既定にする)
   totalAmount: number;
   items: ReceiptDraftItem[];
-  // 品目合計が合計金額を上回っていて調整行にできなかった場合に true。
-  // 金額は「1円以上の整数」(V-403)なのでマイナスの調整行が作れず、
-  // 差額を吸収できない。画面はこのときだけ「金額を確認してください」と促す
-  droppedNegativeAdjustment: boolean;
+  // 調整行を足す前の、AI由来の品目数。0なら「レシートとして読めなかった」。
+  // items の件数で判定すると、品目0件でも合計金額だけ返ってきたときに
+  // 調整行だけの支出ができてしまう
+  sourceItemCount: number;
+  // 差額を調整行にできなかった場合に true。金額は「1円以上9,999,999円以下の
+  // 整数」(V-403)なので、差額がマイナスのときと上限を超えるときは行を作れない。
+  // 画面はこのときだけ「金額を確認してください」と促す
+  adjustmentSkipped: boolean;
 };
 
 export function sumItems(items: ReceiptDraftItem[]): number {
@@ -153,21 +157,22 @@ function flattenQuantity(item: SanitizedItem): ReceiptDraftItem {
 export function withAdjustmentItem(
   items: ReceiptDraftItem[],
   totalAmount: number,
-): { items: ReceiptDraftItem[]; droppedNegativeAdjustment: boolean } {
+): { items: ReceiptDraftItem[]; adjustmentSkipped: boolean } {
   const difference = totalAmount - sumItems(items);
   if (difference === 0) {
-    return { items, droppedNegativeAdjustment: false };
+    return { items, adjustmentSkipped: false };
   }
-  if (difference < 0) {
-    // マイナスの品目は作れない(V-403)。画面で金額を直してもらう
-    return { items, droppedNegativeAdjustment: true };
+  // 金額は1円以上9,999,999円以下の整数(V-403)。マイナスの差額も、
+  // 上限を超える差額も品目にできないので、画面で直してもらう
+  if (difference < 0 || difference > MAX_PRICE) {
+    return { items, adjustmentSkipped: true };
   }
   return {
     items: [
       ...items,
       { name: ADJUSTMENT_ITEM_NAME, price: difference, quantity: 1 },
     ],
-    droppedNegativeAdjustment: false,
+    adjustmentSkipped: false,
   };
 }
 
@@ -200,6 +205,7 @@ export function normalizeParsedReceipt(
     purchasedAt: normalizePurchasedAt(parsed.purchased_at, today),
     totalAmount,
     items: adjusted.items,
-    droppedNegativeAdjustment: adjusted.droppedNegativeAdjustment,
+    sourceItemCount: items.length,
+    adjustmentSkipped: adjusted.adjustmentSkipped,
   };
 }

@@ -7,6 +7,7 @@ import {
   ReceiptSchemaError,
   type ParsedReceipt,
   type ReceiptMediaType,
+  type ReceiptParseOptions,
   type ReceiptParser,
 } from "./types";
 
@@ -24,11 +25,6 @@ import {
 // 含まれていない(SDKのリリースがモデルより古いだけ)。model は任意の文字列を
 // 受け付けるので実行には影響しない。SDKを上げれば型にも載る。
 const DEFAULT_MODEL = "claude-opus-5";
-
-// 要件: タイムアウト30秒。SDKのtimeoutはミリ秒指定。
-// SDK自身の自動リトライは切ってある(既定の2回だと1リクエストで最大90秒かかり、
-// 30秒という要件を満たせなくなるため)。リトライはスキーマ不適合時の1回だけ。
-const TIMEOUT_MS = 30_000;
 
 // 思考(adaptive thinking)の出力も max_tokens に含まれるため余裕を持たせる。
 // 実際の課金は使ったぶんだけなので、大きめでもコストは増えない。
@@ -74,15 +70,19 @@ export class ClaudeReceiptParser implements ReceiptParser {
   // ANTHROPIC_API_KEY は Convex の環境変数から自動で読まれる。
   // 未設定だとコンストラクタが例外を投げるので、生成は parse() の中で行う
   // (プロバイダの選択時点では落とさず、実際に使うときに落とす)。
-  private client(): Anthropic {
-    return new Anthropic({ maxRetries: 0, timeout: TIMEOUT_MS });
+  //
+  // SDKのtimeoutはミリ秒指定。自動リトライは切ってある(既定の2回だと
+  // 1リクエストで最大3倍の時間がかかり、渡された残り時間を守れなくなるため)。
+  private client(timeoutMs: number): Anthropic {
+    return new Anthropic({ maxRetries: 0, timeout: timeoutMs });
   }
 
   async parse(
     imageBase64: string,
     mediaType: ReceiptMediaType,
+    options: ReceiptParseOptions,
   ): Promise<ParsedReceipt> {
-    const response = await this.parseOnce(imageBase64, mediaType);
+    const response = await this.parseOnce(imageBase64, mediaType, options);
     if (response.parsed_output === null) {
       // テキストブロックが返らなかった場合(拒否・max_tokens到達など)
       throw new ReceiptSchemaError();
@@ -90,9 +90,13 @@ export class ClaudeReceiptParser implements ReceiptParser {
     return response.parsed_output;
   }
 
-  private async parseOnce(imageBase64: string, mediaType: ReceiptMediaType) {
+  private async parseOnce(
+    imageBase64: string,
+    mediaType: ReceiptMediaType,
+    options: ReceiptParseOptions,
+  ) {
     try {
-      return await this.request(imageBase64, mediaType);
+      return await this.request(imageBase64, mediaType, options);
     } catch (caught) {
       if (isStructuredOutputFailure(caught)) {
         throw new ReceiptSchemaError();
@@ -101,8 +105,12 @@ export class ClaudeReceiptParser implements ReceiptParser {
     }
   }
 
-  private async request(imageBase64: string, mediaType: ReceiptMediaType) {
-    return await this.client().messages.parse({
+  private async request(
+    imageBase64: string,
+    mediaType: ReceiptMediaType,
+    options: ReceiptParseOptions,
+  ) {
+    return await this.client(options.timeoutMs).messages.parse({
       model: process.env.RECEIPT_AI_MODEL ?? DEFAULT_MODEL,
       max_tokens: MAX_TOKENS,
       messages: [

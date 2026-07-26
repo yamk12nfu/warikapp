@@ -32,21 +32,28 @@ describe("withAdjustmentItem", () => {
       price: 60,
       quantity: 1,
     });
-    expect(result.droppedNegativeAdjustment).toBe(false);
+    expect(result.adjustmentSkipped).toBe(false);
     expect(sumItems(result.items)).toBe(660);
   });
 
   test("差額がなければ品目はそのまま", () => {
     const result = withAdjustmentItem(items, 600);
     expect(result.items).toEqual(items);
-    expect(result.droppedNegativeAdjustment).toBe(false);
+    expect(result.adjustmentSkipped).toBe(false);
   });
 
   test("品目合計が合計金額を上回るときは調整行を作らず印を返す", () => {
     // 金額は1円以上の整数(V-403)なのでマイナスの調整行が作れない
     const result = withAdjustmentItem(items, 500);
     expect(result.items).toEqual(items);
-    expect(result.droppedNegativeAdjustment).toBe(true);
+    expect(result.adjustmentSkipped).toBe(true);
+  });
+
+  test("差額が金額の上限を超えるときも調整行を作らない", () => {
+    // 作ってしまうと expenses.save が必ず弾く(V-403)ので、印だけ返す
+    const result = withAdjustmentItem(items, 20_000_000);
+    expect(result.items).toEqual(items);
+    expect(result.adjustmentSkipped).toBe(true);
   });
 });
 
@@ -78,8 +85,23 @@ describe("normalizeParsedReceipt", () => {
         { name: "牛肉", price: 600, quantity: 1 },
         { name: "にんじん", price: 400, quantity: 1 },
       ],
-      droppedNegativeAdjustment: false,
+      sourceItemCount: 2,
+      adjustmentSkipped: false,
     });
+  });
+
+  // 「レシートとして読めたか」は調整行を足す前の件数で判定する。
+  // items で見ると、品目0件でも合計金額だけ返ってきたときに
+  // 調整行だけの支出ができてしまう
+  test("品目が読めず合計金額だけ返ってきた場合は sourceItemCount が0", () => {
+    const result = normalizeParsedReceipt(
+      raw({ items: [], total_amount: 5000 }),
+      TODAY,
+    );
+    expect(result.sourceItemCount).toBe(0);
+    expect(result.items).toEqual([
+      { name: ADJUSTMENT_ITEM_NAME, price: 5000, quantity: 1 },
+    ]);
   });
 
   test("品目合計と合計金額のズレを調整行が吸収する", () => {

@@ -88,9 +88,12 @@ export default defineSchema({
     coupleId: v.id("couples"),
     storageId: v.id("_storage"),
     uploadedBy: v.id("members"),
+    // 支出に紐付けられた時刻。未設定なら「どの支出からも参照されていない」ので
+    // 撮り直しのときに破棄してよい(uploads.discard)
+    usedAt: v.optional(v.number()),
   }).index("by_storageId", ["storageId"]),
 });
 
-// レート制限(要件: AI読み取り30回/時/世帯)は @convex-dev/rate-limiter
-// コンポーネントが自前のテーブルで持つため、ここにはテーブルを置かない。
-// 経緯は convex/rateLimits.ts のコメントを参照。
+// レート制限(要件: AI読み取り30回/時/世帯、アップロードURL発行60回/時/世帯)は
+// @convex-dev/rate-limiter コンポーネントが自前のテーブルで持つため、
+// ここにはテーブルを置かない。経緯は convex/rateLimits.ts のコメントを参照。

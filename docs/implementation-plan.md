@@ -816,22 +816,24 @@ export class ClaudeReceiptParser implements ReceiptParser {
 **ファイル分割**: Convexのガイドラインは「`"use node"` のファイルに query / mutation を同居させない」(Node.jsランタイムで動かせるのは action だけ)。当初は両方を `convex/receipts.ts` に置く想定だったが、**mutation は `convex/uploads.ts`、action は `convex/receipts.ts`** に分けた。
 
 - [x] `convex/uploads.ts`(V8ランタイム):
-  - mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)
+  - mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)。**ここにも世帯ごとの回数制限(60回/時)を掛ける**: 読み取りを呼ばずにURL発行だけを繰り返せば、読み取りの制限を迂回して無制限にファイルを置けてしまうため。圧縮のやり直しや再試行があるので読み取りの上限より緩めにしてある
   - mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId, uploadedBy)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: index by_storageId)。実体のないIDは拒否し、同じIDの再登録は自世帯なら何もしない(通信リトライで壊れないように)/他世帯なら拒否する
-  - `assertOwnedUpload()`(共通ヘルパー)と internalQuery `authorizeUpload`(認証+帰属検証をまとめて1回で行う。actionからの往復を減らすため)
+  - mutation `discard`: 撮り直しで使わなくなった画像を消す。**どの支出からも参照されていない(`usedAt` 未設定)ものだけ**消せる(`expenses.save` が画像を紐付けるときに `usedAt` を立てる)
+  - `assertOwnedUpload()` / `markUploadUsed()`(共通ヘルパー)と internalQuery `authorizeUpload`(認証+帰属検証をまとめて1回で行う。actionからの往復を減らすため)
+  - ⚠️ **残課題**: 画面から離脱して置き去りになったアップロードは消えない。撮り直しぶんは `discard` で回収できるが、恒久対応(`usedAt` 未設定のまま一定時間経った行をcronで掃除する等)は運用を見てから決める(TBD-002)
 - [x] `convex/receipts.ts`(**ファイル先頭に `"use node";`** — Anthropic SDKを使うため)。action `parse`:
   1. 認証+storageIdの帰属検証: actionはDBに触れないので `await ctx.runQuery(internal.uploads.authorizeUpload, { storageId })` で行う(他世帯のstorageIdを渡されても読めない)。`expenses.save` の `imageStorageId` にも同じ検証を掛ける
   2. **レート制限**: `@convex-dev/rate-limiter` コンポーネントで「30回/時/世帯」(fixed window、キーは `coupleId`)。AI呼び出しの前に消費する(失敗した呼び出しも数えることで連打による暴走を止める)
   3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化(20MB超は拒否)
-  4. `ReceiptParser.parse()` を呼ぶ。**`ReceiptSchemaError` のときだけ1回自動リトライ**(要件)
+  4. `ReceiptParser.parse()` を呼ぶ。**`ReceiptSchemaError` のときだけ1回自動リトライ**(要件)。タイムアウト30秒は**読み取り全体**の上限なので、1回目と2回目で残り時間を分け合う(2回目にも30秒渡すと合計60秒かかってしまう)
   5. `lib/receipt.ts` の `normalizeParsedReceipt()` で整形(下記)
-  6. 整形後の品目が0件なら「レシートを読み取れませんでした」(レシート以外・不鮮明な画像)
+  6. **調整行を足す前のAI由来の品目数(`sourceItemCount`)が0なら**「レシートを読み取れませんでした」(レシート以外・不鮮明な画像)。整形後の `items` で判定すると、品目0件でも合計金額だけ返ってきたときに「調整行だけの支出」ができてしまう。成功ログもこの判定の後に出す
 - [x] `lib/receipt.ts`(**純粋関数。AI呼び出しと切り分けてテストする**。`lib/settlement.ts` と同じ方針):
   - AIの返り値を `expenses.save` の制約(V-402 / V-403)に均す(名前50字・金額1〜9,999,999の整数・数量1〜999、保存できない行は捨てる、品目は99件まで)
   - **数量は品目名に畳み込んで `quantity` は常に1にする**(「牛乳 ×3」)。理由: (1) `price` は「その行の合計金額」なので `price × quantity` にすると数量ぶん二重に効く、(2) 仕分けUIに数量の入力欄が無く(Phase 5の設計)、残すと画面に出ない値が合計に効いてユーザーが読み取り誤りを確認・修正できない
   - AIが `price` を単価で返してしまった場合の救済: 行合計として足すと `total_amount` に合わず、`price × quantity` なら一致するときは単価とみなして行合計に直す(どちらとも判定できなければ指示どおり行合計として扱い、ズレは調整行が吸収する)
   - 品目合計 ≠ `total_amount` のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値は画面側の既定=折半)
-  - ⚠️ **差額がマイナス(品目合計 > 合計金額)のときは調整行を作らない**。金額は「1円以上の整数」(V-403)なのでマイナスの品目が作れないため。代わりに `droppedNegativeAdjustment: true` を返し、画面が「金額を確認してください」と促す(TBD-003で運用しながら見直す)
+  - ⚠️ **差額がマイナス(品目合計 > 合計金額)のとき、または上限9,999,999円を超えるときは調整行を作らない**。金額は「1円以上9,999,999円以下の整数」(V-403)で、そのままでは `expenses.save` が必ず弾くため。代わりに `adjustmentSkipped: true` を返し、画面が「金額を確認してください」と促す(TBD-003で運用しながら見直す)
 - [x] `expenses.save` に `imageStorageId`(任意)を追加。**省略時は既存の画像を変更しない**(編集画面は画像を扱わないので、undefinedを「削除」と解釈するとレシート画像が編集のたびに消える)
 - [x] ログ: 成否・所要時間・使用プロバイダを `console.log` / `console.error`(Convexダッシュボード → Logs で見える)。**レシートの中身はログに出さない**(要件 5.4。失敗時もエラーの種別名だけを出す)
 
@@ -843,7 +845,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
   1. `<input type="file" accept="image/*" capture="environment">` で撮影/選択
   2. **クライアント側で縮小・圧縮**(`lib/image.ts`): Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換。20MB超は弾く。寸法計算は純粋関数 `fitWithinLongEdge()` に切り出してテストする
      - ⚠️ **HEICの扱い**: Canvasで拾えるのは「ブラウザがデコードできる画像」だけ。iPhoneは選択時にJPEGへ変換して渡すことが多く、iOS Safari自体もHEICをデコードできるので実運用(スマホ撮影)はこれで足りる。デコードできない環境(デスクトップChromeでHEICを選ぶ等)では「この画像は読み込めませんでした。JPEGまたはPNGでお試しください」を出す。デコーダライブラリの追加やサーバー変換はMVPの対象外
-  3. `generateUploadUrl` で得たURLに画像をPOST → `storageId` を取得 → `registerUpload` で台帳に登録
+  3. `generateUploadUrl` で得たURLに画像をPOST → `storageId` を取得 → `registerUpload` で台帳に登録。撮り直したときは前の画像を `discard` で消す(置き去りのファイルを残さない)
   4. `useAction` で `receipts.parse` を呼ぶ。処理中はスケルトン+「レシートを読み取っています…」表示(通常15秒以内)
   5. 結果を `ExpenseEditor` に流し込み、**まず `expenses.save`(status: "draft")で保存**(ドラフト)
   6. ユーザーが修正・仕分けして「確定」→ 同じ `expenseId` に `status: "confirmed"` で保存し直す

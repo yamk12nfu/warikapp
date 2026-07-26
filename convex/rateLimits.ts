@@ -18,6 +18,12 @@ import { components } from "./_generated/api";
 // 「1時間で30回」を素直に表現でき、ユーザーへの説明もしやすい。
 export const RECEIPT_PARSE_LIMIT_NAME = "receiptParse";
 
+// アップロードURLの発行にも枠を設ける。読み取りを呼ばずにURL発行だけを
+// 繰り返せば、読み取りの制限を迂回して無制限にファイルを置けてしまうため。
+// 圧縮のやり直しや再試行があるので、読み取りの上限より緩め(2倍)にしてある。
+export const RECEIPT_UPLOAD_LIMIT_NAME = "receiptUpload";
+
 export const rateLimiter = new RateLimiter(components.rateLimiter, {
   [RECEIPT_PARSE_LIMIT_NAME]: { kind: "fixed window", rate: 30, period: HOUR },
+  [RECEIPT_UPLOAD_LIMIT_NAME]: { kind: "fixed window", rate: 60, period: HOUR },
 });

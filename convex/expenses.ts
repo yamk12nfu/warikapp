@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
-import { assertOwnedUpload } from "./uploads";
+import { markUploadUsed } from "./uploads";
 import { itemValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
@@ -176,9 +176,10 @@ export const save = mutation({
     ]);
 
     // クライアント由来の storageId も member ID と同じく帰属を検証する
-    // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)
+    // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)。
+    // あわせて台帳に「参照済み」の印を付け、撮り直しの破棄対象から外す
     if (args.imageStorageId !== undefined) {
-      await assertOwnedUpload(ctx, member.coupleId, args.imageStorageId);
+      await markUploadUsed(ctx, member.coupleId, args.imageStorageId);
     }
 
     const totalAmount = calcTotalAmount(items);

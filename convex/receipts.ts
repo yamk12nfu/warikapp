@@ -22,6 +22,13 @@ import { normalizeParsedReceipt, type NormalizedReceipt } from "../lib/receipt";
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 要件: 20MB以下
 
+// 要件: 読み取りのタイムアウトは30秒。リトライを含めた「読み取り全体」の
+// 上限なので、1回目と2回目で残り時間を分け合う(2回目にも30秒渡すと
+// 合計60秒かかってしまう)。
+const TOTAL_TIMEOUT_MS = 30_000;
+// 残りがこれ未満ならリトライしない(投げてもタイムアウトするだけ)
+const MIN_RETRY_MS = 5_000;
+
 const ERR_IMAGE_MISSING = "画像が見つかりません。もう一度アップロードしてください";
 const ERR_IMAGE_TOO_LARGE = "画像が大きすぎます(20MBまで)";
 const ERR_UNREADABLE = "レシートを読み取れませんでした。撮り直してください";
@@ -71,18 +78,26 @@ export const parse = action({
     }
     const imageBase64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
-    // 4. AI抽出。スキーマ不適合のときだけ1回リトライする(要件 F-003)
+    // 4. AI抽出。スキーマ不適合のときだけ1回リトライする(要件 F-003)。
+    //    タイムアウトは2回の合計で30秒に収める
     const parser = createReceiptParser();
+    const mediaType = toMediaType(blob.type);
     const startedAt = Date.now();
+    const deadline = startedAt + TOTAL_TIMEOUT_MS;
     let parsed;
     try {
       try {
-        parsed = await parser.parse(imageBase64, toMediaType(blob.type));
+        parsed = await parser.parse(imageBase64, mediaType, {
+          timeoutMs: TOTAL_TIMEOUT_MS,
+        });
       } catch (caught) {
-        if (!(caught instanceof ReceiptSchemaError)) {
+        const remaining = deadline - Date.now();
+        if (!(caught instanceof ReceiptSchemaError) || remaining < MIN_RETRY_MS) {
           throw caught;
         }
-        parsed = await parser.parse(imageBase64, toMediaType(blob.type));
+        parsed = await parser.parse(imageBase64, mediaType, {
+          timeoutMs: remaining,
+        });
       }
     } catch (caught) {
       // ログにレシートの中身は出さない(要件 5.4)。出すのは成否・所要時間・
@@ -99,14 +114,19 @@ export const parse = action({
     // 5. 品目合計 ≠ 合計金額 なら差額を「調整(税・割引等)」として品目に足す
     const normalized = normalizeParsedReceipt(parsed, todayInJst());
 
+    // 判定はAI由来の品目数(調整行を足す前)で行う。items の件数で見ると、
+    // 品目0件でも合計金額だけ返ってきたときに「調整行だけの支出」ができてしまう
+    if (normalized.sourceItemCount === 0) {
+      // レシート以外の画像・不鮮明な画像。画面は撮り直し+手入力導線を出す
+      console.error(
+        `receipts.parse unreadable provider=${parser.providerName} ms=${Date.now() - startedAt}`,
+      );
+      throw new ConvexError(ERR_UNREADABLE);
+    }
+
     console.log(
       `receipts.parse ok provider=${parser.providerName} ms=${Date.now() - startedAt} items=${normalized.items.length}`,
     );
-
-    if (normalized.items.length === 0) {
-      // レシート以外の画像・不鮮明な画像。画面は撮り直し+手入力導線を出す
-      throw new ConvexError(ERR_UNREADABLE);
-    }
     return normalized;
   },
 });

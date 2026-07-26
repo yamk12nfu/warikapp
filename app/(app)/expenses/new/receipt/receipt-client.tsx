@@ -71,6 +71,7 @@ export default function ReceiptExpenseClient() {
   const household = useQuery(api.couples.household, member ? {} : "skip");
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
   const registerUpload = useMutation(api.uploads.registerUpload);
+  const discardUpload = useMutation(api.uploads.discard);
   const parseReceipt = useAction(api.receipts.parse);
   const saveExpense = useMutation(api.expenses.save);
 
@@ -154,8 +155,8 @@ export default function ReceiptExpenseClient() {
     setInitialValue(value);
     setEditorKey((key) => key + 1);
     setNotice(
-      parsed.droppedNegativeAdjustment
-        ? "品目の合計がレシートの合計金額を上回っています。金額を確認してください"
+      parsed.adjustmentSkipped
+        ? "レシートの合計金額と品目の合計が一致しません。金額を確認してください"
         : null,
     );
     setPhase("editing");
@@ -208,7 +209,13 @@ export default function ReceiptExpenseClient() {
     if (selected === undefined) {
       return;
     }
-    // 撮り直しなので、前回のアップロード結果は捨てて必ず上げ直す
+    // 撮り直しなので、前回のアップロード結果は捨てて必ず上げ直す。
+    // 使わなくなった画像は削除する(支出に紐付いていれば discard 側で残される)。
+    // 失敗しても撮り直しは続行する(掃除が目的で、ここで止める理由がない)
+    const previous = storageId;
+    if (previous !== null) {
+      void discardUpload({ storageId: previous }).catch(() => {});
+    }
     setFile(selected);
     setStorageId(null);
     void start(selected, null);

@@ -22,9 +22,17 @@ export type ReceiptMediaType =
   | "image/gif"
   | "image/webp";
 
+// 1回の呼び出しに許す時間。要件の「タイムアウト30秒」は読み取り全体に対する
+// 制限なので、リトライを含めた残り時間を呼び出し側が計算して渡す
+export type ReceiptParseOptions = { timeoutMs: number };
+
 export interface ReceiptParser {
   readonly providerName: string;
-  parse(imageBase64: string, mediaType: ReceiptMediaType): Promise<ParsedReceipt>;
+  parse(
+    imageBase64: string,
+    mediaType: ReceiptMediaType,
+    options: ReceiptParseOptions,
+  ): Promise<ParsedReceipt>;
 }
 
 // AI応答がスキーマに適合しなかったことを表すエラー。
