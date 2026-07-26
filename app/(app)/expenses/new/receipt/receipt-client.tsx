@@ -161,14 +161,18 @@ export default function ReceiptExpenseClient() {
     setPhase("editing");
   }
 
-  async function start(target: File) {
+  // reuse には「アップロード済みで、そのまま使い回してよい storageId」を渡す。
+  // state の storageId を読まないのは、setStorageId(null) の直後に呼んでも
+  // このレンダーのクロージャには古い値が残っており、撮り直したのに前の画像を
+  // 読み取ってしまうため(stateの更新は非同期)。
+  async function start(target: File, reuse: Id<"_storage"> | null) {
     if (household === undefined) {
       return;
     }
     setError(null);
     setFailedStep(null);
     setPhase("working");
-    let uploaded = storageId;
+    let uploaded = reuse;
     try {
       if (uploaded === null) {
         uploaded = await upload(target);
@@ -204,16 +208,16 @@ export default function ReceiptExpenseClient() {
     if (selected === undefined) {
       return;
     }
-    // 撮り直しなので、前回のアップロード結果は捨てる
+    // 撮り直しなので、前回のアップロード結果は捨てて必ず上げ直す
     setFile(selected);
     setStorageId(null);
-    void start(selected);
+    void start(selected, null);
   }
 
   function retryUpload() {
     if (file !== null) {
       setStorageId(null);
-      void start(file);
+      void start(file, null);
     }
   }
 

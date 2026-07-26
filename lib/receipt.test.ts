@@ -16,7 +16,7 @@ const raw = (overrides: Partial<RawParsedReceipt> = {}): RawParsedReceipt => ({
   total_amount: 1000,
   items: [
     { name: "牛肉", price: 600, quantity: 1 },
-    { name: "にんじん", price: 200, quantity: 2 },
+    { name: "にんじん", price: 400, quantity: 1 },
   ],
   ...overrides,
 });
@@ -76,7 +76,7 @@ describe("normalizeParsedReceipt", () => {
       totalAmount: 1000,
       items: [
         { name: "牛肉", price: 600, quantity: 1 },
-        { name: "にんじん", price: 200, quantity: 2 },
+        { name: "にんじん", price: 400, quantity: 1 },
       ],
       droppedNegativeAdjustment: false,
     });
@@ -126,10 +126,58 @@ describe("normalizeParsedReceipt", () => {
       price: 100,
       quantity: 1,
     });
-    expect(result.items[1].quantity).toBe(999);
+    // 数量は上限999に丸めたうえで品目名へ畳み込む(名前は50文字以内に収める)
+    expect(result.items[1].name).toBe("たまご ×999");
+    expect(result.items[1].name.length).toBeLessThanOrEqual(50);
     // 合計が読めなければ品目合計になるので調整行は増えない
     expect(result.items).toHaveLength(2);
     expect(result.totalAmount).toBe(sumItems(result.items));
+  });
+
+  // 数量は仕分けUIに入力欄が無く、残すと「画面に出ない値」が合計に効いてしまう。
+  // 常に1へ畳み込み、数量は品目名に残す
+  test("数量は常に1に畳み込み、品目名に残す", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [{ name: "牛乳", price: 450, quantity: 3 }],
+        total_amount: 450,
+      }),
+      TODAY,
+    );
+    expect(result.items).toEqual([
+      { name: "牛乳 ×3", price: 450, quantity: 1 },
+    ]);
+  });
+
+  test("単価で返ってきた場合は合計金額と突き合わせて行合計に直す", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        // 150円×3 = 450 で合計と一致する = price は単価だった
+        items: [{ name: "牛乳", price: 150, quantity: 3 }],
+        total_amount: 450,
+      }),
+      TODAY,
+    );
+    expect(result.items).toEqual([
+      { name: "牛乳 ×3", price: 450, quantity: 1 },
+    ]);
+    // 数量ぶんの二重計上も取りこぼしも起きない
+    expect(sumItems(result.items)).toBe(450);
+  });
+
+  test("単価か行合計か判定できないときは行合計として扱い、差額は調整行が吸収する", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [{ name: "牛乳", price: 150, quantity: 3 }],
+        total_amount: 500, // 150 とも 450 とも一致しない
+      }),
+      TODAY,
+    );
+    expect(result.items).toEqual([
+      { name: "牛乳 ×3", price: 150, quantity: 1 },
+      { name: ADJUSTMENT_ITEM_NAME, price: 350, quantity: 1 },
+    ]);
+    expect(sumItems(result.items)).toBe(500);
   });
 
   test("品目が多すぎる場合は99件に切って調整行のぶんを空ける", () => {

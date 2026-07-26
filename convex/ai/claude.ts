@@ -19,6 +19,10 @@ import {
 // (Claude 5系)の Opus に更新した。精度優先の方針は計画書のまま。
 // コスト・レイテンシを優先したい場合は Convex の環境変数 RECEIPT_AI_MODEL で
 // claude-sonnet-5 / claude-haiku-4-5 に差し替えられる(TBD-001)。
+//
+// 注: SDK 0.112.3 の型に載っている Model のユニオンには claude-opus-5 が
+// 含まれていない(SDKのリリースがモデルより古いだけ)。model は任意の文字列を
+// 受け付けるので実行には影響しない。SDKを上げれば型にも載る。
 const DEFAULT_MODEL = "claude-opus-5";
 
 // 要件: タイムアウト30秒。SDKのtimeoutはミリ秒指定。
@@ -45,11 +49,24 @@ const ReceiptSchema = z.object({
 
 const PROMPT = `このレシート画像から購入情報を抽出してください。
 - 品目名は略称を可能な範囲で正式名に展開する(例: 「ﾆﾝｼﾞﾝ」→「にんじん」)
-- 価格は税込・円・整数。値引きはその品目の価格に反映する
-- quantity は数量(既定は1)。price は1個あたりではなく、その行の税込金額
+- price はその行に印字されている税込金額(円・整数)。1個あたりの単価ではなく行の合計
+- quantity はその行の数量(数量の表示がなければ1)
+- 値引きはその品目の price に反映する
 - total_amount はレシートの合計金額(税込)
 - 店名・購入日が判読できなければ null
 - レシートでない画像や、判読できない画像のときは items を空配列にする`;
+
+// 構造化出力のパース失敗(不正JSON / Zod検証エラー)を見分ける。
+// SDKはこれを AnthropicError で投げるので、response.parsed_output が null に
+// なるより先に例外になる。スキーマ不適合として1回だけリトライしたいので、
+// API側のエラー(APIError系。リトライしない)と区別してから変換する。
+function isStructuredOutputFailure(error: unknown): boolean {
+  return (
+    error instanceof Anthropic.AnthropicError &&
+    !(error instanceof Anthropic.APIError) &&
+    error.message.includes("Failed to parse structured output")
+  );
+}
 
 export class ClaudeReceiptParser implements ReceiptParser {
   readonly providerName = "claude";
@@ -65,7 +82,27 @@ export class ClaudeReceiptParser implements ReceiptParser {
     imageBase64: string,
     mediaType: ReceiptMediaType,
   ): Promise<ParsedReceipt> {
-    const response = await this.client().messages.parse({
+    const response = await this.parseOnce(imageBase64, mediaType);
+    if (response.parsed_output === null) {
+      // テキストブロックが返らなかった場合(拒否・max_tokens到達など)
+      throw new ReceiptSchemaError();
+    }
+    return response.parsed_output;
+  }
+
+  private async parseOnce(imageBase64: string, mediaType: ReceiptMediaType) {
+    try {
+      return await this.request(imageBase64, mediaType);
+    } catch (caught) {
+      if (isStructuredOutputFailure(caught)) {
+        throw new ReceiptSchemaError();
+      }
+      throw caught;
+    }
+  }
+
+  private async request(imageBase64: string, mediaType: ReceiptMediaType) {
+    return await this.client().messages.parse({
       model: process.env.RECEIPT_AI_MODEL ?? DEFAULT_MODEL,
       max_tokens: MAX_TOKENS,
       messages: [
@@ -87,10 +124,5 @@ export class ClaudeReceiptParser implements ReceiptParser {
         format: zodOutputFormat(ReceiptSchema),
       },
     });
-
-    if (response.parsed_output === null) {
-      throw new ReceiptSchemaError();
-    }
-    return response.parsed_output;
   }
 }

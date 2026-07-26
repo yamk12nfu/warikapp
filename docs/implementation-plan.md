@@ -742,6 +742,7 @@ export class ReceiptSchemaError extends Error {}
 ```
 
 - [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` は型だけなので不要)
+- [x] ⚠️ **スキーマ不適合は例外で飛んでくる**: SDKの `messages.parse()` は不正JSON・Zod検証エラーを `AnthropicError("Failed to parse structured output: ...")` として**throwする**(`parsed_output` が null になるより先に例外)。これを `ReceiptSchemaError` に変換しないと「1回だけリトライ」が動かない。API側のエラー(`APIError` 系)はリトライ対象外なので、変換前に除外する
 - [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
   - `ANTHROPIC_API_KEY`
   - `RECEIPT_AI_PROVIDER` = `claude`
@@ -827,6 +828,8 @@ export class ClaudeReceiptParser implements ReceiptParser {
   6. 整形後の品目が0件なら「レシートを読み取れませんでした」(レシート以外・不鮮明な画像)
 - [x] `lib/receipt.ts`(**純粋関数。AI呼び出しと切り分けてテストする**。`lib/settlement.ts` と同じ方針):
   - AIの返り値を `expenses.save` の制約(V-402 / V-403)に均す(名前50字・金額1〜9,999,999の整数・数量1〜999、保存できない行は捨てる、品目は99件まで)
+  - **数量は品目名に畳み込んで `quantity` は常に1にする**(「牛乳 ×3」)。理由: (1) `price` は「その行の合計金額」なので `price × quantity` にすると数量ぶん二重に効く、(2) 仕分けUIに数量の入力欄が無く(Phase 5の設計)、残すと画面に出ない値が合計に効いてユーザーが読み取り誤りを確認・修正できない
+  - AIが `price` を単価で返してしまった場合の救済: 行合計として足すと `total_amount` に合わず、`price × quantity` なら一致するときは単価とみなして行合計に直す(どちらとも判定できなければ指示どおり行合計として扱い、ズレは調整行が吸収する)
   - 品目合計 ≠ `total_amount` のとき、差額を品目 `調整(税・割引等)` として追加(負担区分の初期値は画面側の既定=折半)
   - ⚠️ **差額がマイナス(品目合計 > 合計金額)のときは調整行を作らない**。金額は「1円以上の整数」(V-403)なのでマイナスの品目が作れないため。代わりに `droppedNegativeAdjustment: true` を返し、画面が「金額を確認してください」と促す(TBD-003で運用しながら見直す)
 - [x] `expenses.save` に `imageStorageId`(任意)を追加。**省略時は既存の画像を変更しない**(編集画面は画像を扱わないので、undefinedを「削除」と解釈するとレシート画像が編集のたびに消える)
@@ -838,7 +841,8 @@ export class ClaudeReceiptParser implements ReceiptParser {
 
 - [x] `/expenses/new/receipt`:
   1. `<input type="file" accept="image/*" capture="environment">` で撮影/選択
-  2. **クライアント側で縮小・圧縮**(`lib/image.ts`): Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換(HEIC対策にもなる)。20MB超は弾く。寸法計算は純粋関数 `fitWithinLongEdge()` に切り出してテストする
+  2. **クライアント側で縮小・圧縮**(`lib/image.ts`): Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換。20MB超は弾く。寸法計算は純粋関数 `fitWithinLongEdge()` に切り出してテストする
+     - ⚠️ **HEICの扱い**: Canvasで拾えるのは「ブラウザがデコードできる画像」だけ。iPhoneは選択時にJPEGへ変換して渡すことが多く、iOS Safari自体もHEICをデコードできるので実運用(スマホ撮影)はこれで足りる。デコードできない環境(デスクトップChromeでHEICを選ぶ等)では「この画像は読み込めませんでした。JPEGまたはPNGでお試しください」を出す。デコーダライブラリの追加やサーバー変換はMVPの対象外
   3. `generateUploadUrl` で得たURLに画像をPOST → `storageId` を取得 → `registerUpload` で台帳に登録
   4. `useAction` で `receipts.parse` を呼ぶ。処理中はスケルトン+「レシートを読み取っています…」表示(通常15秒以内)
   5. 結果を `ExpenseEditor` に流し込み、**まず `expenses.save`(status: "draft")で保存**(ドラフト)
