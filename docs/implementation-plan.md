@@ -581,21 +581,30 @@ export function calcAdvanceAmount(
 
 ### タスク
 
-- [ ] **ホーム(S-003)**: 未精算差額の常時表示(Phase 7で本実装、まずは枠だけ)+支出一覧
-  - query `expenses.list`: `requireMember` → 自世帯の `settlementId` なし・`deletedAt` なし・confirmed を購入日降順で返す。`usePaginatedQuery` で20件ずつ
-  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_purchasedAt` で `.eq("settlementId", undefined)` まで絞る(deletedAt/statusの残りだけコードでfilter)。「すべて」= `by_coupleId_and_purchasedAt`
+- [x] **ホーム(S-003)**: 未精算差額の常時表示(Phase 7で本実装、まずは枠だけ)+支出一覧
+  - query `expenses.list`: `requireMember` → 自世帯の `deletedAt` なしを購入日降順で返す。`usePaginatedQuery` で20件ずつ
+  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_purchasedAt` で `.eq("settlementId", undefined)` まで絞る。「すべて」= `by_coupleId_and_purchasedAt`
+  - 論理削除の除外は `.paginate()` の**前に** `.filter()` で行う。ページを取得してから配列で捨てると1ページの件数が削除済みのぶんだけ目減りする
+  - **ドラフト(未確定)も一覧に含める**(除外すると確定させる導線が画面から消える。差額計算からの除外はPhase 7の精算側で行う)。行にバッジを出す
+  - 転送量を抑えるため行は射影して返す(`title` = 店名、無ければ先頭の品目名 / `itemCount` / `purchasedAt` / `totalAmount` / `paidBy` / `status` / `settled`)。品目の中身は詳細の `expenses.get` で読む
   - フィルタ「未精算のみ(デフォルト)/すべて」
   - 各行: 店名/名目、日付、合計金額、支払者、精算状態バッジ、ドラフトバッジ
   - 「+レシート」「+手入力」の登録ボタン(レシートはPhase 8までリンクのみ)
   - 💡 queryは`useQuery`/`usePaginatedQuery`で**自動リアルタイム更新**される。パートナーが登録した支出は画面を触らなくても即座に現れる(追加実装ゼロ)
-- [ ] **詳細(S-005)** `/expenses/[id]`: 品目・仕分け内訳・立て替え額・レシート画像サムネイル(画像はPhase 8以降に表示される)
+- [x] **詳細(S-005)** `/expenses/[id]`: 品目・仕分け内訳・立て替え額・レシート画像サムネイル(画像はPhase 8以降に表示される)
+  - query `expenses.get`: `requireMember` → 自世帯・未削除なら支出を返す。**他世帯・削除済み・存在しないIDはすべて `null`**(存在を漏らさない)
+  - `expenses.get` / `getImageUrl` の `expenseId` は **`v.string()` で受けて `ctx.db.normalizeId` で検証する**。URLに直接打たれた不正なIDが `v.id()` の引数検証エラーになると、画面が「見つかりません」ではなくクラッシュするため
+  - 品目ごとの負担額は `lib/settlement.ts` の `calcItemShareAmount` で出す(立て替え額と同じ「品目ごとに四捨五入」)
   - 画像URLは query `expenses.getImageUrl`: `requireMember` → 支出が自世帯か確認 → `ctx.storage.getUrl(imageStorageId)` を返す
-- [ ] **編集**: `ExpenseEditor` を再利用して `expenses.save` を呼ぶ。**精算済みは編集・削除ボタンを非表示/非活性**にし「精算済みの記録は変更できません」を表示(サーバー側でも7.1のガードで二重に防ぐ)
-- [ ] **削除**: mutation `expenses.remove` — 確認ダイアログ → `deletedAt` に `Date.now()` をセット(論理削除)。精算済みは拒否
-- [ ] 競合(相手が同時編集): Convexのリアルタイム同期により画面が常に最新に保たれるため、MVPは**後勝ち**でよい(要件どおり)
+- [x] **編集** `/expenses/[id]/edit`: `ExpenseEditor` を再利用して `expenses.save` を `expenseId` 付きで呼ぶ。`source` と `status` は既存の値を引き継ぐ。**精算済みは編集・削除ボタンを非表示/非活性**にし「精算済みの記録は変更できません」を表示(サーバー側でも7.1のガードで二重に防ぐ)
+- [x] **削除**: mutation `expenses.remove` — 確認ダイアログ → `deletedAt` に `Date.now()` をセット(論理削除)。精算済みは拒否
+- [x] 競合(相手が同時編集): Convexのリアルタイム同期により画面が常に最新に保たれるため、MVPは**後勝ち**でよい(要件どおり)
+- [x] 金額・日付の表示書式は `lib/format.ts`(`formatYen` / `formatDateLabel`)に集約する
+- [x] `convex/expenses.test.ts` に `list`(並び順・フィルタ・論理削除の除外・ページング・世帯分離)・`get`・`getImageUrl`・`remove`(論理削除・精算済み拒否)のテストを追加する
 
 ### ✅ 動作確認
 
+- `npm test` が通る(一覧のフィルタ・並び順・世帯分離・論理削除・精算済みガードを自動検証)
 - 登録した支出がホームに新しい順で並ぶ
 - **ブラウザを2つ並べ、Aで支出を登録するとBの画面に自動で現れる**(リアルタイム同期)
 - 詳細 → 編集 → 金額変更 → 保存 → 一覧に反映される
