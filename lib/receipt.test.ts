@@ -191,6 +191,24 @@ describe("normalizeParsedReceipt", () => {
     ]);
   });
 
+  // 数量1のときは何も足さないので名前も触らない。触ると型番などを壊す
+  test("数量1なら x1 で終わる品目名を壊さない", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [
+          { name: "商品X1", price: 300, quantity: 1 },
+          { name: "電池 x1", price: 200, quantity: 1 },
+        ],
+        total_amount: 500,
+      }),
+      TODAY,
+    );
+    expect(result.items.map((item) => item.name)).toEqual([
+      "商品X1",
+      "電池 x1",
+    ]);
+  });
+
   // 切り詰めで数量だけが落ちると、quantityは1にしてあるので情報が完全に消える。
   // 品目名は「略称を正式名に展開する」よう指示しているので長くなりうる
   test("品目名が長くても数量は必ず残す", () => {
