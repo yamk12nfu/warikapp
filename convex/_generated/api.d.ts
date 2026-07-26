@@ -9,6 +9,7 @@
  */
 
 import type * as ai_claude from "../ai/claude.js";
+import type * as ai_config from "../ai/config.js";
 import type * as ai_gemini from "../ai/gemini.js";
 import type * as ai_index from "../ai/index.js";
 import type * as ai_types from "../ai/types.js";
@@ -28,6 +29,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "ai/claude": typeof ai_claude;
+  "ai/config": typeof ai_config;
   "ai/gemini": typeof ai_gemini;
   "ai/index": typeof ai_index;
   "ai/types": typeof ai_types;

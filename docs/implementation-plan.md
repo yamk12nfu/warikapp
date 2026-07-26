@@ -741,12 +741,26 @@ export interface ReceiptParser {
 export class ReceiptSchemaError extends Error {}
 ```
 
-- [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` は型だけなので不要)
+- [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。**両方を実装済み。既定は `gemini`**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` / `schema.ts` / `config.ts` は SDK に触れないので不要)
+- [x] `convex/ai/schema.ts`: 抽出スキーマ(zod)とプロンプトをプロバイダ間で共有する。GeminiにはJSON Schemaが要るので `z.toJSONSchema()` で変換する(二重管理をやめる)
+- [x] `convex/ai/config.ts`: `resolveModel()` / `requireApiKey()`。`RECEIPT_AI_MODEL` は1つしかないので、**プロバイダとモデルIDが噛み合わないときは設定ミスとして止める**(黙って既定値に落とすと「設定したのに効かない」になる)。APIキー未設定も「何を設定すればよいか」を画面に出す
 - [x] ⚠️ **スキーマ不適合は例外で飛んでくる**: SDKの `messages.parse()` は不正JSON・Zod検証エラーを `AnthropicError("Failed to parse structured output: ...")` として**throwする**(`parsed_output` が null になるより先に例外)。これを `ReceiptSchemaError` に変換しないと「1回だけリトライ」が動かない。API側のエラー(`APIError` 系)はリトライ対象外なので、変換前に除外する
 - [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
-  - `ANTHROPIC_API_KEY`
-  - `RECEIPT_AI_PROVIDER` = `claude`
-  - `RECEIPT_AI_MODEL` = `claude-opus-5`(省略時もこの値。下記参照)
+  - `GEMINI_API_KEY`(既定プロバイダ。Google AI Studio で発行)
+  - `RECEIPT_AI_PROVIDER` = `gemini`(省略時もこの値)
+  - `RECEIPT_AI_MODEL` = `gemini-2.5-flash`(省略時もこの値)
+  - Claudeを使う場合は代わりに `ANTHROPIC_API_KEY` + `RECEIPT_AI_PROVIDER=claude` + `RECEIPT_AI_MODEL=claude-opus-5`
+
+> 💡 **なぜ既定がGeminiか(コスト)**。サブスク(ChatGPT Plus / Gemini Advanced / Claude Pro)にAPI利用は含まれず、サーバーから叩くぶんは必ず従量課金になる。レシート1枚を「入力3,000〜4,000トークン+出力1,000トークン」として月100枚で見積もると:
+>
+> | モデル | 月100枚 |
+> |---|---|
+> | `claude-opus-5` | 約 ¥650 |
+> | `claude-haiku-4-5` | 約 ¥130 |
+> | `gemini-2.5-flash` | 約 ¥55 |
+> | `gemini-2.5-flash-lite` | 約 ¥12 |
+>
+> Gemini APIにはFlash系の**無料枠**もあるが、無料枠は**入力・出力がGoogleの製品改善に使われる**(有料枠は使われない)。レシートは家計の中身なので、常用は有料枠を推奨する。有料枠でもこの金額なので、無料枠を選ぶ実益はほぼない。
 
 ### 10.2 Claude実装(`convex/ai/claude.ts`)
 
@@ -809,7 +823,37 @@ export class ClaudeReceiptParser implements ReceiptParser {
 }
 ```
 
-> 💡 既定モデルは `claude-opus-5`(精度優先)。計画時点では `claude-opus-4-8` を想定していたが、実装時の最新世代(Claude 5系)のOpusに更新した。コスト・速度優先ならConvexの環境変数 `RECEIPT_AI_MODEL` で `claude-sonnet-5` / `claude-haiku-4-5` に差し替えられる(TBD-001)。実レシート数枚で試して決める。
+> 💡 Claudeを選んだ場合の既定モデルは `claude-opus-5`(精度優先)。計画時点では `claude-opus-4-8` を想定していたが、実装時の最新世代(Claude 5系)のOpusに更新した。コスト・速度優先なら `claude-sonnet-5` / `claude-haiku-4-5` に差し替えられる(TBD-001)。
+
+### 10.2b Gemini実装(`convex/ai/gemini.ts`)— 既定プロバイダ
+
+`@google/genai` の `models.generateContent` に、画像(`inlineData`)+プロンプトを渡し、構造化出力で受け取る:
+
+```ts
+const response = await client.models.generateContent({
+  model: resolveModel("gemini", process.env.RECEIPT_AI_MODEL, "gemini-2.5-flash"),
+  contents: [
+    {
+      role: "user",
+      parts: [
+        { inlineData: { mimeType: mediaType, data: imageBase64 } },
+        { text: PROMPT },
+      ],
+    },
+  ],
+  config: {
+    responseMimeType: "application/json",
+    responseJsonSchema: receiptJsonSchema(),
+    httpOptions: { timeout: options.timeoutMs }, // 読み取り全体の残り時間
+  },
+});
+// JSONの構文エラーもスキーマ不適合も ReceiptSchemaError にして1回リトライ
+const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
+```
+
+- Claudeと違い、**このSDKは環境変数からAPIキーを読まない**ので `apiKey` を明示的に渡す
+- 応答は文字列なので、共有の zod スキーマ(`convex/ai/schema.ts`)で検証してから返す
+- 既定モデルは `gemini-2.5-flash`。精度優先なら `gemini-3.5-flash`、コスト優先なら `gemini-2.5-flash-lite`(TBD-001)
 
 ### 10.3 Convex関数(`convex/uploads.ts` と `convex/receipts.ts`)
 
@@ -865,7 +909,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 - レシート以外(風景写真など)を送るとエラーメッセージと手入力導線が出る
 - 31回連続で解析するとレート制限エラーになる(確認は任意。`convex/receipts.test.ts` で自動テスト済み)
 
-> ⚠️ AI読み取りの実地確認には Convexダッシュボードでの環境変数登録(`ANTHROPIC_API_KEY` / `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL`)が必要。未登録のうちは読み取りが「読み取りに失敗しました。手入力に切り替えますか?」になる(圧縮・アップロード・帰属検証・レート制限・調整行・ドラフト復帰はテストで検証済み)。
+> ⚠️ AI読み取りの実地確認には Convexダッシュボードでの環境変数登録(`GEMINI_API_KEY`。Claudeを使うなら `ANTHROPIC_API_KEY`)が必要。未登録のうちは「AIの設定が未完了です。Convexの環境変数に GEMINI_API_KEY を登録してください」が画面に出る(圧縮・アップロード・帰属検証・レート制限・調整行・ドラフト復帰はテストで検証済み)。
 
 ---
 
@@ -874,7 +918,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 ### タスク
 
 - [ ] **Clerkを本番インスタンスに**: Clerkダッシュボードで Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。本番用の `pk_live_...` / `sk_live_...` を控える
-- [ ] **Convexを本番デプロイ**: Convexダッシュボードの本番(Production)環境に環境変数(`ANTHROPIC_API_KEY` / `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` / `CLERK_JWT_ISSUER_DOMAIN`=本番ClerkのIssuer URL)を登録
+- [ ] **Convexを本番デプロイ**: Convexダッシュボードの本番(Production)環境に環境変数(`GEMINI_API_KEY`(Claudeなら `ANTHROPIC_API_KEY`)/ `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` / `CLERK_JWT_ISSUER_DOMAIN`=本番ClerkのIssuer URL)を登録
 - [ ] **Vercelデプロイ**:
   - GitHubリポジトリをVercelにImport
   - Build Command を `npx convex deploy --cmd 'npm run build'` に変更(フロントとConvex関数を同時デプロイ)
