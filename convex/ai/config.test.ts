@@ -29,6 +29,14 @@ describe("resolveModel", () => {
     );
   });
 
+  // Geminiのモデル一覧APIは "models/gemini-..." の形で返す。SDKは両方受けるので、
+  // 一覧からそのままコピペされても設定ミス扱いにしない
+  test('Geminiの "models/..." 形式も受け付け、そのまま渡す', () => {
+    expect(
+      resolveModel("gemini", "models/gemini-2.5-flash", "gemini-3.6-flash"),
+    ).toBe("models/gemini-2.5-flash");
+  });
+
   // RECEIPT_AI_MODEL は1つしかないので、プロバイダを切り替えたときに前の
   // モデルIDが残っていると噛み合わない。黙って既定値に落とすと
   // 「設定したのに効かない」になるため、はっきり止める

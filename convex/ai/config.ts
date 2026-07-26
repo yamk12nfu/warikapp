@@ -14,6 +14,10 @@ const MODEL_PREFIX: Record<ProviderName, string> = {
   gemini: "gemini",
 };
 
+// Geminiのモデル一覧APIは "models/gemini-2.5-flash" の形で返す。
+// SDKは短いIDとこの形の両方を受けるので、一覧からコピペされても弾かない
+const GEMINI_RESOURCE_PREFIX = "models/";
+
 export function resolveModel(
   provider: ProviderName,
   configured: string | undefined,
@@ -23,7 +27,12 @@ export function resolveModel(
   if (model === "") {
     return fallback;
   }
-  if (!model.startsWith(MODEL_PREFIX[provider])) {
+  // 判定にだけ使う。SDKにはユーザーが設定した文字列をそのまま渡す
+  const bare =
+    provider === "gemini" && model.startsWith(GEMINI_RESOURCE_PREFIX)
+      ? model.slice(GEMINI_RESOURCE_PREFIX.length)
+      : model;
+  if (!bare.startsWith(MODEL_PREFIX[provider])) {
     throw new ConvexError(
       `RECEIPT_AI_MODEL(${model})が RECEIPT_AI_PROVIDER(${provider})と一致しません。Convexの環境変数を確認してください`,
     );
