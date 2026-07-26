@@ -56,6 +56,11 @@ const PROMPT = `このレシート画像から購入情報を抽出してくだ�
 // SDKはこれを AnthropicError で投げるので、response.parsed_output が null に
 // なるより先に例外になる。スキーマ不適合として1回だけリトライしたいので、
 // API側のエラー(APIError系。リトライしない)と区別してから変換する。
+//
+// ⚠️ SDK 0.112.3 には専用のエラークラスが無く(lib/parser.js は AnthropicError に
+// 文言を載せて投げるだけ)、やむなく文言で判定している。**SDKを上げたときは
+// ここを確認すること**。文言が変われば要件F-003の「1回リトライ」が静かに
+// 効かなくなる(専用クラスが公開されたらそちらでの判定に切り替える)。
 function isStructuredOutputFailure(error: unknown): boolean {
   return (
     error instanceof Anthropic.AnthropicError &&
