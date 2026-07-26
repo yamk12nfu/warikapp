@@ -75,6 +75,7 @@ export default function SettlementClient() {
     return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
 
+  // 支出の行に出す名前(「○○が支払い」)。ホームの一覧と同じ書き方に揃える
   const memberName = (memberId: string | null) => {
     if (memberId === household.self._id) {
       return "あなた";
@@ -84,6 +85,12 @@ export default function SettlementClient() {
     }
     return "メンバー";
   };
+
+  // 差額の説明文に出す名前。相手には「さん」を付ける(ホームの表示と揃える)
+  const memberNameWithHonorific = (memberId: string | null) =>
+    memberId === household.self._id || memberId === null
+      ? memberName(memberId)
+      : `${memberName(memberId)}さん`;
 
   const hasDraft = pending.draftCount > 0;
   const canExecute =
@@ -106,9 +113,9 @@ export default function SettlementClient() {
             ? pending.expenseCount === 0
               ? "未精算の支出はありません"
               : "貸し借りはありません"
-            : `${memberName(pending.fromMemberId)}が ${memberName(
-                pending.toMemberId,
-              )}に 支払います`}
+            : `${memberNameWithHonorific(
+                pending.fromMemberId,
+              )}が ${memberNameWithHonorific(pending.toMemberId)}に 支払います`}
         </p>
       </section>
 
