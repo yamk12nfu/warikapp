@@ -88,9 +88,11 @@ export default defineSchema({
     coupleId: v.id("couples"),
     storageId: v.id("_storage"),
     uploadedBy: v.id("members"),
-    // 支出に紐付けられた時刻。未設定なら「どの支出からも参照されていない」ので
-    // 撮り直しのときに破棄してよい(uploads.discard)
-    usedAt: v.optional(v.number()),
+    // この画像を使っている支出。未設定なら「どの支出からも参照されていない」ので
+    // 撮り直しのときに破棄してよい(uploads.discard)。
+    // 時刻ではなく参照元のIDを持つのは、支出の画像が差し替わったときに
+    // 「その支出のものだった画像」だけを安全に消せるようにするため
+    usedByExpenseId: v.optional(v.id("expenses")),
   }).index("by_storageId", ["storageId"]),
 });
 

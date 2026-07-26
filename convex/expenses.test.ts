@@ -666,6 +666,56 @@ describe("expenses.save(レシート画像)", () => {
     ).rejects.toThrow("この画像は利用できません");
   });
 
+  // 撮り直しで画像を差し替えたとき、古い画像は誰からも参照されなくなる。
+  // 台帳と実体を残すと、消す手段がないまま溜まり続けてしまう
+  test("画像を差し替えると古い画像は実体ごと片付けられる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const first = await uploadFor(t);
+    const second = await uploadFor(t);
+
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        source: "receipt",
+        imageStorageId: first,
+        status: "draft",
+      }),
+    );
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { expenseId, imageStorageId: second }),
+    );
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.imageStorageId).toBe(second);
+
+    const rows = await t.run(async (ctx) => ctx.db.query("uploads").collect());
+    expect(rows.map((row) => row.storageId)).toEqual([second]);
+    expect(
+      await t.run(async (ctx) => ctx.db.system.get("_storage", first)),
+    ).toBeNull();
+  });
+
+  // 共有を許すと、片方の支出が画像を差し替えたときに消してよいか判断できない
+  test("1枚の画像を2つの支出で共有できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const imageStorageId = await uploadFor(t);
+
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { source: "receipt", imageStorageId }),
+    );
+
+    await expect(
+      t.withIdentity(ALICE).mutation(
+        api.expenses.save,
+        manualArgs(members, { source: "receipt", imageStorageId }),
+      ),
+    ).rejects.toThrow("ほかの支出で使われています");
+  });
+
   test("更新時に省略しても画像は消えない(編集画面は画像を扱わない)", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
