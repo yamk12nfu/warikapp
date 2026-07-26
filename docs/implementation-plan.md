@@ -258,6 +258,7 @@ export default defineSchema({
     amount: v.number(),
     memo: v.optional(v.string()),  // 100文字以内
     settledBy: v.id("members"),
+    expenseCount: v.number(),      // 履歴に出す対象支出数(Phase 7で追加)
   }).index("by_coupleId", ["coupleId"]),
 
   // AI読み取りのレート制限用(要件: 30回/時/世帯)
@@ -616,70 +617,84 @@ export function calcAdvanceAmount(
 
 ### 9.1 差額計算
 
-- [ ] `lib/settlement.ts` に世帯全体の未精算差額を計算する関数を追加(要件の式そのまま):
+- [x] `lib/settlement.ts` に世帯全体の未精算差額を計算する `calcNetBalance` を追加(要件の式そのまま):
 
 ```text
 netA = Σ(Aが支払った未精算支出のAの立て替え額) − Σ(Bが支払った未精算支出のBの立て替え額)
 netA > 0 → 「BがAにnetA円支払う」/ netA < 0 → 逆 / 0 → 精算不要
 ```
 
-- [ ] query `settlements.currentBalance`: `requireMember` → 未精算・confirmed・未削除の支出を集めて上記を計算し、「誰が誰にいくら」を返す
-- [ ] ホーム上部に常時表示: 「あなたが ○○さんに 3,450円」形式。タップで `/settlement` へ
+  - 差額0のときは `{ fromMemberId: null, toMemberId: null, amount: 0 }` を返す(方向を持たない)
+  - メンバーIDは型変数にしてある。Convexから `Id<"members">` を渡すと戻り値も `Id<"members">` のままになり、`execute` の insert でキャストが要らない
+
+- [x] query `settlements.currentBalance`: `requireMember` → 未精算・confirmed・未削除の支出を集めて上記を計算し、「誰が誰にいくら」を返す
+  - **未精算支出の取得は有界にする**: ガイドラインが `.collect()` を禁じているため `.take(500 + 1)`。上限超過をエラーにすると差額表示も精算もできない詰みになるので、**古い順に500件までを今回の対象として切り出し、あふれたぶんは次回の精算に回す**(`truncated` で画面に伝える)。500件の根拠は2人世帯で数ヶ月ぶんに相当し、`execute` が同数を1トランザクションでpatchしてもConvexの読み書き上限(16,384件 / 8MB)に余裕があること
+  - ドラフトは金額が変わりうるため差額から除外し、`draftCount` として返す(V-701の警告とガードに使う)
+- [x] ホーム上部に常時表示: 金額+「あなたが ○○さんに 支払います」。カード全体が `/settlement` へのリンク
 
 ### 9.2 精算実行(S-007)
 
-- [ ] `/settlement`: 対象の未精算支出一覧と内訳、メモ入力(任意100文字)、「精算する」ボタン
-- [ ] mutation `settlements.execute` — **mutationは自動でトランザクション**なので、Supabase構成で必要だったPostgres RPCは不要。1つの関数に素直に書く:
+- [x] query `settlements.pending`: 精算画面用に、差額サマリー+対象支出の一覧(見出し・購入日・支払者・合計・立て替え額)を返す。一覧は購入日の新しい順
+- [x] `/settlement`: 対象の未精算支出一覧と内訳、メモ入力(任意100文字)、「精算する」ボタン
+- [x] mutation `settlements.execute` — **mutationは自動でトランザクション**なので、Supabase構成で必要だったPostgres RPCは不要。1つの関数に素直に書く:
 
 ```ts
 export const execute = mutation({
   args: { memo: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
+    const memo = normalizeMemo(args.memo);
 
-    // 対象支出を収集
-    const expenses = (await ctx.db
-      .query("expenses")
-      .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
-        q.eq("coupleId", member.coupleId).eq("settlementId", undefined))
-      .collect())
-      .filter((e) => e.deletedAt === undefined);
+    const partner = await findPartner(ctx, member);
+    if (partner === null) throw new ConvexError("パートナーが参加してから精算してください");
+
+    // 未精算・未削除の支出を有界に読む(古い順に最大500件。§9.1参照)
+    const { expenses } = await collectUnsettled(ctx, member.coupleId);
 
     // V-701: ドラフトが残っていたら拒否
     if (expenses.some((e) => e.status === "draft")) {
-      throw new Error("未確定のレシートがあります");
+      throw new ConvexError("未確定のレシートがあります");
     }
-    const confirmed = expenses.filter((e) => e.status === "confirmed");
-    if (confirmed.length === 0) throw new Error("精算対象がありません");
+    if (expenses.length === 0) throw new ConvexError("精算対象がありません");
 
     // サーバー側で差額を再計算(クライアントの表示値は信用しない)
-    // ... calcAdvanceAmount を使って netA を算出し from/to/amount を決める ...
+    const balance = calcNetBalance(member._id, partner._id, expenses);
 
     const settlementId = await ctx.db.insert("settlements", {
       coupleId: member.coupleId,
-      fromMemberId, toMemberId, amount,
-      memo: args.memo,
+      // 差額0のときは方向に意味がないので 実行者 → パートナー で記録する
+      fromMemberId: balance.fromMemberId ?? member._id,
+      toMemberId: balance.toMemberId ?? partner._id,
+      amount: balance.amount,
+      memo,
       settledBy: member._id,
+      expenseCount: expenses.length,
     });
     // 対象支出すべてに精算IDを付与
-    for (const e of confirmed) {
-      await ctx.db.patch(e._id, { settlementId });
+    for (const expense of expenses) {
+      await ctx.db.patch("expenses", expense._id, { settlementId });
     }
     return settlementId;
   },
 });
 ```
 
-- [ ] 二重実行防止(V-702): mutationのトランザクション性+「対象0件ならエラー」のガードで、ボタン連打しても2件目は失敗する。UI側でも実行中はボタンを無効化する
-- [ ] 実行後: ホームの未精算差額が0円になり、対象支出に「精算済み」バッジが付く(リアルタイム反映)
+  - **画面に出すエラーは `ConvexError` で投げる**(素の `Error` は本番デプロイでメッセージがクライアントに届かず「Server Error」に伏せられる。既存の `couples.ts` / `expenses.ts` と同じ規約)
+  - パートナー未参加の世帯は立て替えが発生しないため実行を拒否する(`toMemberId` を決められない)
+  - 差額0でも対象があれば実行を許す(「ここで区切る」ことに意味があるため)
+  - `expenseCount` を精算レコードに持たせる。履歴の対象件数を出すために expenses を数え直さないため(精算済み支出は編集・削除できず、取り消しは精算ごと消すので値はずれない)
+- [x] 二重実行防止(V-702): mutationのトランザクション性+「対象0件ならエラー」のガードで、ボタン連打しても2件目は失敗する。UI側でも実行中はボタンを無効化する(成功時は遷移するまで無効のまま)
+- [x] 実行後: ホームの未精算差額が0円になり、対象支出に「精算済み」バッジが付く(リアルタイム反映)。実行後は `/settlements` へ遷移して記録を見せる
 
 ### 9.3 精算履歴(S-008)と取り消し
 
-- [ ] `/settlements`: 日時(`_creationTime`)・方向・金額・メモ・対象支出数の一覧
-- [ ] **直近1件のみ取り消し可**: mutation `settlements.cancel` — 最新の精算か確認 → 対象支出の `settlementId` を外す → `settlements` の行を削除
+- [x] query `settlements.list` + `/settlements`: 日時(`_creationTime`)・方向・金額・メモ・対象支出数の一覧。20件ずつページングする(履歴は消えないので上限固定にはしない)
+- [x] **直近1件のみ取り消し可**: mutation `settlements.cancel` — 最新の精算か確認 → 対象支出の `settlementId` を外す → `settlements` の行を削除。取り消しボタンは一覧の先頭行にだけ出す
+- [x] `convex/settlements.test.ts` に `currentBalance`(差額計算・ドラフト/精算済み/論理削除の除外・世帯分離)・`pending`・`execute`(V-701/V-702・サーバー再計算・メモ検証・差額0)・`list`・`cancel`(復活・直近以外の拒否・世帯分離)のテストを追加する。`lib/settlement.test.ts` には `calcNetBalance` の単体テストを追加する
 
 ### ✅ 動作確認
 
+- `npm test` が通る(差額計算・V-701/V-702・取り消し・世帯分離を自動検証)
 - A支払い5,000円折半+B支払い2,000円折半を登録 → 差額表示が「BがAに1,500円」になる(手計算と一致)
 - 精算実行 → 差額0円、履歴に1件記録される
 - 精算ボタンを素早く2回押しても精算は1件しかできない
