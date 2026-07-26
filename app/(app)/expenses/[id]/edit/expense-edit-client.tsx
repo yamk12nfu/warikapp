@@ -8,6 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 // 支出の編集(S-005 / F-006)。仕分けUI(ExpenseEditor)をそのまま再利用し、
 // expenses.save を expenseId 付きで呼ぶ。
@@ -21,13 +22,22 @@ export default function ExpenseEditClient({
   const router = useRouter();
   // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
-  const expense = useQuery(
-    api.expenses.get,
-    isAuthenticated ? { expenseId } : "skip",
+  const member = useQuery(
+    api.couples.currentMember,
+    isAuthenticated ? {} : "skip",
   );
-  // household は requireMember で throw するため、支出が読めてから呼ぶ
-  const household = useQuery(api.couples.household, expense ? {} : "skip");
+  // expenses.get / household は requireMember で throw するため、
+  // 世帯所属が確定してから呼ぶ(未所属のままだと画面がエラーで落ちる)
+  const expense = useQuery(api.expenses.get, member ? { expenseId } : "skip");
+  const household = useQuery(api.couples.household, member ? {} : "skip");
   const saveExpense = useMutation(api.expenses.save);
+
+  useEffect(() => {
+    // 認証確立後にnull = 本当に世帯未所属
+    if (isAuthenticated && member === null) {
+      router.replace("/setup");
+    }
+  }, [isAuthenticated, member, router]);
 
   async function handleSubmit(value: ExpenseFormValue) {
     if (expense === undefined || expense === null) {
@@ -57,7 +67,13 @@ export default function ExpenseEditClient({
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
-  if (expense === undefined || (expense !== null && household === undefined)) {
+  if (member === undefined) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
+  }
+  if (member === null) {
+    return null; // 世帯未所属: /setupへ誘導中
+  }
+  if (expense === undefined || household === undefined) {
     return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (expense === null) {
@@ -70,9 +86,6 @@ export default function ExpenseEditClient({
         </Link>
       </main>
     );
-  }
-  if (household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (expense.settled) {
     return (

@@ -61,18 +61,23 @@ export default function HomeClient() {
     return null; // 世帯未所属: /setupへ誘導中
   }
 
-  // 支払者の表示名。ID→名前の対応は household から引く
-  const memberName = (memberId: string) => {
-    if (household === undefined) {
-      return "";
+  // 行の補足情報(日付・支払者・品目数)。支払者名は household から引くため、
+  // 読み込みが終わるまでは支払者だけ省く(「が支払い」だけが出るのを防ぐ)
+  const rowMeta = (expense: { purchasedAt: string; paidBy: string; itemCount: number }) => {
+    const parts = [formatDateLabel(expense.purchasedAt)];
+    if (household !== undefined) {
+      const name =
+        expense.paidBy === household.self._id
+          ? `${household.self.displayName}(あなた)`
+          : expense.paidBy === household.partner?._id
+            ? household.partner.displayName
+            : "メンバー";
+      parts.push(`${name}が支払い`);
     }
-    if (memberId === household.self._id) {
-      return `${household.self.displayName}(あなた)`;
+    if (expense.itemCount > 1) {
+      parts.push(`${expense.itemCount}品目`);
     }
-    if (memberId === household.partner?._id) {
-      return household.partner.displayName;
-    }
-    return "メンバー";
+    return parts.join(" ・ ");
   };
 
   return (
@@ -167,9 +172,7 @@ export default function HomeClient() {
                       )}
                     </span>
                     <span className="block text-xs text-gray-500">
-                      {formatDateLabel(expense.purchasedAt)} ・{" "}
-                      {memberName(expense.paidBy)}が支払い
-                      {expense.itemCount > 1 && ` ・ ${expense.itemCount}品目`}
+                      {rowMeta(expense)}
                     </span>
                   </span>
                   <span className="whitespace-nowrap font-bold">

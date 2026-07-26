@@ -8,7 +8,7 @@ import { calcAdvanceAmount, calcItemShareAmount } from "@/lib/settlement";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // 支出詳細(S-005 / F-006)。品目・仕分け内訳・立て替え額・レシート画像を表示し、
 // 編集(/expenses/[id]/edit)と削除の導線を置く。
@@ -28,12 +28,14 @@ export default function ExpenseDetailClient({
   const router = useRouter();
   // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
-  const expense = useQuery(
-    api.expenses.get,
-    isAuthenticated ? { expenseId } : "skip",
+  const member = useQuery(
+    api.couples.currentMember,
+    isAuthenticated ? {} : "skip",
   );
-  // household は requireMember で throw するため、支出が読めてから呼ぶ
-  const household = useQuery(api.couples.household, expense ? {} : "skip");
+  // expenses.get / household は requireMember で throw するため、
+  // 世帯所属が確定してから呼ぶ(未所属のままだと画面がエラーで落ちる)
+  const expense = useQuery(api.expenses.get, member ? { expenseId } : "skip");
+  const household = useQuery(api.couples.household, member ? {} : "skip");
   const imageUrl = useQuery(
     api.expenses.getImageUrl,
     expense?.hasImage ? { expenseId } : "skip",
@@ -41,6 +43,13 @@ export default function ExpenseDetailClient({
   const removeExpense = useMutation(api.expenses.remove);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    // 認証確立後にnull = 本当に世帯未所属
+    if (isAuthenticated && member === null) {
+      router.replace("/setup");
+    }
+  }, [isAuthenticated, member, router]);
 
   async function handleRemove() {
     if (expense === undefined || expense === null) {
@@ -67,7 +76,15 @@ export default function ExpenseDetailClient({
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
-  if (expense === undefined) {
+  if (member === undefined) {
+    return <main className="p-8 text-gray-500">読み込み中…</main>;
+  }
+  if (member === null) {
+    return null; // 世帯未所属: /setupへ誘導中
+  }
+  // 支払者名と立て替え額の相手を household から引くため、揃うまで待つ
+  // (先に出すと名前が空欄になり、立て替え額も「なし」と誤って表示される)
+  if (expense === undefined || household === undefined) {
     return <main className="p-8 text-gray-500">読み込み中…</main>;
   }
   if (expense === null) {
@@ -83,9 +100,6 @@ export default function ExpenseDetailClient({
   }
 
   const memberName = (memberId: string) => {
-    if (household === undefined) {
-      return "";
-    }
     if (memberId === household.self._id) {
       return "あなた";
     }
@@ -97,12 +111,11 @@ export default function ExpenseDetailClient({
 
   const advanceAmount = calcAdvanceAmount(expense.paidBy, expense.items);
   const payerName = memberName(expense.paidBy);
+  // 立て替えの相手(支払者でない側)。パートナー未参加なら立て替えは発生しない
   const otherId =
-    household === undefined
-      ? null
-      : expense.paidBy === household.self._id
-        ? (household.partner?._id ?? null)
-        : household.self._id;
+    expense.paidBy === household.self._id
+      ? (household.partner?._id ?? null)
+      : household.self._id;
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
@@ -140,8 +153,11 @@ export default function ExpenseDetailClient({
       {expense.hasImage && (
         <section className="space-y-1">
           <h2 className="text-sm font-semibold">レシート画像</h2>
-          {imageUrl == null ? (
+          {imageUrl === undefined ? (
             <p className="text-sm text-gray-500">読み込み中…</p>
+          ) : imageUrl === null ? (
+            // 読み込み中(undefined)と区別する。null は保存先から画像が消えた場合
+            <p className="text-sm text-gray-500">画像を表示できませんでした</p>
           ) : (
             // タップで拡大(新しいタブで原寸を開く)。Convexの署名付きURLなので
             // next/image のリモートホスト設定を増やさず素の img を使う
