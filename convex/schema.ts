@@ -70,6 +70,10 @@ export default defineSchema({
     amount: v.number(),
     memo: v.optional(v.string()), // 100文字以内
     settledBy: v.id("members"),
+    // 精算履歴(S-008)に出す対象支出数。行を数えるためだけに expenses を全件
+    // 読み直すのを避けるため、精算実行時に確定した件数をここに持たせる。
+    // 精算済み支出は編集・削除ができず、取り消しは精算ごと消すので値はずれない
+    expenseCount: v.number(),
   }).index("by_coupleId", ["coupleId"]),
 
   // AI読み取りのレート制限用(要件: 30回/時/世帯)。時刻は _creationTime を使う

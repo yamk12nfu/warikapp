@@ -1,0 +1,273 @@
+import { paginationOptsValidator } from "convex/server";
+import { ConvexError, v } from "convex/values";
+import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+import { requireMember } from "./lib/auth";
+import { calcAdvanceAmount, calcNetBalance } from "../lib/settlement";
+
+// 精算(F-007)。未精算支出から世帯全体の差額を出し、精算実行で区切る。
+// 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
+// クライアントに届かず「Server Error」に伏せられるため)。
+
+const MAX_MEMBERS = 2; // 世帯の上限2名(V-203)
+const MAX_MEMO_LENGTH = 100;
+
+// 1回の精算が対象にする未精算支出の上限。
+// ガイドラインは .collect()(件数無制限の読み取り)を禁じている。かといって
+// 上限超過をエラーにすると、差額が表示できないうえ精算もできない詰みになるため、
+// 「古い順に MAX_UNSETTLED_EXPENSES 件までを今回の精算対象として切り出し、
+// あふれたぶんは次回の精算に回す」方針にした(truncated で画面に伝える)。
+// 500件とした根拠: 2人世帯で数ヶ月ぶんの支出に相当し実質到達しない件数であること、
+// かつ execute が同数の patch を1トランザクションで行っても、Convexの
+// 読み書き上限(16,384件 / 8MB)に対して十分な余裕があること。
+const MAX_UNSETTLED_EXPENSES = 500;
+
+const ERR_NO_PARTNER = "パートナーが参加してから精算してください";
+const ERR_DRAFT_REMAINS = "未確定のレシートがあります"; // V-701
+const ERR_NO_TARGET = "精算対象がありません"; // V-701 / V-702
+const ERR_MEMO_TOO_LONG = "メモは100文字以内で入力してください";
+// 他世帯の精算を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
+const ERR_NOT_FOUND = "精算が見つかりません";
+const ERR_NOT_LATEST = "直近の精算のみ取り消せます";
+
+// 自分以外の世帯メンバー。招待前(1名)の世帯では null
+async function findPartner(
+  ctx: QueryCtx | MutationCtx,
+  member: Doc<"members">,
+): Promise<Doc<"members"> | null> {
+  const members = await ctx.db
+    .query("members")
+    .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+    .take(MAX_MEMBERS);
+  return members.find((m) => m._id !== member._id) ?? null;
+}
+
+// 未精算(settlementId 未設定)・未削除の支出を購入日の古い順に読む。
+// 上限の扱いは MAX_UNSETTLED_EXPENSES のコメントを参照。currentBalance と
+// execute が同じ集合を見るよう、取得条件と並び順はこの関数に集約する。
+async function collectUnsettled(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+): Promise<{ expenses: Doc<"expenses">[]; truncated: boolean }> {
+  // 上限+1件読んで「まだ続きがあるか」を判定する
+  const rows = await ctx.db
+    .query("expenses")
+    .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
+      q.eq("coupleId", coupleId).eq("settlementId", undefined),
+    )
+    .filter((q) => q.eq(q.field("deletedAt"), undefined))
+    .take(MAX_UNSETTLED_EXPENSES + 1);
+
+  const truncated = rows.length > MAX_UNSETTLED_EXPENSES;
+  return {
+    expenses: truncated ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows,
+    truncated,
+  };
+}
+
+type Summary = {
+  amount: number;
+  fromMemberId: Id<"members"> | null;
+  toMemberId: Id<"members"> | null;
+  expenseCount: number;
+  draftCount: number;
+  truncated: boolean;
+};
+
+// 未精算支出から差額サマリーを組み立てる。
+// ドラフト(未確定)は金額が変わりうるので差額には含めず、件数だけ返して
+// 画面の警告と V-701 のガードに使う(一覧に出す判断は expenses.list 側)。
+function summarize(
+  selfId: Id<"members">,
+  partnerId: Id<"members"> | null,
+  expenses: Doc<"expenses">[],
+  truncated: boolean,
+): Summary {
+  const confirmed = expenses.filter((e) => e.status === "confirmed");
+  const balance =
+    partnerId === null
+      ? { fromMemberId: null, toMemberId: null, amount: 0 }
+      : calcNetBalance(selfId, partnerId, confirmed);
+  return {
+    ...balance,
+    expenseCount: confirmed.length,
+    draftCount: expenses.length - confirmed.length,
+    truncated,
+  };
+}
+
+// ホーム(S-003)に常時表示する未精算差額。
+// 「誰が誰にいくら」を返し、amount が0なら精算不要(from/to は null)。
+export const currentBalance = query({
+  args: {},
+  handler: async (ctx): Promise<Summary> => {
+    const member = await requireMember(ctx);
+    const partner = await findPartner(ctx, member);
+    const { expenses, truncated } = await collectUnsettled(
+      ctx,
+      member.coupleId,
+    );
+    return summarize(member._id, partner?._id ?? null, expenses, truncated);
+  },
+});
+
+// 精算画面(S-007)。差額に加えて、今回の対象になる支出の一覧と内訳を返す。
+// 一覧は購入日の新しい順(collectUnsettled は古い順に読むので反転する)。
+export const pending = query({
+  args: {},
+  handler: async (ctx) => {
+    const member = await requireMember(ctx);
+    const partner = await findPartner(ctx, member);
+    const { expenses, truncated } = await collectUnsettled(
+      ctx,
+      member.coupleId,
+    );
+    const summary = summarize(
+      member._id,
+      partner?._id ?? null,
+      expenses,
+      truncated,
+    );
+
+    return {
+      ...summary,
+      expenses: expenses
+        .filter((e) => e.status === "confirmed")
+        .reverse()
+        .map((expense) => ({
+          _id: expense._id,
+          // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.list と同じ)
+          title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+          purchasedAt: expense.purchasedAt,
+          totalAmount: expense.totalAmount,
+          paidBy: expense.paidBy,
+          // この支出で支払者が相手のぶんを立て替えた額
+          advanceAmount: calcAdvanceAmount(expense.paidBy, expense.items),
+        })),
+    };
+  },
+});
+
+function normalizeMemo(raw: string | undefined): string | undefined {
+  const memo = (raw ?? "").trim();
+  if (memo.length === 0) {
+    return undefined; // 任意項目
+  }
+  if (memo.length > MAX_MEMO_LENGTH) {
+    throw new ConvexError(ERR_MEMO_TOO_LONG);
+  }
+  return memo;
+}
+
+// 精算の実行(S-007)。mutationは自動でトランザクションなので、
+// 「対象の確定 → 精算レコード作成 → 支出への紐付け」を1つの関数に素直に書ける。
+// V-702(二重実行防止): 先に走ったほうが対象支出すべてに settlementId を付けるため、
+// 後続は対象0件になって ERR_NO_TARGET で失敗する(UI側でもボタンを無効化する)。
+export const execute = mutation({
+  args: { memo: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<Id<"settlements">> => {
+    const member = await requireMember(ctx);
+    const memo = normalizeMemo(args.memo);
+
+    const partner = await findPartner(ctx, member);
+    if (partner === null) {
+      // 相手がいなければ立て替えも差額も発生しない
+      throw new ConvexError(ERR_NO_PARTNER);
+    }
+
+    const { expenses } = await collectUnsettled(ctx, member.coupleId);
+
+    // V-701: 未確定のレシートが残っていたら拒否する(金額が変わりうるため)
+    if (expenses.some((e) => e.status === "draft")) {
+      throw new ConvexError(ERR_DRAFT_REMAINS);
+    }
+    if (expenses.length === 0) {
+      throw new ConvexError(ERR_NO_TARGET);
+    }
+
+    // クライアントの表示値は信用せず、サーバー側で差額を計算し直す
+    const balance = calcNetBalance(member._id, partner._id, expenses);
+
+    // 差額0でも「ここで区切る」ことに意味があるので実行を許す。方向に意味が
+    // ないため、実行者 → パートナー の向きで記録する
+    const settlementId = await ctx.db.insert("settlements", {
+      coupleId: member.coupleId,
+      fromMemberId: balance.fromMemberId ?? member._id,
+      toMemberId: balance.toMemberId ?? partner._id,
+      amount: balance.amount,
+      memo,
+      settledBy: member._id,
+      expenseCount: expenses.length,
+    });
+
+    for (const expense of expenses) {
+      await ctx.db.patch("expenses", expense._id, { settlementId });
+    }
+    return settlementId;
+  },
+});
+
+// 精算履歴(S-008)。新しい順に20件ずつページングする
+export const list = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const result = await ctx.db
+      .query("settlements")
+      .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+
+    return {
+      ...result,
+      page: result.page.map((settlement) => ({
+        _id: settlement._id,
+        settledAt: settlement._creationTime,
+        fromMemberId: settlement.fromMemberId,
+        toMemberId: settlement.toMemberId,
+        amount: settlement.amount,
+        memo: settlement.memo,
+        expenseCount: settlement.expenseCount,
+      })),
+    };
+  },
+});
+
+// 精算の取り消し(S-008)。直近1件のみ。対象支出の settlementId を外してから
+// 精算レコードを消す。取り消すと未精算に戻るので、差額表示も自動で復活する。
+export const cancel = mutation({
+  args: { settlementId: v.id("settlements") },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const settlement = await ctx.db.get("settlements", args.settlementId);
+    if (settlement === null || settlement.coupleId !== member.coupleId) {
+      throw new ConvexError(ERR_NOT_FOUND);
+    }
+
+    const latest = await ctx.db
+      .query("settlements")
+      .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+      .order("desc")
+      .first();
+    if (latest === null || latest._id !== settlement._id) {
+      throw new ConvexError(ERR_NOT_LATEST);
+    }
+
+    // 1回の精算が抱える件数は execute 側の上限と同じなので、同じ値で有界に読む。
+    // 論理削除済みも含めて外す(精算済みは削除できないので通常は存在しないが、
+    // 取りこぼすと settlementId だけが残った孤児レコードになる)
+    const settled = await ctx.db
+      .query("expenses")
+      .withIndex("by_coupleId_and_settlementId_and_purchasedAt", (q) =>
+        q.eq("coupleId", member.coupleId).eq("settlementId", settlement._id),
+      )
+      .take(MAX_UNSETTLED_EXPENSES);
+    for (const expense of settled) {
+      // undefined を渡すとフィールドが消える = 未精算に戻る
+      await ctx.db.patch("expenses", expense._id, { settlementId: undefined });
+    }
+
+    await ctx.db.delete("settlements", settlement._id);
+    return null;
+  },
+});
