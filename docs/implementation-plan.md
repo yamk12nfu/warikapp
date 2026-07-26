@@ -933,18 +933,77 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 
 ## 11. Phase 9: 仕上げ・本番デプロイ
 
-### タスク
+> 📘 **ダッシュボードでの実作業は `docs/deployment.md`(本番デプロイ手順書)が正本**。
+> 押す順・詰まりどころ・症状別の早見表まで開いてある。この節は「何をやるか」の一覧に留める。
 
-- [ ] **Clerkを本番インスタンスに**: Clerkダッシュボードで Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。本番用の `pk_live_...` / `sk_live_...` を控える
-- [ ] **Convexを本番デプロイ**: Convexダッシュボードの本番(Production)環境に環境変数(`GEMINI_API_KEY`(Claudeなら `ANTHROPIC_API_KEY`)/ `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` / `CLERK_JWT_ISSUER_DOMAIN`=本番ClerkのIssuer URL)を登録
+### リポジトリ側の準備(Phase 9 で実施済み)
+
+- [x] **`vercel.json` を追加**: Build Command をダッシュボードではなく**リポジトリに置く**。理由は3つ:
+  - ダッシュボード設定はリポジトリに残らないので、プロジェクトを作り直すと消える。消えると「フロントは新しいのにConvex関数は古い」という気づきにくい壊れ方をする
+  - フロントとConvex関数を同時にデプロイする、というこのアプリの不可分な要件がコードレビューの対象になる
+  - `ignoreCommand` で**本番以外のビルドを止められる**。プレビュービルドが本番用デプロイキーで `npx convex deploy` を走らせて本番のConvex関数を書き換える事故を、設定ミスがあっても起こさない
+  - ⚠️ `vercel.json` は厳格なJSONでコメントを書けないため、この理由は手順書 `docs/deployment.md` §3-1 にも書いてある
+- [x] **レシート以外の画像のエラー導線を確定**: 風景写真で実際に確認したところ、文言(「レシートを読み取れませんでした。撮り直してください」)は要件どおりだったが、**「もう一度読み取る」ボタンが出ていた**。同じ画像を投げ直しても結果は変わらず、AI呼び出しと読み取り回数の枠を捨てるだけなので、この場合は出さないようにした(撮り直しは上の「レシートを撮影・選択」がそのまま導線になる)。判定文言は `lib/receipt.ts` の `ERR_UNREADABLE_RECEIPT` をサーバーと画面で共有する
+
+### ダッシュボードでの作業(手順は `docs/deployment.md`)
+
+- [ ] **Clerkを本番インスタンスに**: Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。JWTテンプレート名は `convex` のまま。本番用の `pk_live_...` / `sk_live_...` を控える
+  - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。ドメインを用意しない場合は開発インスタンスのまま公開する選択肢もある(`docs/deployment.md` §1-alt に制約つきで整理)
+- [ ] **Convex本番環境の環境変数**: `CLERK_JWT_ISSUER_DOMAIN`(本番ClerkのIssuer URL)と `GEMINI_API_KEY` の**2つが必須**。`RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` はコード側に既定値(`gemini` / `gemini-3.6-flash`)があるので任意
 - [ ] **Vercelデプロイ**:
-  - GitHubリポジトリをVercelにImport
-  - Build Command を `npx convex deploy --cmd 'npm run build'` に変更(フロントとConvex関数を同時デプロイ)
-  - 環境変数: `CONVEX_DEPLOY_KEY`(Convexダッシュボード → Settings → Deploy Keysで生成)、`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY`(本番キー)
+  - GitHubリポジトリをVercelにImport(**Build Commandは触らない**。`vercel.json` が優先される)
+  - 環境変数: `CONVEX_DEPLOY_KEY`(Convexダッシュボード → Settings → Deploy Keysで生成。**Environmentは Production だけ**)、`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY`(本番キー)
+  - `NEXT_PUBLIC_CONVEX_URL` は**設定しない**(`npx convex deploy --cmd` がビルド時に渡す)
 - [ ] **スマホ実機テスト**: 本番URLをiPhone(Safari)とAndroid(Chrome)で開き、撮影→仕分け→確定→精算の一連を実施
 - [ ] **表示速度**: 主要画面の初期表示が体感2秒以内か確認
-- [ ] **コスト管理**: AnthropicコンソールのAPI利用上限アラート設定を再確認。Convexダッシュボードの使用量も一度眺めておく
+- [ ] **コスト管理**: **Google AI Studio → Spend → Monthly spend cap** でプロジェクトの月額上限を設定する(既定プロバイダがGeminiのため。Claudeに切り替えている場合はAnthropic ConsoleのLimits)。Convexダッシュボードの使用量、特に File Storage も一度眺めておく
 - [ ] パートナーを招待して実運用開始 🎉
+
+### 本番デプロイ前にローカルで潰せること
+
+本番デプロイで**初めて**出る失敗は実質2つしかない。事前に確認する手段がある。
+
+| 本番だけで起きうる失敗 | 事前の確認手段 |
+|---|---|
+| `CLERK_JWT_ISSUER_DOMAIN` が prod に未登録 → `convex/auth.config.ts` の評価で push が失敗 | `npx convex env list --prod` |
+| 既存の本番データが新しいスキーマに合わない → スキーマ検証で失敗 | `npx convex data --prod`。**初回は本番DBがテーブル0件なので起きない**。データが入ったあとにスキーマを変えるときだけ効いてくる |
+
+型チェック・バンドル・インデックス反映は `npx convex dev --once` が開発デプロイに対して本番と同じことをやるので、コード側の問題はここでほぼ出尽くす。本番に対する差分だけ見たいときは `npx convex deploy --dry-run` が使えるが、**このコマンドは本番を対象にし、`--dry-run` でも実行途中で「本番にpushするか」を聞いてくる**ので、意図せず押さないこと。
+
+### 置き去りアップロードの掃除(TBD-002)— 運用開始後に回す
+
+読み取りに成功した画像は必ずドラフト支出に紐付き、撮り直し・差し替えぶんは `uploads.discard` /
+`releaseUpload` が回収する。**残るのは「アップロードは成功したが読み取りに失敗し、そのまま画面を
+離脱した」ぶんだけ**で、経路がここ1本に絞れている。
+
+Phase 9 では実装しない。理由:
+
+- 圧縮後の画像は数百KB。この経路で置き去りになる枚数を月10枚と見ても年間で数MBにしかならず、ConvexのFile Storage枠に対して誤差
+- 掃除には「参照されていない」を引くための `usedByExpenseId` インデックス追加(=スキーマ変更)と、データを消す定期実行の追加が要る。**本番稼働の直前に、消す方向の変更を入れるのは割に合わない**
+- 実装するなら難しくない: `uploads` に `usedByExpenseId` のインデックスを足し、`convex/crons.ts` から「未参照かつ `_creationTime` が24時間以上前」のものを消す internal mutation を日次で回す。24時間空ければ確認画面を開いたままの利用者を巻き込む心配もない
+
+判断の閾値: **Convexダッシュボードの File Storage が無料枠の50%を超えたら**上記を実装する。
+それまでは `docs/deployment.md` §5 のとおり使用量を眺めるだけでよい。
+
+### 表示速度のローカル実測(2026-07-27 / 本番ビルド + localhost)
+
+`npm run build` → `npm run start` で計測(LCP = 実データが描画された時点)。
+
+| 画面 | FCP | LCP | 備考 |
+|---|---|---|---|
+| ホーム `/` | 68ms | **1,652ms** | LCPは支出一覧の行 |
+| 精算 `/settlement` | 72ms | **1,820ms** | 初回(JSチャンク未キャッシュ)は FCP 1,820ms / LCP 2,764ms |
+| 精算履歴 `/settlements` | 52ms | **1,596ms** | |
+| 設定 `/settings` | 56ms | 56ms | 描画物が小さくLCPが更新されない |
+
+**内訳と読み方**: HTMLのTTFBは24ms、FCPは50〜70msで出るので、遅いのは**データが出るまで**。
+その大半は Clerk のクライアント初期化(`clerk.browser.js` → `/v1/environment` → `/v1/client` →
+セッショントークン発行で約1.5秒)で、Convexはトークンが出るまで認証済みqueryを投げられない。
+
+つまり **localhost・キャッシュ温の条件で1.6〜1.8秒**が下限で、要件の「体感2秒以内」に対して
+余裕がない。初回訪問(チャンク未キャッシュ)は2.8秒で**すでに超えている**。実機・モバイル回線での
+確認は `docs/verification-checklist.md` の該当項目で行う。超えていた場合の手当ては
+Phase 9 のスコープ外(認証まわりの構成変更になる)なので、結果を見てから別途判断する。
 
 ### ✅ 動作確認(最終チェック)
 
@@ -953,7 +1012,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 - 精算実行 → 差額0円 → 履歴確認、まで通しで動く
 - 片方が登録した支出がもう片方の画面にリアルタイムで現れる
 
-> 💡 実装完了後、`/verification-checklist` スキルで要件定義書と突き合わせた検証チェックリストを生成すると、抜け漏れ確認がしやすい。
+> 💡 通しの確認項目は `docs/verification-checklist.md`(要件定義書と突き合わせて `/verification-checklist` スキルで生成したもの)を使う。
 
 ---
 
@@ -965,7 +1024,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 | 2 | **環境変数の置き場所間違い** | Convexのaction(AI呼び出し)が読む環境変数は**Convexダッシュボード**に登録する。`.env.local` やVercelに置いても届かない。逆にClerkのキーはNext.js側(`.env.local` / Vercel)に置く |
 | 3 | **`"use node"` の付け忘れ・同居** | Anthropic SDKなどNode依存のパッケージを使うactionファイルは先頭に `"use node";` が必要(無いとデプロイ時にバンドルエラー)。逆に **`"use node"` のファイルに query / mutation を同居させてはいけない**(Node.jsランタイムで動かせるのは action だけ)。Phase 8では mutation を `convex/uploads.ts`、action を `convex/receipts.ts` に分けている |
 | 4 | **devとprodは別世界** | `npx convex dev` の開発環境と本番デプロイはデータも環境変数も完全に別。本番で「データがない」「APIキーがない」と焦ったらこれ |
-| 5 | **本番でGoogleログインが失敗** | Clerkの開発インスタンスはGoogle設定不要だが、**本番インスタンスは自前のGoogle OAuth認証情報が必須**(Phase 9)。設定漏れが本番ログイン失敗のほぼすべて |
+| 5 | **本番でGoogleログインが失敗** | Clerkの開発インスタンスはGoogle設定不要だが、**本番インスタンスは自前のGoogle OAuth認証情報が必須**(Phase 9)。設定漏れが本番ログイン失敗のほぼすべて。さらに **Clerkの本番インスタンス自体が「自分が所有するドメイン」を要求する**(CNAMEを自分で張る必要があるため `*.vercel.app` では作れない)。「自分は入れるのにパートナーが入れない」ときは、Googleの**OAuth同意画面が「テスト」のまま**で相手がテストユーザーに入っていない |
 | 6 | **iPhoneのHEIC画像** | `accept="image/*"` で受けてもHEICが来ることがある。Canvasで再エンコードしてJPEG化する実装(10.4)で吸収する |
 | 7 | **金額の浮動小数点誤差** | 金額は常に「円・整数」で扱う。`0.1 + 0.2 !== 0.3` の世界に近づかない |
 | 8 | **APIキーのコミット** | `.env.local` がgit管理外であることを最初に確認。誤ってコミットしたら即キーを再発行 |
@@ -973,7 +1032,8 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 | 10 | **actionとmutationの役割混同** | actionは外部API呼び出し用でDBに直接触れない(`ctx.runQuery`/`ctx.runMutation` 経由)。トランザクションが必要な書き込みはmutationに寄せる |
 | 11 | **ドキュメント上限** | Convexの1ドキュメントは最大1MB。品目20件程度の支出なら余裕だが、画像などを直接ドキュメントに入れない(必ずFile Storageへ) |
 | 12 | **エラーメッセージが本番で消える** | Convex関数が投げた素の `Error` は、本番デプロイではメッセージがクライアントに届かず「Server Error」に伏せられる(内部情報の漏洩防止)。開発中は見えるので気づきにくい。**画面に出す文言は `ConvexError` で投げる**(4.3) |
-| 13 | **Reactの新lintルールで落ちる** | `next lint` の `react-hooks/purity` はレンダー中の `Date.now()` を、`react-hooks/set-state-in-effect` はeffect本体での `setState` をエラーにする。時刻の判定は `setTimeout` のコールバック側へ、`window` 依存の値は `useSyncExternalStore` で読む(`components/InviteCodeCard.tsx` が実例) |
+| 13 | **`CONVEX_DEPLOY_KEY` を全環境に入れてしまう** | Vercelで環境変数を足すと既定で Production / Preview / Development の3つ全部にチェックが入る。本番用のデプロイキーがPreviewにも入ると、**PRのプレビュービルドが `npx convex deploy` を走らせて本番のConvex関数を書き換える**。Environmentは Production だけに絞る(`vercel.json` の `ignoreCommand` で二重に防いではいる) |
+| 14 | **Reactの新lintルールで落ちる** | `next lint` の `react-hooks/purity` はレンダー中の `Date.now()` を、`react-hooks/set-state-in-effect` はeffect本体での `setState` をエラーにする。時刻の判定は `setTimeout` のコールバック側へ、`window` 依存の値は `useSyncExternalStore` で読む(`components/InviteCodeCard.tsx` が実例) |
 
 ---
 
@@ -994,5 +1054,5 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 | 5.2 セキュリティ | requireMemberによる認可・Storage保護・APIキー管理 | Phase 2(土台)、全フェーズで維持 |
 | 5.4 運用 | ログ・コスト管理・自動デプロイ | Phase 8(ログ)、Phase 9 |
 | TBD-001 | Claudeモデル選定 | Phase 8で実レシート検証して決定 |
-| TBD-002 | Convexストレージ容量の推移確認 | 運用開始後 |
+| TBD-002 | Convexストレージ容量の推移確認・置き去りアップロードの掃除 | Phase 9で「運用開始後に回す」と判断(§11に理由・実装方針・着手の閾値) |
 | TBD-003 | 調整行方式の妥当性 | 運用開始後に二人で確認 |

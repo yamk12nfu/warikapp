@@ -576,15 +576,15 @@
     </summary>
     <span class="stamp" aria-hidden="true">済</span>
     <div class="ph-body">
-      <p class="ph-goal">Clerk本番インスタンスには自前のGoogle OAuth認証情報が必須(開発と違う点)。</p>
+      <p class="ph-goal">Clerk本番インスタンスには自前のGoogle OAuth認証情報と<b>自分が所有するドメイン</b>が必須(開発と違う点)。押す順は docs/deployment.md に開いてある。</p>
       <h4>TASKS</h4>
       <ul class="tasks">
-        <li><label><input type="checkbox" id="p9-t1"><span>Clerk本番インスタンス作成+Google Cloud ConsoleでOAuth認証情報を登録</span></label></li>
-        <li><label><input type="checkbox" id="p9-t2"><span>Convex本番環境の環境変数4つを登録</span></label></li>
-        <li><label><input type="checkbox" id="p9-t3"><span>Vercel Import+Build Commandを npx convex deploy --cmd 'npm run build' に+CONVEX_DEPLOY_KEY</span></label></li>
+        <li><label><input type="checkbox" id="p9-t1"><span>Clerk本番インスタンス作成(要ドメイン)+Google Cloud ConsoleでOAuth認証情報を登録</span></label></li>
+        <li><label><input type="checkbox" id="p9-t2"><span>Convex本番環境に CLERK_JWT_ISSUER_DOMAIN と GEMINI_API_KEY を登録(必須はこの2つ)</span></label></li>
+        <li><label><input type="checkbox" id="p9-t3"><span>Vercel Import+CONVEX_DEPLOY_KEY(Productionのみ)/ Clerk本番キー。Build Commandは vercel.json 済みなので触らない</span></label></li>
         <li><label><input type="checkbox" id="p9-t4"><span>スマホ実機(iOS Safari / Android Chrome)で通しテスト</span></label></li>
         <li><label><input type="checkbox" id="p9-t5"><span>主要画面の初期表示が体感2秒以内</span></label></li>
-        <li><label><input type="checkbox" id="p9-t6"><span>Anthropic上限アラート+Convex使用量の確認</span></label></li>
+        <li><label><input type="checkbox" id="p9-t6"><span>Google AI Studio の Monthly spend cap +Convex使用量の確認</span></label></li>
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">
@@ -593,7 +593,7 @@
         <li><label><input type="checkbox" id="p9-v3"><span>精算→履歴まで通しで動く</span></label></li>
         <li><label><input type="checkbox" id="p9-v4"><span>リアルタイム同期が本番でも動く</span></label></li>
       </ul>
-      <p class="md-ref">→ 正本 §11。完了後は /verification-checklist で最終検証を。</p>
+      <p class="md-ref">→ 正本 §11。ダッシュボード作業の手順は docs/deployment.md、通しの確認は docs/verification-checklist.md。</p>
     </div>
   </details>
 
@@ -606,7 +606,8 @@
       <li><b>環境変数の置き場所間違い</b><span class="fix">AI関連はConvexダッシュボード、Clerkキーは .env.local / Vercel。逆に置くと届かない</span></li>
       <li><b>"use node" の付け忘れ</b><span class="fix">Anthropic SDKを使うactionファイルの先頭に必須。無いとバンドルエラー</span></li>
       <li><b>devとprodは別世界</b><span class="fix">Convexの開発環境と本番はデータも環境変数も完全に別</span></li>
-      <li><b>本番でGoogleログイン失敗</b><span class="fix">Clerk本番インスタンスは自前のGoogle OAuth認証情報が必須(開発は不要だった)</span></li>
+      <li><b>本番でGoogleログイン失敗</b><span class="fix">Clerk本番インスタンスは自前のGoogle OAuth認証情報と自分が所有するドメインが必須(開発は不要だった)。相手だけ入れないときはGoogleのOAuth同意画面が「テスト」のまま</span></li>
+      <li><b>CONVEX_DEPLOY_KEY を全環境に入れる</b><span class="fix">Vercelの既定は全環境チェック。本番キーがPreviewに入るとPRのプレビュービルドが本番Convexを書き換える。Productionだけに絞る</span></li>
       <li><b>iPhoneのHEIC画像</b><span class="fix">CanvasでJPEG再エンコードして吸収する(P8の実装に含む)</span></li>
       <li><b>金額の浮動小数点誤差</b><span class="fix">金額は常に「円・整数」で扱う</span></li>
       <li><b>APIキーのコミット</b><span class="fix">.env.local がgit管理外か最初に確認。漏れたら即再発行</span></li>
