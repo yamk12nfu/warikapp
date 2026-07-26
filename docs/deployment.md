@@ -19,26 +19,48 @@
 | Clerk | 開発インスタンスのみ(共有Google認証を利用中) |
 | Vercel | 未Import |
 
-### ⚠️ 先に決めること: ドメインを持っているか
+### ⚠️ 先に用意すること: 自分のドメイン
 
 **Clerkの本番インスタンスは、自分が所有するドメインが必須**。Clerkのダッシュボードが指示する
 CNAMEレコードを自分で追加する必要があるため、`*.vercel.app` のような借り物のドメインでは作れない。
+Vercel側にもそのドメインを追加する(§3-2)。
 
-- **ドメインを持っている(または取得する)** → §1 からそのまま進む(計画書どおりの本線)
-- **ドメインを用意しない** → §1 を飛ばして **§1-alt** を読む。開発インスタンスのまま公開する
+**開発インスタンス(`pk_test_...`)のまま公開するのは避けること。** Clerkは開発インスタンスを
+「本番のワークロードには適さない」と明言していて、理由はユーザー数上限(100)だけではない:
 
-ドメインを取るなら年1,000〜2,000円程度。取得直後でも使える(DNSの反映に最大48時間かかると
+- 開発インスタンスはセッションを `__clerk_db_jwt` として**クエリ文字列で運ぶ**。この値は
+  サーバーログやブラウザ履歴にそのまま残る
+- そもそも開発用にセキュリティ姿勢を緩めてある
+
+どうしてもドメインが間に合わないときの暫定運用は §1-alt に書いたが、**実運用を始める前に
+ドメインを取ること**。年1,000〜2,000円程度で、取得直後から使える(DNSの反映に最大48時間かかると
 Clerkは案内しているが、実際は数分〜数時間で通ることが多い)。
 
 ### 用意するもの
 
 - Googleアカウント(Google Cloud Console と Google AI Studio 用)
 - Clerk / Vercel のアカウント
-- ドメイン(上記のとおり。§1-alt を選ぶなら不要)
+- ドメイン(上記のとおり)
 
 ### 所要時間の目安
 
-DNSの反映待ちを除いて 1〜1.5時間。DNSを待つ場合はそこで一度中断できる(§1 まで進めて放置 → 翌日 §2 から再開)。
+DNSの反映待ちを除いて 1〜1.5時間。DNSを待つ場合はそこで一度中断できる(§1-2 まで進めて放置 → 反映後に §1-3 から再開)。
+
+### 全体の順序
+
+ドメインが Clerk と Vercel の両方に要るので、行ったり来たりする。迷ったらこの並びに戻る。
+
+```
+§1-1 Clerk本番インスタンス作成
+§1-2 Clerk Domains にドメイン登録 → CNAMEをDNSに追加(反映待ち)
+§1-3 Clerk でリダイレクトURIを表示 → Google Cloud で OAuthクライアント作成 → Clerkに貼る
+§1-4 JWTテンプレート convex を作成 → Issuer URL を控える
+§1-5 Clerk で「Deploy certificates」を押して本番インスタンスを有効化
+§1-6 pk_live / sk_live を控える
+§2   Convex prod に環境変数を登録
+§3   Vercel に Import → ドメイン追加 → 環境変数 → Deploy
+§4   ローカルでの事前確認(§3 の前にやってもよい)
+```
 
 ---
 
@@ -86,9 +108,10 @@ DNSの反映待ちを除いて 1〜1.5時間。DNSを待つ場合はそこで一
      ここが「自分は入れるのにパートナーが入れない」の原因になる
 3. **APIとサービス → 認証情報 → 認証情報を作成 → OAuth クライアント ID**
    - アプリケーションの種類: **ウェブアプリケーション**
+   - **承認済みの JavaScript 生成元**: **アプリのドメインを入れる**(例: `https://warikapp.example.com`。
+     `www` 付きも使うなら両方)。Clerkの手順が明示的に要求している
    - **承認済みのリダイレクト URI**: 上でコピーしたClerkのURIを貼る
      - ⚠️ 末尾スラッシュの有無・大文字小文字の違いでも一致しない。**貼り付けるだけで手打ちしない**
-     - 「承認済みの JavaScript 生成元」は空でよい(リダイレクトを受けるのはClerk)
    - 作成 → **クライアントID** と **クライアントシークレット** をコピー
 
 Clerkに戻る:
@@ -102,32 +125,46 @@ Clerkに戻る:
    `applicationID: "convex"` と一致している必要がある
 3. 保存し、**Issuer URL**(`https://clerk.<あなたのドメイン>` の形)をコピー → §2 で使う
 
-### 1-5. 本番APIキーを控える
+### 1-5. 証明書をデプロイして本番インスタンスを有効化する
+
+1. Clerk Dashboard → **Domains**
+2. DNSレコードがすべて緑になっていることを確認
+3. **Deploy certificates** を押す
+
+⚠️ **この操作を飛ばすと本番インスタンスが有効にならない。** DNSを張っただけでは動かない。
+
+### 1-6. 本番APIキーを控える
 
 Clerk Dashboard → **API Keys** → `pk_live_...`(Publishable key)と `sk_live_...`(Secret key)を
 コピー → §3 で使う。
 
 ---
 
-## 1-alt. ドメインを用意しない場合(開発インスタンスのまま公開)
+## 1-alt. ドメインが間に合わないときの暫定運用(推奨しない)
 
-Clerkの**開発インスタンスは本番URLからでも動く**。§1 の代わりにこれで進めてもよい。
+Clerkの**開発インスタンスは本番URLからでも動く**ので、ドメインの取得・DNS反映を待つ間の
+つなぎとしては使える。**ただし恒久的な運用にはしないこと**(§0 のとおり、Clerk自身が本番の
+ワークロードには適さないと明言している)。
 
 - 使うキーは今の `pk_test_...` / `sk_test_...`(`.env.local` にあるもの)
 - Issuer URL も今 Convex の dev に入れているもの(`npx convex env get CLERK_JWT_ISSUER_DOMAIN` で確認できる)
 - Google OAuth の自前設定は不要(Clerkの共有認証がそのまま使える)
 
-代わりに次を受け入れることになる:
+受け入れることになるもの:
 
 | 制約 | 中身 |
 |---|---|
-| ユーザー数 | 開発インスタンスは上限100ユーザー(2人なら問題にならない) |
+| **セッションの扱い** | 開発インスタンスは `__clerk_db_jwt` を**クエリ文字列で運ぶ**。サーバーログ・ブラウザ履歴・拡張機能から見える。ここが「推奨しない」の主因 |
+| **セキュリティ姿勢** | 開発用に全体的に緩めてある(Clerkのドキュメントの表現) |
+| ユーザー数 | 上限100ユーザー。インスタンス間でユーザーデータは移せない |
 | 同意画面 | Googleのログイン画面に Clerk の名前が出る(自分のアプリ名にはならない) |
-| セッション | 開発インスタンスのセッションは本番より短命 |
-| 本番への移行 | あとからドメインを取って §1 をやり直せる。**そのときユーザーは作り直しになる** |
+| 本番への移行 | あとからドメインを取って §1 をやり直せる。**そのときユーザーは作り直しになる**(招待からやり直し) |
 
-> 2人で使うMVPとして割り切るなら 1-alt で十分。**ただし §2 以降では「本番Clerkの値」を
-> 「開発Clerkの値」に読み替えること**(Convexのprodには開発ClerkのIssuer URLを入れる)。
+> **§2 以降では「本番Clerkの値」を「開発Clerkの値」に読み替えること**
+> (Convexのprodには開発ClerkのIssuer URLを入れる)。§1-5 の証明書デプロイは不要。
+>
+> 暫定で始めた場合は、レシートや精算の実データを入れる前にドメインを用意して §1 に移ること。
+> データが増えてからだとユーザーの作り直しが痛くなる。
 
 ---
 
@@ -197,15 +234,31 @@ npx convex env list --names-only --prod
      事故を、設定ミスがあっても起きないようにするため。プレビュー環境が欲しくなったら
      Convex側でプレビュー用デプロイキーを発行したうえで、この行を消す
 
-### 3-2. 環境変数
+### 3-2. カスタムドメインを追加する
 
-Vercel の **Settings → Environment Variables** に3つ。
+**Clerk本番インスタンスを使うなら必須。** `*.vercel.app` のままでは本番の
+Clerkキーが使えない(§0)。
+
+1. Vercel の **Settings → Domains** → §1-2 で Clerk に登録したのと**同じドメイン**を追加
+2. 表示されたDNSレコード(A または CNAME)をドメインのDNS設定に追加する
+   - Clerkが要求する `clerk.` などのサブドメイン用CNAMEとは**別のレコード**。両方が要る
+3. Vercelの画面でドメインが有効になるまで待つ
+
+### 3-3. 環境変数
+
+Vercel の **Settings → Environment Variables** に3つ(+推奨1つ)。
 
 | 変数 | 値 | Environment |
 |---|---|---|
 | `CONVEX_DEPLOY_KEY` | Convex Dashboard → **Production** → Settings → **Deploy Keys** → *Generate Production Deploy Key* | ⚠️ **Production だけにチェック** |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_...`(§1-5) | Production |
-| `CLERK_SECRET_KEY` | `sk_live_...`(§1-5) | Production |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_...`(§1-6) | Production |
+| `CLERK_SECRET_KEY` | `sk_live_...`(§1-6) | Production |
+| `CLERK_AUTHORIZED_PARTIES`(推奨) | 本番URL(例: `https://warikapp.example.com`。複数あればカンマ区切り) | Production |
+
+> `CLERK_AUTHORIZED_PARTIES` を入れると、`proxy.ts` が「このオリジンから来たトークンだけを
+> 受け付ける」ようClerkに指示する。指定しないと、同じルートドメイン配下の別サブドメインに
+> 渡ったcookieでも検証が通ってしまう(cookie leaking → CSRF)。未設定でも動くが、
+> 本番では入れておく。**末尾スラッシュは付けない**。
 
 > ⚠️ Vercelで環境変数を足すと **既定で Production / Preview / Development の3つ全部にチェックが入る**。
 > `CONVEX_DEPLOY_KEY` は必ず Production だけに絞る(`ignoreCommand` で二重に防いではいるが、
@@ -215,16 +268,17 @@ Vercel の **Settings → Environment Variables** に3つ。
 > 本番のURL(`https://accurate-capybara-527.convex.cloud`)を自動で渡す。手で入れると、将来
 > デプロイ先を変えたときに古い値が残って「本番なのに開発のデータが見える」状態になる。
 
-### 3-3. Deploy
+### 3-4. Deploy
 
 **Deploy** を押す。ビルドログに `Deploying to https://accurate-capybara-527.convex.cloud` のような
 行が出れば Convex 側も一緒に出ている。
 
-### 3-4. デプロイ後にClerkへ本番URLを登録
+### 3-5. デプロイ後の仕上げ
 
-1. Clerk Dashboard(本番インスタンス)→ **Domains** / **Paths**
-2. Vercelが払い出した本番URL(独自ドメインを当てたならそちら)を登録
-3. サインイン後のリダイレクト先が `/` になっていることを確認
+1. カスタムドメインで本番URLを開き、Googleログインが通ることを確認する
+2. Clerk Dashboard(本番インスタンス)→ **Paths** で、サインイン後のリダイレクト先が
+   `/` になっていることを確認する
+3. `docs/verification-checklist.md` の §6 を上から潰す
 
 ---
 
@@ -250,9 +304,14 @@ npx convex dev --once
 npx convex deploy --dry-run
 ```
 
-> ⚠️ このコマンドは **本番を対象にする**。`--dry-run` でも実行途中で
-> 「Do you want to push your code to your prod deployment ... now?」と聞かれるので、
-> **意図せず押さないこと**。中身を見るだけなら `n` で抜ける。
+> このコマンドは **本番を対象にする**ので、実行途中で
+> 「Do you want to push your code to your prod deployment ... now?」と聞かれる。
+> **`--dry-run` が付いている限り、`y` と答えても実際のデプロイは行われない**
+> (`Deployed` ではなく `Would have deployed` と出る。`--cmd` のビルドも実行されない)。
+> むしろ `n` と答えるとその手前でCLIが終了して、見たかった差分が出ない。
+>
+> ⚠️ 危ないのは **`--dry-run` の付け忘れ**のほう。同じプロンプトが出て、`y` と答えると
+> **本当にデプロイされる**。コマンドをコピペしたら実行前に末尾を必ず確認すること。
 
 **本番デプロイで初めて出る失敗は、実質2つしかない**:
 
@@ -307,8 +366,8 @@ Limits でワークスペースの月額上限を設定する。
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| Vercelのビルドが `CONVEX_DEPLOY_KEY` 関連で落ちる | キーが未設定、またはEnvironmentがProductionになっていない | §3-2 |
-| ビルドは通るが、開いたら画面が真っ白 | `NEXT_PUBLIC_CONVEX_URL` を手で入れて古い値を指している | Vercelから消して再デプロイ(§3-2) |
+| Vercelのビルドが `CONVEX_DEPLOY_KEY` 関連で落ちる | キーが未設定、またはEnvironmentがProductionになっていない | §3-3 |
+| ビルドは通るが、開いたら画面が真っ白 | `NEXT_PUBLIC_CONVEX_URL` を手で入れて古い値を指している | Vercelから消して再デプロイ(§3-3) |
 | Convexのデプロイが auth.config で落ちる | prod に `CLERK_JWT_ISSUER_DOMAIN` が無い | §2 |
 | ログイン画面までは出るが Google を押すとエラー | GoogleのOAuthクライアントのリダイレクトURIがClerkのものと一致していない | §1-3。**貼り直す**(手打ちしない) |
 | 自分はログインできるがパートナーができない | OAuth同意画面が「テスト」のままで、相手がテストユーザーに入っていない | §1-3 の2 |

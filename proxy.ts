@@ -5,6 +5,17 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 const isPublicPath = (pathname: string) =>
   pathname === "/login" || pathname.startsWith("/login/");
 
+// 本番では「このアプリのオリジンから来たトークンだけを受け付ける」ことを
+// Clerkが推奨している。指定しないと、同じルートドメイン配下の別サブドメインに
+// 渡ったcookieでもトークン検証が通ってしまう(cookie leaking → CSRF)。
+// Vercelの環境変数 CLERK_AUTHORIZED_PARTIES に本番URLを入れる
+// (複数あればカンマ区切り。例: "https://warikapp.example.com")。
+// 未設定なら指定なし = 従来どおりの挙動。開発では設定しなくてよい。
+const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin !== "");
+
 export default clerkMiddleware(
   async (auth, req) => {
     if (isPublicPath(req.nextUrl.pathname)) {
@@ -16,7 +27,10 @@ export default clerkMiddleware(
       return redirectToSignIn({ returnBackUrl: req.url });
     }
   },
-  { signInUrl: "/login" },
+  {
+    signInUrl: "/login",
+    ...(authorizedParties.length > 0 ? { authorizedParties } : {}),
+  },
 );
 
 export const config = {

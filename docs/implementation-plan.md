@@ -909,7 +909,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
   6. ユーザーが修正・仕分けして「確定」→ 同じ `expenseId` に `status: "confirmed"` で保存し直す
 - [x] エラーハンドリング(要件の表どおり):
   - 読み取り失敗/タイムアウト → 「読み取りに失敗しました。手入力に切り替えますか?」→ `storageId` を保持したまま手入力(空の品目1件のExpenseEditor)へ。画像は確定時に紐付く
-  - レシート以外/不鮮明 → 「レシートを読み取れませんでした。撮り直してください」+ 再読み取り・手入力導線
+  - レシート以外/不鮮明 → 「レシートを読み取れませんでした。撮り直してください」+ 手入力導線。**再読み取りは出さない**(同じ画像を投げ直しても結果は変わらず、AI呼び出しと読み取り回数の枠を捨てるだけ)。撮り直しは上の「レシートを撮影・選択」がそのまま導線になる。判定文言は `lib/receipt.ts` の `ERR_UNREADABLE_RECEIPT` をサーバーと画面で共有する(Phase 9で確定)
   - アップロード失敗 → 再試行ボタン(画像はクライアントに保持)
 - [x] **ドラフトの再開**: ホームの「未確定」バッジ → 詳細 → 編集 が再開導線になる。編集画面(`/expenses/[id]/edit`)は、開いた支出がドラフトなら見出しとボタンを「確定」に変え、保存時に `status: "confirmed"` にする(ここで確定できないと再開しても確定できないため)
 
@@ -948,7 +948,9 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 ### ダッシュボードでの作業(手順は `docs/deployment.md`)
 
 - [ ] **Clerkを本番インスタンスに**: Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。JWTテンプレート名は `convex` のまま。本番用の `pk_live_...` / `sk_live_...` を控える
-  - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。ドメインを用意しない場合は開発インスタンスのまま公開する選択肢もある(`docs/deployment.md` §1-alt に制約つきで整理)
+  - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。Vercel側にも同じドメインを追加する。DNS登録後は Clerk の **Deploy certificates** を押して有効化するところまでが1セット
+  - ⚠️ **開発インスタンス(`pk_test_...`)のまま公開しないこと**。Clerkは開発インスタンスを「本番のワークロードには適さない」と明言している。ユーザー数上限100だけでなく、セッションを `__clerk_db_jwt` としてクエリ文字列で運ぶ(サーバーログ・ブラウザ履歴に残る)ため。ドメインが間に合わないときの暫定運用は `docs/deployment.md` §1-alt にあるが、実データを入れる前に本番インスタンスへ移ること
+  - ⚠️ GoogleのOAuthクライアントには**リダイレクトURIだけでなく「承認済みのJavaScript生成元」にもアプリのドメインを入れる**(Clerkの手順が要求している)
 - [ ] **Convex本番環境の環境変数**: `CLERK_JWT_ISSUER_DOMAIN`(本番ClerkのIssuer URL)と `GEMINI_API_KEY` の**2つが必須**。`RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` はコード側に既定値(`gemini` / `gemini-3.6-flash`)があるので任意
 - [ ] **Vercelデプロイ**:
   - GitHubリポジトリをVercelにImport(**Build Commandは触らない**。`vercel.json` が優先される)
@@ -968,7 +970,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 | `CLERK_JWT_ISSUER_DOMAIN` が prod に未登録 → `convex/auth.config.ts` の評価で push が失敗 | `npx convex env list --prod` |
 | 既存の本番データが新しいスキーマに合わない → スキーマ検証で失敗 | `npx convex data --prod`。**初回は本番DBがテーブル0件なので起きない**。データが入ったあとにスキーマを変えるときだけ効いてくる |
 
-型チェック・バンドル・インデックス反映は `npx convex dev --once` が開発デプロイに対して本番と同じことをやるので、コード側の問題はここでほぼ出尽くす。本番に対する差分だけ見たいときは `npx convex deploy --dry-run` が使えるが、**このコマンドは本番を対象にし、`--dry-run` でも実行途中で「本番にpushするか」を聞いてくる**ので、意図せず押さないこと。
+型チェック・バンドル・インデックス反映は `npx convex dev --once` が開発デプロイに対して本番と同じことをやるので、コード側の問題はここでほぼ出尽くす。本番に対する差分だけ見たいときは `npx convex deploy --dry-run` が使える。このコマンドは本番を対象にするので実行途中で「本番にpushするか」を聞いてくるが、**`--dry-run` が付いている限り `y` と答えてもデプロイはされない**(`Deployed` ではなく `Would have deployed` と出る)。むしろ `n` と答えるとその手前でCLIが終了して差分が見られない。危ないのは `--dry-run` の付け忘れのほうで、そのとき同じプロンプトに `y` と答えると本当にデプロイされる。
 
 ### 置き去りアップロードの掃除(TBD-002)— 運用開始後に回す
 
