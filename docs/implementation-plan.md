@@ -244,10 +244,12 @@ export default defineSchema({
   })
     // 「すべて」表示用: 世帯内を購入日順に読む
     .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
-    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
-    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+    // 「未精算のみ」(デフォルト表示)と精算対象の収集用。
+    // 未精算・未削除の両方をインデックス範囲で絞り込む(Phase 7で deletedAt を追加)
+    .index("by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt", [
       "coupleId",
       "settlementId",
+      "deletedAt",
       "purchasedAt",
     ]),
 
@@ -584,7 +586,7 @@ export function calcAdvanceAmount(
 
 - [x] **ホーム(S-003)**: 未精算差額の常時表示(Phase 7で本実装、まずは枠だけ)+支出一覧
   - query `expenses.list`: `requireMember` → 自世帯の `deletedAt` なしを購入日降順で返す。`usePaginatedQuery` で20件ずつ
-  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_purchasedAt` で `.eq("settlementId", undefined)` まで絞る。「すべて」= `by_coupleId_and_purchasedAt`
+  - インデックスの使い分け: 「未精算のみ」= `by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt` で `.eq("settlementId", undefined).eq("deletedAt", undefined)` まで絞る(deletedAt はPhase 7で追加)。「すべて」= `by_coupleId_and_purchasedAt`
   - 論理削除の除外は `.paginate()` の**前に** `.filter()` で行う。ページを取得してから配列で捨てると1ページの件数が削除済みのぶんだけ目減りする
   - **ドラフト(未確定)も一覧に含める**(除外すると確定させる導線が画面から消える。差額計算からの除外はPhase 7の精算側で行う)。行にバッジを出す
   - 転送量を抑えるため行は射影して返す(`title` = 店名、無ければ先頭の品目名 / `itemCount` / `purchasedAt` / `totalAmount` / `paidBy` / `status` / `settled`)。品目の中身は詳細の `expenses.get` で読む
@@ -650,7 +652,7 @@ export const execute = mutation({
     const partner = await findPartner(ctx, member);
     if (partner === null) throw new ConvexError("パートナーが参加してから精算してください");
 
-    // 未精算・未削除の支出を有界に読む(古い順に最大500件。§9.1参照)
+    // 未精算・未削除の支出を有界に読む(古い順に最大200件。§9.1参照)
     const { expenses } = await collectUnsettled(ctx, member.coupleId);
 
     // V-701: ドラフトが残っていたら拒否

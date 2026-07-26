@@ -178,12 +178,19 @@ function normalizeMemo(raw: string | undefined): string | undefined {
 // V-702(二重実行防止): 先に走ったほうが対象支出すべてに settlementId を付けるため、
 // 後続は対象0件になって ERR_NO_TARGET で失敗する(UI側でもボタンを無効化する)。
 //
-// expectedAmount は「確認画面に出ていた差額」。金額の決定には使わず(差額は必ず
-// サーバー側で計算し直す)、一致しなければ実行を中止するためだけに使う。
-// 確認直後にパートナーが支出を追加・変更した場合に、ユーザーが見ていない金額で
+// expected* は「確認画面に出ていた内容」。金額の決定には一切使わず(差額は必ず
+// サーバー側で計算し直す)、食い違ったら実行を中止するためだけに使う。
+// 確認直後にパートナーが支出を追加・変更した場合に、ユーザーが見ていない内容で
 // 精算してしまうのを防ぐ(要件 V-702「競合時は再計算して確認画面を再表示」)。
+// 金額だけでなく向きと件数も見る: 金額が同じまま支払う側が入れ替わるケースや、
+// 対象が差し替わって偶然同額になるケースを金額の比較だけでは検出できないため。
 export const execute = mutation({
-  args: { memo: v.optional(v.string()), expectedAmount: v.number() },
+  args: {
+    memo: v.optional(v.string()),
+    expectedAmount: v.number(),
+    expectedFromMemberId: v.union(v.id("members"), v.null()),
+    expectedExpenseCount: v.number(),
+  },
   handler: async (ctx, args): Promise<Id<"settlements">> => {
     const member = await requireMember(ctx);
     const memo = normalizeMemo(args.memo);
@@ -208,7 +215,11 @@ export const execute = mutation({
     const balance = calcNetBalance(member._id, partner._id, expenses);
 
     // 計算し直した結果が確認画面の表示と違う = 確認後に対象が変わった(V-702)
-    if (balance.amount !== args.expectedAmount) {
+    if (
+      balance.amount !== args.expectedAmount ||
+      balance.fromMemberId !== args.expectedFromMemberId ||
+      expenses.length !== args.expectedExpenseCount
+    ) {
       throw new ConvexError(ERR_AMOUNT_CHANGED);
     }
 
@@ -288,7 +299,10 @@ export const cancel = mutation({
             .eq("settlementId", settlement._id)
             .eq("deletedAt", undefined),
       )
-      .take(MAX_UNSETTLED_EXPENSES);
+      // 上限+1件読む。ちょうど上限件数だけ読めたときに「本当に上限件数なのか、
+      // それ以上あって切れたのか」を区別できないと、下の件数一致の検査が
+      // すり抜けてしまう
+      .take(MAX_UNSETTLED_EXPENSES + 1);
 
     // 精算時に数えた件数と一致しなければ、この取り消しでは戻しきれない支出が
     // ある(= settlementId だけが残った孤児レコードを作る)。精算済み支出は

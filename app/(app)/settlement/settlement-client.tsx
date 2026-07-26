@@ -45,9 +45,11 @@ export default function SettlementClient() {
     try {
       await execute({
         memo: memo.trim() === "" ? undefined : memo,
-        // 画面に出ている差額。サーバーは金額の決定にはこれを使わず、
-        // 計算し直した差額と食い違ったら実行を中止する(V-702)
+        // 画面に出ている内容。サーバーは金額の決定にはこれを使わず、
+        // 計算し直した結果と食い違ったら実行を中止する(V-702)
         expectedAmount: pending.amount,
+        expectedFromMemberId: pending.fromMemberId,
+        expectedExpenseCount: pending.expenseCount,
       });
       // 記録できたことが分かるよう履歴へ送る。ホームの差額は0に戻る
       router.replace("/settlements");

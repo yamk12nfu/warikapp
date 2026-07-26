@@ -95,7 +95,12 @@ async function addExpense(
 async function settle(
   t: ReturnType<typeof convexTest>,
   who: typeof ALICE,
-  overrides: { memo?: string; expectedAmount?: number } = {},
+  overrides: {
+    memo?: string;
+    expectedAmount?: number;
+    expectedFromMemberId?: Id<"members"> | null;
+    expectedExpenseCount?: number;
+  } = {},
 ) {
   const balance = await t
     .withIdentity(who)
@@ -103,6 +108,12 @@ async function settle(
   return await t.withIdentity(who).mutation(api.settlements.execute, {
     memo: overrides.memo,
     expectedAmount: overrides.expectedAmount ?? balance.amount,
+    expectedFromMemberId:
+      overrides.expectedFromMemberId === undefined
+        ? balance.fromMemberId
+        : overrides.expectedFromMemberId,
+    expectedExpenseCount:
+      overrides.expectedExpenseCount ?? balance.expenseCount,
   });
 }
 
@@ -365,6 +376,47 @@ describe("settlements.execute", () => {
     expect(balance.expenseCount).toBe(2);
   });
 
+  test("V-702: 金額が同じでも支払う向きが変わっていたら実行しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    // 相手が2,000円折半で支払い → 自分が相手に1,000円
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 2000,
+    });
+    // 自分が4,000円折半で支払い → 向きが逆転するが金額は1,000円のまま
+    await addExpense(t, members, ALICE, { price: 4000 });
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(balance.amount).toBe(1000);
+    expect(balance.fromMemberId).toBe(members.partner._id); // 向きは逆転済み
+
+    await expect(
+      settle(t, ALICE, {
+        expectedAmount: 1000,
+        expectedFromMemberId: members.self._id, // 逆転前の向き
+        expectedExpenseCount: 1,
+      }),
+    ).rejects.toThrow("精算対象が変わりました");
+  });
+
+  test("V-702: 金額も向きも同じでも対象件数が違えば実行しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    // 全額自己負担の支出は差額を動かさないので、金額・向きだけでは検出できない
+    await addExpense(t, members, ALICE, {
+      price: 3000,
+      shares: [{ memberId: members.self._id, ratioPercent: 100 }],
+    });
+
+    await expect(
+      settle(t, ALICE, { expectedExpenseCount: 1 }),
+    ).rejects.toThrow("精算対象が変わりました");
+  });
+
   test("V-701: ドラフトが残っていたら拒否する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -527,13 +579,16 @@ describe("settlements.execute", () => {
   test("未ログイン・世帯未所属では精算できない", async () => {
     const t = convexTest(schema, modules);
     await setupCouple(t);
+    const noop = {
+      expectedAmount: 0,
+      expectedFromMemberId: null,
+      expectedExpenseCount: 0,
+    };
     await expect(
-      t.mutation(api.settlements.execute, { expectedAmount: 0 }),
+      t.mutation(api.settlements.execute, noop),
     ).rejects.toThrow("ログインしてください");
     await expect(
-      t
-        .withIdentity(CAROL)
-        .mutation(api.settlements.execute, { expectedAmount: 0 }),
+      t.withIdentity(CAROL).mutation(api.settlements.execute, noop),
     ).rejects.toThrow("世帯に参加してください");
   });
 });
