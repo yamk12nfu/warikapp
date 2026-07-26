@@ -266,7 +266,7 @@
     <p class="sub">warikapp — 同棲カップル向けレシート割り勘精算アプリ</p>
     <div class="receipt-meta">
       <div><span class="k">構成</span><span class="leader"></span><span>Next.js × Convex × Clerk</span></div>
-      <div><span class="k">AI読み取り</span><span class="leader"></span><span>Claude API (claude-opus-5)</span></div>
+      <div><span class="k">AI読み取り</span><span class="leader"></span><span>Gemini API (gemini-3.6-flash) / Claude切替可</span></div>
       <div><span class="k">フェーズ</span><span class="leader"></span><span>P0 〜 P9(順番に進める)</span></div>
       <div><span class="k">改訂</span><span class="leader"></span><span>2026-07-20 Convex+Clerk版</span></div>
     </div>
@@ -546,8 +546,8 @@
       <p class="ph-goal">最後の難所。「撮影 → AI抽出 → ExpenseEditorで確認 → 確定」を接続する。環境変数はConvexダッシュボード側に。</p>
       <h4>TASKS</h4>
       <ul class="tasks">
-        <li><label><input type="checkbox" id="p8-t1"><span>ReceiptParser抽象化(convex/ai/)+Convex環境変数(ANTHROPIC_API_KEY / PROVIDER / MODEL)を登録</span></label></li>
-        <li><label><input type="checkbox" id="p8-t2"><span>claude.ts(構造化出力 output_config.format+30秒タイムアウト / 既定 claude-opus-5)</span></label></li>
+        <li><label><input type="checkbox" id="p8-t1"><span>ReceiptParser抽象化(convex/ai/)+Convex環境変数(GEMINI_API_KEY / PROVIDER / MODEL)を登録</span></label></li>
+        <li><label><input type="checkbox" id="p8-t2"><span>gemini.ts(既定・responseJsonSchema)とclaude.ts(output_config.format)。30秒は読み取り全体で共有</span></label></li>
         <li><label><input type="checkbox" id="p8-t3"><span>convex/uploads.ts(generateUploadUrl / registerUpload / 帰属台帳)+expenses.save に imageStorageId</span></label></li>
         <li><label><input type="checkbox" id="p8-t4"><span>parse action("use node"・別ファイル / 認可 / rate-limiter 30回・時 / リトライ1回 / lib/receipt.ts の調整行)</span></label></li>
         <li><label><input type="checkbox" id="p8-t5"><span>S-004画面(Canvasで長辺2,000px縮小 → アップロード → ドラフト保存 → 確定)</span></label></li>
@@ -555,8 +555,8 @@
       </ul>
       <h4>✔ 動作確認</h4>
       <ul class="tasks verify">
-        <li><label><input type="checkbox" id="p8-v1"><span>実物レシートで品目・金額・店名・日付が自動入力される</span></label></li>
-        <li><label><input type="checkbox" id="p8-v2"><span>合計ズレ時に「調整(税・割引等)」行が自動追加される</span></label></li>
+        <li><label><input type="checkbox" id="p8-v1" checked><span>実物レシートで品目・金額・店名・日付が自動入力される(2026-07-27 確認・10〜12秒)</span></label></li>
+        <li><label><input type="checkbox" id="p8-v2" checked><span>合計ズレ時に「調整(税・割引等)」行が自動追加される(2026-07-27 確認)</span></label></li>
         <li><label><input type="checkbox" id="p8-v3"><span>修正→確定→一覧と未精算差額に反映される</span></label></li>
         <li><label><input type="checkbox" id="p8-v4"><span>離脱したドラフトを「未確定」バッジ→詳細→編集から確定できる</span></label></li>
         <li><label><input type="checkbox" id="p8-v5"><span>詳細画面で元画像が閲覧できる</span></label></li>

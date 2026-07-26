@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { createReceiptParser } from "./ai";
 import { ReceiptSchemaError, type ReceiptMediaType } from "./ai/types";
+import { describeError } from "./ai/config";
 import { RECEIPT_PARSE_LIMIT_NAME, rateLimiter } from "./rateLimits";
 import { todayInJst } from "../lib/date";
 import { normalizeParsedReceipt, type NormalizedReceipt } from "../lib/receipt";
@@ -106,9 +107,12 @@ export const parse = action({
       }
     } catch (caught) {
       // ログにレシートの中身は出さない(要件 5.4)。出すのは成否・所要時間・
-      // プロバイダ名と、API側のエラー種別だけ
+      // プロバイダ名と、API側のエラー情報だけ。
+      // ステータスと文言も出す: これらは「リクエストの作り方が悪い」という
+      // API側の説明で、画像や抽出結果は含まれない。無いと設定ミス
+      // (モデルID・スキーマ・キーの権限)の切り分けができない
       console.error(
-        `receipts.parse failed provider=${parser.providerName} ms=${Date.now() - startedAt} error=${caught instanceof Error ? caught.name : "unknown"}`,
+        `receipts.parse failed provider=${parser.providerName} ms=${Date.now() - startedAt} ${describeError(caught)}`,
       );
       if (caught instanceof ConvexError) {
         throw caught; // 未実装プロバイダなど、そのまま画面に出してよいもの

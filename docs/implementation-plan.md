@@ -741,12 +741,38 @@ export interface ReceiptParser {
 export class ReceiptSchemaError extends Error {}
 ```
 
-- [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。MVPは **Claudeのみ実装し、`gemini.ts` は「未実装エラーを投げるだけ」**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` は型だけなので不要)
+- [x] `convex/ai/index.ts`: 環境変数 `RECEIPT_AI_PROVIDER` で `claude` / `gemini` を切り替えて実装を返す。**両方を実装済み。既定は `gemini`**(TBD-006)。`claude.ts` / `gemini.ts` / `index.ts` は SDK を読むので先頭に `"use node";` を書く(`types.ts` / `schema.ts` / `config.ts` は SDK に触れないので不要)
+- [x] `convex/ai/schema.ts`: 抽出スキーマ(zod)とプロンプトをプロバイダ間で共有する。GeminiにはJSON Schemaが要るので `z.toJSONSchema()` で変換する(二重管理をやめる)
+- [x] `convex/ai/config.ts`: `resolveModel()` / `requireApiKey()`。`RECEIPT_AI_MODEL` は1つしかないので、**プロバイダとモデルIDが噛み合わないときは設定ミスとして止める**(黙って既定値に落とすと「設定したのに効かない」になる)。APIキー未設定も「何を設定すればよいか」を画面に出す
+- [x] **モデルIDの設定ミスは専用の文言で出す**: 綴り間違い・提供終了は404で返るが、汎用の「読み取りに失敗しました」だと原因にたどり着けない。「AIモデル『◯◯』が使えません。ConvexのRECEIPT_AI_MODELを確認してください」にして、環境変数を直せば済むと分かるようにする(モデルIDはSDKの型では縛れない=`model` は任意の文字列なので、間違いは実行時にしか出ない)
 - [x] ⚠️ **スキーマ不適合は例外で飛んでくる**: SDKの `messages.parse()` は不正JSON・Zod検証エラーを `AnthropicError("Failed to parse structured output: ...")` として**throwする**(`parsed_output` が null になるより先に例外)。これを `ReceiptSchemaError` に変換しないと「1回だけリトライ」が動かない。API側のエラー(`APIError` 系)はリトライ対象外なので、変換前に除外する
 - [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
-  - `ANTHROPIC_API_KEY`
-  - `RECEIPT_AI_PROVIDER` = `claude`
-  - `RECEIPT_AI_MODEL` = `claude-opus-5`(省略時もこの値。下記参照)
+  - `GEMINI_API_KEY`(既定プロバイダ。Google AI Studio で発行)
+  - `RECEIPT_AI_PROVIDER` = `gemini`(省略時もこの値)
+  - `RECEIPT_AI_MODEL` = `gemini-3.6-flash`(省略時もこの値)
+  - Claudeを使う場合は代わりに `ANTHROPIC_API_KEY` + `RECEIPT_AI_PROVIDER=claude` + `RECEIPT_AI_MODEL=claude-opus-5`
+
+> 💡 **なぜ既定がGeminiか(コスト)**。サブスク(ChatGPT Plus / Gemini Advanced / Claude Pro)にAPI利用は含まれず、サーバーから叩くぶんは必ず従量課金になる。レシート1枚を「入力3,000〜4,000トークン+出力1,000トークン」として月100枚で見積もると:
+>
+> | モデル | 月100枚 |
+> |---|---|
+> | `claude-opus-5` | 約 ¥650 |
+> | `claude-haiku-4-5` | 約 ¥130 |
+> | `gemini-3.6-flash`(既定) | 約 ¥25 |
+> | `gemini-3.5-flash-lite` | 約 ¥6 |
+>
+> Gemini APIにはFlash系の**無料枠**もあるが、無料枠は**入力・出力がGoogleの製品改善に使われる**(有料枠は使われない)。レシートは家計の中身なので、常用は有料枠を推奨する。有料枠でもこの金額なので、無料枠を選ぶ実益はほぼない。
+
+> 💡 **なぜ Flash-Lite ではなく `gemini-3.6-flash` か(精度)**。この機能がやっているのは「画像から項目を構造化して取り出す」=**データ抽出**で、生のOCR転写ではない。第三者ベンチ(Roboflow Vision Evals)の抽出スコアは:
+>
+> | モデル | データ抽出 | OCR転写 | 抽出のレイテンシ |
+> |---|---|---|---|
+> | `gemini-3.6-flash` | **94.8%(2位/21)** | 88.4% | 2.5秒 |
+> | `gemini-3.5-flash-lite` | 90.7%(6位/21) | 87.4% | 1.3秒 |
+>
+> 差は「20項目に1個間違える」か「11項目に1個間違える」かで、手直しの手間に直結する。月100枚でもコスト差は¥20程度、レイテンシもどちらも要件(通常15秒以内)に対して余裕があるので、精度側を取った。レシートの「品目|金額」の対応付けはテーブル的な読み取りで、Flash-Lite は前世代比でテーブルが落ちているという報告がある点も踏まえている。
+>
+> ⚠️ これらは**日本語の感熱紙レシートで測ったものではない**。最終判断は実レシートで(TBD-001)。切り替えは `RECEIPT_AI_MODEL` だけなのでコード変更は要らない。
 
 ### 10.2 Claude実装(`convex/ai/claude.ts`)
 
@@ -809,7 +835,38 @@ export class ClaudeReceiptParser implements ReceiptParser {
 }
 ```
 
-> 💡 既定モデルは `claude-opus-5`(精度優先)。計画時点では `claude-opus-4-8` を想定していたが、実装時の最新世代(Claude 5系)のOpusに更新した。コスト・速度優先ならConvexの環境変数 `RECEIPT_AI_MODEL` で `claude-sonnet-5` / `claude-haiku-4-5` に差し替えられる(TBD-001)。実レシート数枚で試して決める。
+> 💡 Claudeを選んだ場合の既定モデルは `claude-opus-5`(精度優先)。計画時点では `claude-opus-4-8` を想定していたが、実装時の最新世代(Claude 5系)のOpusに更新した。コスト・速度優先なら `claude-sonnet-5` / `claude-haiku-4-5` に差し替えられる(TBD-001)。
+
+### 10.2b Gemini実装(`convex/ai/gemini.ts`)— 既定プロバイダ
+
+`@google/genai` の `models.generateContent` に、画像(`inlineData`)+プロンプトを渡し、構造化出力で受け取る:
+
+```ts
+const response = await client.models.generateContent({
+  model: resolveModel("gemini", process.env.RECEIPT_AI_MODEL, "gemini-3.6-flash"),
+  contents: [
+    {
+      role: "user",
+      parts: [
+        { inlineData: { mimeType: mediaType, data: imageBase64 } },
+        { text: PROMPT },
+      ],
+    },
+  ],
+  config: {
+    responseMimeType: "application/json",
+    responseJsonSchema: receiptJsonSchema(),
+    httpOptions: { timeout: options.timeoutMs }, // 読み取り全体の残り時間
+  },
+});
+// JSONの構文エラーもスキーマ不適合も ReceiptSchemaError にして1回リトライ
+const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
+```
+
+- Claudeと違い、**このSDKは環境変数からAPIキーを読まない**ので `apiKey` を明示的に渡す
+- 応答は文字列なので、共有の zod スキーマ(`convex/ai/schema.ts`)で検証してから返す
+- 既定モデルは `gemini-3.6-flash`(選定理由は10.1の💡)。コスト・速度優先なら `gemini-3.5-flash-lite` / `gemini-2.5-flash-lite`(TBD-001)
+- **思考レベル(`config.thinkingConfig.thinkingLevel`)は既定のまま**にしてある。Gemini 3.x は既定で思考するぶん遅く・高くなるが、実測 10〜12秒で要件(通常15秒以内)を満たし、実物のレシートで精度も確認できたため触っていない。**実運用で遅いと感じたら `LOW` / `MINIMAL` に下げる**のが最初の一手(Claude側の `effort: "low"` に相当。精度とのトレードオフなので、同じレシートで前後を比べること)
 
 ### 10.3 Convex関数(`convex/uploads.ts` と `convex/receipts.ts`)
 
@@ -866,7 +923,11 @@ export class ClaudeReceiptParser implements ReceiptParser {
 - レシート以外(風景写真など)を送るとエラーメッセージと手入力導線が出る
 - 31回連続で解析するとレート制限エラーになる(確認は任意。`convex/receipts.test.ts` で自動テスト済み)
 
-> ⚠️ AI読み取りの実地確認には Convexダッシュボードでの環境変数登録(`ANTHROPIC_API_KEY` / `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL`)が必要。未登録のうちは読み取りが「読み取りに失敗しました。手入力に切り替えますか?」になる(圧縮・アップロード・帰属検証・レート制限・調整行・ドラフト復帰はテストで検証済み)。
+> ✅ **実地確認の結果(2026-07-27)**: `GEMINI_API_KEY` 登録後、合成レシートと**実物のレシート**の両方で読み取り成功。所要時間は **10〜12秒**(要件の「通常15秒以内」を満たす)。店名・購入日・品目・金額が自動入力され、消費税ぶんが「調整(税・割引等)」として自動追加されることを確認。既定モデル `gemini-3.6-flash` は実際に動作する。
+>
+> このとき初めて分かった不具合を2件修正した(どちらもユニットテストでは出ない):
+> 1. **購入日が常に当日になっていた** — AIに渡すスキーマ/プロンプトに日付の形式を書いておらず、「2026年7月21日」の形で返ると静かに捨てられていた。フィールドの説明は**コメントではなく `.describe()`** で持たせること(JSON Schema に載ってAIに渡る)
+> 2. **数量が「牛乳 x2 ×2」と二重に付いた** — AIは数量を品目名に含めたり含めなかったりする。いったん外して付け直す
 
 ---
 
@@ -875,7 +936,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 ### タスク
 
 - [ ] **Clerkを本番インスタンスに**: Clerkダッシュボードで Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。本番用の `pk_live_...` / `sk_live_...` を控える
-- [ ] **Convexを本番デプロイ**: Convexダッシュボードの本番(Production)環境に環境変数(`ANTHROPIC_API_KEY` / `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` / `CLERK_JWT_ISSUER_DOMAIN`=本番ClerkのIssuer URL)を登録
+- [ ] **Convexを本番デプロイ**: Convexダッシュボードの本番(Production)環境に環境変数(`GEMINI_API_KEY`(Claudeなら `ANTHROPIC_API_KEY`)/ `RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` / `CLERK_JWT_ISSUER_DOMAIN`=本番ClerkのIssuer URL)を登録
 - [ ] **Vercelデプロイ**:
   - GitHubリポジトリをVercelにImport
   - Build Command を `npx convex deploy --cmd 'npm run build'` に変更(フロントとConvex関数を同時デプロイ)

@@ -143,12 +143,33 @@ function toLineTotals(
   return multiplied.some((item) => item.price > MAX_PRICE) ? items : multiplied;
 }
 
+// 品目名の末尾に書かれた数量(「牛乳 x2」「牛乳 ×2」など)を外す。
+// AIは数量を name に含めたり含めなかったりするので、いったん外して
+// 付け直す形にする。「入っていれば足さない」だと、長い名前を50文字に
+// 切り詰めるときに末尾の数量だけが落ち、数量の情報が消えてしまう
+function stripQuantitySuffix(name: string, quantity: number): string {
+  return name.replace(new RegExp(`\\s*[×xX*]\\s*${quantity}\\s*$`), "");
+}
+
 // 数量を品目名に畳み込んで quantity を1にする
 function flattenQuantity(item: SanitizedItem): ReceiptDraftItem {
-  // 数量を名前の末尾に付ける。付けたうえで50文字に収める
-  const suffix = item.quantity > 1 ? ` ×${item.quantity}` : "";
+  // 数量1のときは何も足さないので、名前にも手を触れない。
+  // 触ると「商品X1」のように x1 で終わる正当な品目名(型番など)を壊す
+  if (item.quantity <= 1) {
+    return {
+      name: item.name.slice(0, MAX_ITEM_NAME_LENGTH),
+      price: item.price,
+      quantity: 1,
+    };
+  }
+  // 数量2以上のときだけ、末尾の数量を外して付け直す。
+  // (「商品X2」を数量2で買った場合は「商品 ×2」になるが、表示する情報は
+  //  変わらないので許容する。放置すると「商品X2 ×2」になるほうが困る)
+  const base = stripQuantitySuffix(item.name, item.quantity);
+  const suffix = ` ×${item.quantity}`;
+  // 数量は必ず残すため、切り詰めるのは品目名の側だけにする
   const name =
-    item.name.slice(0, MAX_ITEM_NAME_LENGTH - suffix.length) + suffix;
+    base.slice(0, MAX_ITEM_NAME_LENGTH - suffix.length).trimEnd() + suffix;
   return { name, price: item.price, quantity: 1 };
 }
 

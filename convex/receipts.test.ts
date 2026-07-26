@@ -21,14 +21,14 @@ const CAROL = identity("carol");
 // AI読み取り(receipts.parse)のうち、AI呼び出しの手前で決まる部分を検証する。
 // 実際のAI応答の整形は lib/receipt.test.ts で純粋関数として検証している。
 //
-// プロバイダは未実装の gemini に固定する。claude のままだと、開発機に
-// ANTHROPIC_API_KEY があるときに本物のAPIを叩いてしまう(課金・ネットワーク
-// 依存・タイムアウト)。gemini は即座に ConvexError を投げるので、
+// プロバイダには実在しない名前を入れる。claude / gemini のままだと、開発機に
+// APIキーがあるときに本物のAPIを叩いてしまう(課金・ネットワーク依存・
+// タイムアウト)。未対応プロバイダはその場で ConvexError になるので、
 // 「AI呼び出しに入った=認可とレート制限を通過した」ことだけを確かめられる。
-const ERR_PROVIDER = "Geminiでの読み取りはまだ利用できません";
+const ERR_PROVIDER = "未対応のAIプロバイダが設定されています";
 
 beforeEach(() => {
-  vi.stubEnv("RECEIPT_AI_PROVIDER", "gemini");
+  vi.stubEnv("RECEIPT_AI_PROVIDER", "test-no-provider");
 });
 
 afterEach(() => {

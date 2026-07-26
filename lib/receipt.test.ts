@@ -171,6 +171,57 @@ describe("normalizeParsedReceipt", () => {
     ]);
   });
 
+  // AIは数量を品目名に含めたり含めなかったりする。含んでいるのに足すと
+  // 「牛乳 x2 ×2」のように二重になる(実レシートで発生した)。
+  // いったん外して付け直すので、表記も「×N」に揃う
+  test("品目名に数量が入っている場合は重ねて付けない", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [
+          { name: "牛乳 1000ml x2", price: 396, quantity: 2 },
+          { name: "たまご ×3", price: 300, quantity: 3 },
+        ],
+        total_amount: 696,
+      }),
+      TODAY,
+    );
+    expect(result.items.map((item) => item.name)).toEqual([
+      "牛乳 1000ml ×2",
+      "たまご ×3",
+    ]);
+  });
+
+  // 数量1のときは何も足さないので名前も触らない。触ると型番などを壊す
+  test("数量1なら x1 で終わる品目名を壊さない", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [
+          { name: "商品X1", price: 300, quantity: 1 },
+          { name: "電池 x1", price: 200, quantity: 1 },
+        ],
+        total_amount: 500,
+      }),
+      TODAY,
+    );
+    expect(result.items.map((item) => item.name)).toEqual([
+      "商品X1",
+      "電池 x1",
+    ]);
+  });
+
+  // 切り詰めで数量だけが落ちると、quantityは1にしてあるので情報が完全に消える。
+  // 品目名は「略称を正式名に展開する」よう指示しているので長くなりうる
+  test("品目名が長くても数量は必ず残す", () => {
+    const longName = `${"あ".repeat(60)} x2`;
+    const result = normalizeParsedReceipt(
+      raw({ items: [{ name: longName, price: 500, quantity: 2 }], total_amount: 500 }),
+      TODAY,
+    );
+    const name = result.items[0].name;
+    expect(name.endsWith(" ×2")).toBe(true);
+    expect(name.length).toBeLessThanOrEqual(50);
+  });
+
   test("単価で返ってきた場合は合計金額と突き合わせて行合計に直す", () => {
     const result = normalizeParsedReceipt(
       raw({
