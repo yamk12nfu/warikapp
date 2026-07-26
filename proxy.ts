@@ -51,7 +51,10 @@ function parseAuthorizedParties(raw: string | undefined): string[] {
     }
     origins.push(origin);
   }
-  if (entries.length > 0 && origins.length === 0) {
+  // 判定には entries ではなく raw を使う。","(区切り文字だけ)のような値は
+  // entries が空になるので、entries を見ると「設定はしたのに警告も出ない」まま
+  // 検査なしに倒れてしまう
+  if ((raw ?? "").trim() !== "" && origins.length === 0) {
     console.warn(
       "CLERK_AUTHORIZED_PARTIES: 有効なオリジンが1つもないため、許可オリジンの検査を行いません",
     );
