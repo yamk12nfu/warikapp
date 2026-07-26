@@ -42,17 +42,48 @@ export async function assertOwnedUpload(
   await findOwnUpload(ctx, coupleId, storageId);
 }
 
-// 帰属を確認したうえで「支出から参照済み」の印を付ける(expenses.save から呼ぶ)。
+// 帰属を確認したうえで「この支出が使っている」印を付ける(expenses.save から呼ぶ)。
 // 印が付いた画像は uploads.discard で消せない(参照中の画像を消さないため)。
-export async function markUploadUsed(
+// 1枚の画像を2つの支出で共有させない: そうしないと、片方の支出が画像を
+// 差し替えたときに消してよいかを判断できなくなる(releaseUpload の前提)。
+export async function attachUpload(
   ctx: MutationCtx,
   coupleId: Id<"couples">,
   storageId: Id<"_storage">,
+  expenseId: Id<"expenses">,
 ) {
   const upload = await findOwnUpload(ctx, coupleId, storageId);
-  if (upload.usedAt === undefined) {
-    await ctx.db.patch("uploads", upload._id, { usedAt: Date.now() });
+  if (upload.usedByExpenseId === undefined) {
+    await ctx.db.patch("uploads", upload._id, { usedByExpenseId: expenseId });
+    return;
   }
+  if (upload.usedByExpenseId !== expenseId) {
+    throw new ConvexError("この画像はほかの支出で使われています");
+  }
+}
+
+// 支出が画像を手放したときに、その画像を実体ごと片付ける(expenses.save から呼ぶ)。
+// 「その支出のものだった」画像だけを消す。掃除が目的なので、すでに無い場合や
+// 別の支出のものだった場合は黙って何もしない。
+export async function releaseUpload(
+  ctx: MutationCtx,
+  coupleId: Id<"couples">,
+  storageId: Id<"_storage">,
+  expenseId: Id<"expenses">,
+) {
+  const upload = await ctx.db
+    .query("uploads")
+    .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+    .unique();
+  if (
+    upload === null ||
+    upload.coupleId !== coupleId ||
+    upload.usedByExpenseId !== expenseId
+  ) {
+    return;
+  }
+  await ctx.storage.delete(storageId);
+  await ctx.db.delete("uploads", upload._id);
 }
 
 // アップロード用URLの発行。クライアントはこのURLに画像をPOSTして storageId を得る。
@@ -113,7 +144,7 @@ export const registerUpload = mutation({
 });
 
 // 撮り直しなどで使わなくなった画像を捨てる。
-// どの支出からも参照されていない(usedAt 未設定)ものだけ消せる。
+// どの支出からも参照されていない(usedByExpenseId 未設定)ものだけ消せる。
 // 画面から離脱して置き去りになったぶんの掃除は運用側の課題として残している
 // (計画書 §10.3 の注記 / TBD-002)。
 export const discard = mutation({
@@ -121,7 +152,7 @@ export const discard = mutation({
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
     const upload = await findOwnUpload(ctx, member.coupleId, args.storageId);
-    if (upload.usedAt !== undefined) {
+    if (upload.usedByExpenseId !== undefined) {
       return null; // 支出に紐付いている画像は消さない
     }
     await ctx.storage.delete(args.storageId);

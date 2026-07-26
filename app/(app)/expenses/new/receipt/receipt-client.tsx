@@ -35,6 +35,11 @@ const primaryButtonClass =
 
 const ERR_UPLOAD = "アップロードに失敗しました";
 
+// アップロードの打ち切り時間。応答が返らないままだと画面が「アップロード中…」で
+// 固まり、撮り直しにも戻れなくなるため、失敗として再試行の導線に載せる。
+// 圧縮後の画像は数百KBなので、モバイル回線でも60秒あれば十分。
+const UPLOAD_TIMEOUT_MS = 60_000;
+
 // ExpenseEditor / expenses.save に渡す形へ。負担区分の初期値は「折半」
 // (createInitialItem がその既定値を持っている)
 function toEditorItems(
@@ -105,11 +110,18 @@ export default function ReceiptExpenseClient() {
     const blob = await compressReceiptImage(target);
     setProgress("アップロードしています…");
     const uploadUrl = await generateUploadUrl();
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": blob.type },
-      body: blob,
-    });
+    let response: Response;
+    try {
+      response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": blob.type },
+        body: blob,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+    } catch {
+      // 通信断・打ち切りはどちらも同じ扱い(再試行の導線に載せる)
+      throw new Error(ERR_UPLOAD);
+    }
     if (!response.ok) {
       throw new Error(ERR_UPLOAD);
     }

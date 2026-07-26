@@ -862,14 +862,15 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 - [x] `convex/uploads.ts`(V8ランタイム):
   - mutation `generateUploadUrl`: `requireMember` → `ctx.storage.generateUploadUrl()` を返す(クライアントはこのURLに画像をPOSTして `storageId` を得る)。**ここにも世帯ごとの回数制限(60回/時)を掛ける**: 読み取りを呼ばずにURL発行だけを繰り返せば、読み取りの制限を迂回して無制限にファイルを置けてしまうため。圧縮のやり直しや再試行があるので読み取りの上限より緩めにしてある
   - mutation `registerUpload`: クライアントがアップロード直後に呼び、`uploads` テーブルに `(coupleId, storageId, uploadedBy)` を記録する(**storageIdの世帯帰属台帳**。スキーマに `uploads` テーブルを追加: index by_storageId)。実体のないIDは拒否し、同じIDの再登録は自世帯なら何もしない(通信リトライで壊れないように)/他世帯なら拒否する
-  - mutation `discard`: 撮り直しで使わなくなった画像を消す。**どの支出からも参照されていない(`usedAt` 未設定)ものだけ**消せる(`expenses.save` が画像を紐付けるときに `usedAt` を立てる)
-  - `assertOwnedUpload()` / `markUploadUsed()`(共通ヘルパー)と internalQuery `authorizeUpload`(認証+帰属検証をまとめて1回で行う。actionからの往復を減らすため)
-  - ⚠️ **残課題**: 画面から離脱して置き去りになったアップロードは消えない。撮り直しぶんは `discard` で回収できるが、恒久対応(`usedAt` 未設定のまま一定時間経った行をcronで掃除する等)は運用を見てから決める(TBD-002)
+  - mutation `discard`: 撮り直しで使わなくなった画像を消す。**どの支出からも参照されていない(`usedByExpenseId` 未設定)ものだけ**消せる
+  - `assertOwnedUpload()` / `attachUpload()` / `releaseUpload()`(共通ヘルパー)と internalQuery `authorizeUpload`(認証+帰属検証をまとめて1回で行う。actionからの往復を減らすため)
+  - 台帳は「使った時刻」ではなく **`usedByExpenseId`(参照している支出)** を持つ。こうしておくと、**支出の画像が差し替わったときに「その支出のものだった画像」だけを安全に消せる**(`expenses.save` が新しい画像を `attachUpload`、古い画像を `releaseUpload` する)。1枚の画像を2つの支出で共有することは拒否する(共有を許すと、片方が差し替えたときに消してよいか判断できなくなる)
+  - ⚠️ **残課題**: 画面から離脱して置き去りになったアップロードは消えない。撮り直し・差し替えぶんは回収できるが、恒久対応(`usedByExpenseId` 未設定のまま一定時間経った行をcronで掃除する等)は運用を見てから決める(TBD-002)
 - [x] `convex/receipts.ts`(**ファイル先頭に `"use node";`** — Anthropic SDKを使うため)。action `parse`:
   1. 認証+storageIdの帰属検証: actionはDBに触れないので `await ctx.runQuery(internal.uploads.authorizeUpload, { storageId })` で行う(他世帯のstorageIdを渡されても読めない)。`expenses.save` の `imageStorageId` にも同じ検証を掛ける
   2. **レート制限**: `@convex-dev/rate-limiter` コンポーネントで「30回/時/世帯」(fixed window、キーは `coupleId`)。AI呼び出しの前に消費する(失敗した呼び出しも数えることで連打による暴走を止める)
   3. `ctx.storage.get(storageId)` で画像Blobを取得し base64 化(20MB超は拒否)
-  4. `ReceiptParser.parse()` を呼ぶ。**`ReceiptSchemaError` のときだけ1回自動リトライ**(要件)。タイムアウト30秒は**読み取り全体**の上限なので、1回目と2回目で残り時間を分け合う(2回目にも30秒渡すと合計60秒かかってしまう)
+  4. `ReceiptParser.parse()` を呼ぶ。**`ReceiptSchemaError` のときだけ1回自動リトライ**(要件)。タイムアウト30秒は**読み取り全体**の上限なので、1回目と2回目で残り時間を分け合う(2回目にも30秒渡すと合計60秒かかってしまう)。ただし1回目に全時間を渡すとリトライ枠が残らないので、**1回目の上限は「全体 − リトライの最低枠(5秒)」= 25秒**にする(半分に切ると、正常だが遅いだけの読み取りまで落としてしまう)
   5. `lib/receipt.ts` の `normalizeParsedReceipt()` で整形(下記)
   6. **調整行を足す前のAI由来の品目数(`sourceItemCount`)が0なら**「レシートを読み取れませんでした」(レシート以外・不鮮明な画像)。整形後の `items` で判定すると、品目0件でも合計金額だけ返ってきたときに「調整行だけの支出」ができてしまう。成功ログもこの判定の後に出す
 - [x] `lib/receipt.ts`(**純粋関数。AI呼び出しと切り分けてテストする**。`lib/settlement.ts` と同じ方針):
@@ -889,7 +890,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
   1. `<input type="file" accept="image/*" capture="environment">` で撮影/選択
   2. **クライアント側で縮小・圧縮**(`lib/image.ts`): Canvasで長辺2,000pxにリサイズ → JPEG(quality 0.8)に変換。20MB超は弾く。寸法計算は純粋関数 `fitWithinLongEdge()` に切り出してテストする
      - ⚠️ **HEICの扱い**: Canvasで拾えるのは「ブラウザがデコードできる画像」だけ。iPhoneは選択時にJPEGへ変換して渡すことが多く、iOS Safari自体もHEICをデコードできるので実運用(スマホ撮影)はこれで足りる。デコードできない環境(デスクトップChromeでHEICを選ぶ等)では「この画像は読み込めませんでした。JPEGまたはPNGでお試しください」を出す。デコーダライブラリの追加やサーバー変換はMVPの対象外
-  3. `generateUploadUrl` で得たURLに画像をPOST → `storageId` を取得 → `registerUpload` で台帳に登録。撮り直したときは前の画像を `discard` で消す(置き去りのファイルを残さない)
+  3. `generateUploadUrl` で得たURLに画像をPOST(**60秒で打ち切る**。応答が返らないままだと画面が「アップロード中…」で固まり、撮り直しにも戻れなくなる)→ `storageId` を取得 → `registerUpload` で台帳に登録。撮り直したときは前の画像を `discard` で消す(置き去りのファイルを残さない)
   4. `useAction` で `receipts.parse` を呼ぶ。処理中はスケルトン+「レシートを読み取っています…」表示(通常15秒以内)
   5. 結果を `ExpenseEditor` に流し込み、**まず `expenses.save`(status: "draft")で保存**(ドラフト)
   6. ユーザーが修正・仕分けして「確定」→ 同じ `expenseId` に `status: "confirmed"` で保存し直す

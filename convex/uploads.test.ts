@@ -139,7 +139,7 @@ describe("uploads.discard", () => {
 
     const rows = await t.run(async (ctx) => ctx.db.query("uploads").collect());
     expect(rows).toHaveLength(1);
-    expect(rows[0].usedAt).toEqual(expect.any(Number));
+    expect(rows[0].usedByExpenseId).toBeTruthy();
   });
 
   test("他世帯の画像は消せない", async () => {

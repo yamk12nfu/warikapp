@@ -28,6 +28,11 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 要件: 20MB以下
 const TOTAL_TIMEOUT_MS = 30_000;
 // 残りがこれ未満ならリトライしない(投げてもタイムアウトするだけ)
 const MIN_RETRY_MS = 5_000;
+// 1回目に全時間を渡すと、遅れた末にスキーマ不適合で返ったときリトライ枠が
+// 残らない。かといって半分(15秒)に切ると、正常だが遅いだけの読み取りまで
+// 落としてしまう(要件の「通常15秒以内」を少し超える程度は許したい)。
+// そこで「全体からリトライの最低枠だけ引いた値」を上限にする。
+const FIRST_ATTEMPT_TIMEOUT_MS = TOTAL_TIMEOUT_MS - MIN_RETRY_MS;
 
 const ERR_IMAGE_MISSING = "画像が見つかりません。もう一度アップロードしてください";
 const ERR_IMAGE_TOO_LARGE = "画像が大きすぎます(20MBまで)";
@@ -88,7 +93,7 @@ export const parse = action({
     try {
       try {
         parsed = await parser.parse(imageBase64, mediaType, {
-          timeoutMs: TOTAL_TIMEOUT_MS,
+          timeoutMs: FIRST_ATTEMPT_TIMEOUT_MS,
         });
       } catch (caught) {
         const remaining = deadline - Date.now();

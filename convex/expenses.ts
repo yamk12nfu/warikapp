@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
-import { markUploadUsed } from "./uploads";
+import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
@@ -175,17 +175,10 @@ export const save = mutation({
       ...items.flatMap((item) => item.shares.map((share) => share.memberId)),
     ]);
 
-    // クライアント由来の storageId も member ID と同じく帰属を検証する
-    // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)。
-    // あわせて台帳に「参照済み」の印を付け、撮り直しの破棄対象から外す
-    if (args.imageStorageId !== undefined) {
-      await markUploadUsed(ctx, member.coupleId, args.imageStorageId);
-    }
-
     const totalAmount = calcTotalAmount(items);
 
     if (existing === null) {
-      return await ctx.db.insert("expenses", {
+      const expenseId = await ctx.db.insert("expenses", {
         coupleId: member.coupleId,
         paidBy: args.paidBy,
         storeName,
@@ -196,6 +189,13 @@ export const save = mutation({
         source: args.source ?? "manual",
         status: args.status,
       });
+      // クライアント由来の storageId も member ID と同じく帰属を検証する
+      // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)。
+      // 例外が出れば mutation ごと巻き戻るので、insert の後で構わない
+      if (args.imageStorageId !== undefined) {
+        await attachUpload(ctx, member.coupleId, args.imageStorageId, expenseId);
+      }
+      return expenseId;
     }
 
     await ctx.db.patch("expenses", existing._id, {
@@ -210,6 +210,28 @@ export const save = mutation({
         ? {}
         : { imageStorageId: args.imageStorageId }),
     });
+
+    if (args.imageStorageId !== undefined) {
+      await attachUpload(
+        ctx,
+        member.coupleId,
+        args.imageStorageId,
+        existing._id,
+      );
+      // 差し替え前の画像はこの支出以外から参照されないので実体ごと片付ける
+      // (画像を持ったまま撮り直すと、以前は台帳にも実体にも残り続けていた)
+      if (
+        existing.imageStorageId !== undefined &&
+        existing.imageStorageId !== args.imageStorageId
+      ) {
+        await releaseUpload(
+          ctx,
+          member.coupleId,
+          existing.imageStorageId,
+          existing._id,
+        );
+      }
+    }
     return existing._id;
   },
 });
