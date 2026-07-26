@@ -16,11 +16,19 @@ import { requireApiKey, resolveModel } from "./config";
 // Claude と同じ zod スキーマで検証する。適合しなければ ReceiptSchemaError を
 // 投げ、呼び出し側(convex/receipts.ts)が1回だけ再試行する。
 
-// 既定モデル。Flash系はレシートのOCRに十分な精度がありながら桁違いに安く、
-// 無料枠でも試せる(無料枠は入力がGoogleの製品改善に使われる点に注意)。
-// 精度優先なら gemini-3.5-flash、コスト優先なら gemini-2.5-flash-lite に
+// 既定モデル。この機能がやっているのは「画像から項目を構造化して取り出す」
+// =データ抽出なので、生のOCR転写より抽出の精度で選ぶ。
+// Roboflow Vision Evals(第三者ベンチ)の抽出スコアは
+//   gemini-3.6-flash        94.8%(2位/21) レイテンシ2.5秒
+//   gemini-3.5-flash-lite   90.7%(6位/21) レイテンシ1.3秒
+// で、月100枚のコスト差は¥20程度。読み取り誤りの手直しの手間を考えると
+// 精度側を取る価値がある(レシートの「品目|金額」はテーブル的な読み取りで、
+// Flash-Liteは前世代比でテーブルが落ちているという報告もある)。
+//
+// コスト・速度を優先するなら gemini-3.5-flash-lite / gemini-2.5-flash-lite に
 // Convexの環境変数 RECEIPT_AI_MODEL で差し替えられる(TBD-001)。
-const DEFAULT_MODEL = "gemini-2.5-flash";
+// ※上記は日本語の感熱紙レシートで測ったものではないので、実レシートで確認すること。
+const DEFAULT_MODEL = "gemini-3.6-flash";
 
 export class GeminiReceiptParser implements ReceiptParser {
   readonly providerName = "gemini";

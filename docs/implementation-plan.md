@@ -748,7 +748,7 @@ export class ReceiptSchemaError extends Error {}
 - [x] **環境変数はConvexダッシュボード → Settings → Environment Variables に登録する**(`.env.local` ではない! actionはConvex側で実行されるため):
   - `GEMINI_API_KEY`(既定プロバイダ。Google AI Studio で発行)
   - `RECEIPT_AI_PROVIDER` = `gemini`(省略時もこの値)
-  - `RECEIPT_AI_MODEL` = `gemini-2.5-flash`(省略時もこの値)
+  - `RECEIPT_AI_MODEL` = `gemini-3.6-flash`(省略時もこの値)
   - Claudeを使う場合は代わりに `ANTHROPIC_API_KEY` + `RECEIPT_AI_PROVIDER=claude` + `RECEIPT_AI_MODEL=claude-opus-5`
 
 > 💡 **なぜ既定がGeminiか(コスト)**。サブスク(ChatGPT Plus / Gemini Advanced / Claude Pro)にAPI利用は含まれず、サーバーから叩くぶんは必ず従量課金になる。レシート1枚を「入力3,000〜4,000トークン+出力1,000トークン」として月100枚で見積もると:
@@ -757,10 +757,21 @@ export class ReceiptSchemaError extends Error {}
 > |---|---|
 > | `claude-opus-5` | 約 ¥650 |
 > | `claude-haiku-4-5` | 約 ¥130 |
-> | `gemini-2.5-flash` | 約 ¥55 |
-> | `gemini-2.5-flash-lite` | 約 ¥12 |
+> | `gemini-3.6-flash`(既定) | 約 ¥25 |
+> | `gemini-3.5-flash-lite` | 約 ¥6 |
 >
 > Gemini APIにはFlash系の**無料枠**もあるが、無料枠は**入力・出力がGoogleの製品改善に使われる**(有料枠は使われない)。レシートは家計の中身なので、常用は有料枠を推奨する。有料枠でもこの金額なので、無料枠を選ぶ実益はほぼない。
+
+> 💡 **なぜ Flash-Lite ではなく `gemini-3.6-flash` か(精度)**。この機能がやっているのは「画像から項目を構造化して取り出す」=**データ抽出**で、生のOCR転写ではない。第三者ベンチ(Roboflow Vision Evals)の抽出スコアは:
+>
+> | モデル | データ抽出 | OCR転写 | 抽出のレイテンシ |
+> |---|---|---|---|
+> | `gemini-3.6-flash` | **94.8%(2位/21)** | 88.4% | 2.5秒 |
+> | `gemini-3.5-flash-lite` | 90.7%(6位/21) | 87.4% | 1.3秒 |
+>
+> 差は「20項目に1個間違える」か「11項目に1個間違える」かで、手直しの手間に直結する。月100枚でもコスト差は¥20程度、レイテンシもどちらも要件(通常15秒以内)に対して余裕があるので、精度側を取った。レシートの「品目|金額」の対応付けはテーブル的な読み取りで、Flash-Lite は前世代比でテーブルが落ちているという報告がある点も踏まえている。
+>
+> ⚠️ これらは**日本語の感熱紙レシートで測ったものではない**。最終判断は実レシートで(TBD-001)。切り替えは `RECEIPT_AI_MODEL` だけなのでコード変更は要らない。
 
 ### 10.2 Claude実装(`convex/ai/claude.ts`)
 
@@ -831,7 +842,7 @@ export class ClaudeReceiptParser implements ReceiptParser {
 
 ```ts
 const response = await client.models.generateContent({
-  model: resolveModel("gemini", process.env.RECEIPT_AI_MODEL, "gemini-2.5-flash"),
+  model: resolveModel("gemini", process.env.RECEIPT_AI_MODEL, "gemini-3.6-flash"),
   contents: [
     {
       role: "user",
@@ -853,7 +864,7 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 
 - Claudeと違い、**このSDKは環境変数からAPIキーを読まない**ので `apiKey` を明示的に渡す
 - 応答は文字列なので、共有の zod スキーマ(`convex/ai/schema.ts`)で検証してから返す
-- 既定モデルは `gemini-2.5-flash`。精度優先なら `gemini-3.5-flash`、コスト優先なら `gemini-2.5-flash-lite`(TBD-001)
+- 既定モデルは `gemini-3.6-flash`(選定理由は10.1の💡)。コスト・速度優先なら `gemini-3.5-flash-lite` / `gemini-2.5-flash-lite`(TBD-001)
 
 ### 10.3 Convex関数(`convex/uploads.ts` と `convex/receipts.ts`)
 
