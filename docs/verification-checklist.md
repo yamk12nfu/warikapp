@@ -32,12 +32,12 @@
 > 仕様参照: `docs/requirements.md > §3.2 F-001: 認証`
 
 - [ ] `[!!!]` 本番URLで**2つの別Googleアカウント**からログインできる
-  - 実装: `proxy.ts:75`(`clerkMiddleware`)/ `components/ConvexClientProvider.tsx:16` / `app/login/[[...rest]]/page.tsx`
+  - 実装: `proxy.ts` > `clerkMiddleware`(78行)/ `components/ConvexClientProvider.tsx:16` / `app/login/[[...rest]]/page.tsx`
   - 前提条件: `docs/deployment.md` §1〜§3 が完了し本番URLが開ける。手元に2つのGoogleアカウント
   - 期待結果: どちらのアカウントでも Google 同意画面 → アプリに戻り、世帯未所属なら `/setup`、所属済みなら `/` が出る
   - 懸念: Clerk本番インスタンスは開発と違い自前のOAuth認証情報が要る。**Google Cloud の OAuth同意画面が「テスト」公開ステータスのままだと、テストユーザーに登録していないアカウントだけが弾かれる**(`docs/deployment.md` §1-3)
 - [ ] `[!!]` 未ログインで保護ページのURLを直接開くとログイン画面に飛び、**ログイン後に元のページへ戻る**
-  - 実装: `proxy.ts:83`(`redirectToSignIn({ returnBackUrl: req.url })`)
+  - 実装: `proxy.ts:86`(`redirectToSignIn({ returnBackUrl: req.url })`)
   - 前提条件: シークレットウィンドウで本番の `/settlement` を直接開く
   - 期待結果: `/login` に飛ばされ、ログイン完了後に `/settlement` が表示される(`/` ではない)
 - [ ] `[!!]` ログアウトできる
@@ -387,10 +387,10 @@
   - 期待結果: Clerk Dashboard → Domains で本番インスタンスが有効になっている
   - 確認ポイント: DNSレコードを張っただけでは有効にならない。ここを飛ばすと本番ログインが通らない
 - [ ] `[!!]` `CLERK_AUTHORIZED_PARTIES` を Vercel に設定してある
-  - 実装: `proxy.ts:38`(`parseAuthorizedParties`)/ `:62`(`toHttpOrigin`)。未設定なら指定なし = 従来どおりの挙動
+  - 実装: `proxy.ts:38`(`parseAuthorizedParties`)/ `:65`(`toHttpOrigin`)。未設定なら指定なし = 従来どおりの挙動
   - 前提条件: 本番URLが確定している
   - 期待結果: Vercel の環境変数に本番URLが `https://` から始まる形で Production に入っており、設定後も普通にログインできる
-  - 確認ポイント: Clerkは `azp` と**完全一致**で判定する。`proxy.ts` が http(s) のオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収される。値はカンマ区切りの1件ずつ処理され、**本番のオリジンが1件も含まれていなければ全員ログインできなくなり、解釈できる値が1件も残らなければ検査なしに倒れて保護が掛からない**(ログに警告が出る)。設定後は必ずログインし直して確認する
+  - 確認ポイント: Clerkは `azp` と**完全一致**で判定する。`proxy.ts` が http(s) のオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収される。値はカンマ区切りの1件ずつ処理され、**http(s)のオリジンとして残った中に本番のものが無ければ全員ログインできなくなり、1件も残らなければ検査なしに倒れて保護が掛からない**(どちらもログに警告が出る)。組み合わせごとの結果は `docs/deployment.md` §3-4 の表を参照。設定後は必ずログインし直して確認する
   - ⚠️ **これだけではConvexへの直接アクセスを塞げない**(次の項目)
 - [ ] `[!!!]` Clerk の **Allowed Subdomains** が有効で、このアプリのサブドメインだけに絞られている
   - 実装: 設定はClerk側。アプリのコードには現れない
