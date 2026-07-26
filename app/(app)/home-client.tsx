@@ -34,6 +34,10 @@ export default function HomeClient() {
   );
   // household は requireMember で throw するため、所属済みが確定してから呼ぶ
   const household = useQuery(api.couples.household, member ? {} : "skip");
+  const balance = useQuery(
+    api.settlements.currentBalance,
+    member ? {} : "skip",
+  );
   const [filter, setFilter] = useState<Filter>("unsettled");
   const expenses = usePaginatedQuery(
     api.expenses.list,
@@ -60,6 +64,26 @@ export default function HomeClient() {
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
   }
+
+  // 差額の説明文。「あなたが ○○さんに 支払います」の形にする(要件 F-007)。
+  // 呼び出し側で balance / household が揃ってから使う
+  const balanceLabel = () => {
+    if (balance === undefined || household === undefined) {
+      return "";
+    }
+    if (balance.amount === 0) {
+      return balance.expenseCount === 0
+        ? "未精算の支出はありません"
+        : "貸し借りはありません";
+    }
+    const name = (memberId: string | null) =>
+      memberId === household.self._id
+        ? "あなた"
+        : memberId === household.partner?._id
+          ? `${household.partner.displayName}さん`
+          : "メンバー";
+    return `${name(balance.fromMemberId)}が ${name(balance.toMemberId)}に 支払います`;
+  };
 
   // 行の補足情報(日付・支払者・品目数)。支払者名は household から引くため、
   // 読み込みが終わるまでは支払者だけ省く(「が支払い」だけが出るのを防ぐ)
@@ -89,14 +113,30 @@ export default function HomeClient() {
         </p>
       </header>
 
-      {/* 未精算差額(Phase 7で本実装。ここでは枠だけ置く) */}
-      <section className="rounded-lg border border-black/15 p-4 dark:border-white/25">
+      {/* 未精算差額(F-007)。常時表示し、タップで精算画面へ */}
+      <Link
+        href="/settlement"
+        className="block rounded-lg border border-black/15 p-4 dark:border-white/25"
+      >
         <p className="text-sm text-gray-500">未精算差額</p>
-        <p className="text-2xl font-bold">—</p>
-        <p className="mt-1 text-xs text-gray-500">
-          差額の計算と精算は次のステップで対応します
-        </p>
-      </section>
+        {balance === undefined || household === undefined ? (
+          // 差額と支払う側の名前が揃うまでは金額を出さない(名前だけ先に出ると
+          // 「あなたが さんに」のような欠けた文になる)
+          <p className="text-2xl font-bold">—</p>
+        ) : (
+          <>
+            <p className="text-2xl font-bold">{formatYen(balance.amount)}</p>
+            <p className="mt-1 text-xs text-gray-500">{balanceLabel()}</p>
+            {/* 1回の精算で扱える件数を超えている = ここの金額は一部のぶんだけ */}
+            {balance.truncated && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                未精算の支出が多いため、古い{balance.expenseCount}
+                件ぶんの差額を表示しています
+              </p>
+            )}
+          </>
+        )}
+      </Link>
 
       <div className="grid grid-cols-2 gap-3">
         <Link
@@ -198,10 +238,8 @@ export default function HomeClient() {
         )}
       </section>
 
+      {/* 精算への導線は上の差額カードが担うので、ここには履歴と設定だけ置く */}
       <nav className="flex gap-4 text-sm text-blue-600">
-        <Link href="/settlement" className="underline">
-          精算
-        </Link>
         <Link href="/settlements" className="underline">
           精算履歴
         </Link>

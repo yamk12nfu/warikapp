@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   calcAdvanceAmount,
   calcItemShareAmount,
+  calcNetBalance,
   calcTotalAmount,
 } from "./settlement";
 import type { ExpenseItemInput } from "./types";
@@ -101,5 +102,78 @@ describe("calcAdvanceAmount", () => {
       item(3000, onlyPartner()), // 3000
     ];
     expect(calcAdvanceAmount(SELF, items)).toBe(3500);
+  });
+});
+
+describe("calcNetBalance", () => {
+  const paidBySelf = (price: number) => ({
+    paidBy: SELF,
+    items: [item(price, split())],
+  });
+  const paidByPartner = (price: number) => ({
+    paidBy: PARTNER,
+    items: [item(price, split())],
+  });
+
+  test("要件の例: 自分5,000円折半+相手2,000円折半 → 相手が自分に1,500円", () => {
+    // netA = 2500 − 1000 = 1500(正なので相手が自分に支払う)
+    expect(
+      calcNetBalance(SELF, PARTNER, [paidBySelf(5000), paidByPartner(2000)]),
+    ).toEqual({ fromMemberId: PARTNER, toMemberId: SELF, amount: 1500 });
+  });
+
+  test("netAが負なら向きが入れ替わる", () => {
+    expect(
+      calcNetBalance(SELF, PARTNER, [paidBySelf(2000), paidByPartner(5000)]),
+    ).toEqual({ fromMemberId: SELF, toMemberId: PARTNER, amount: 1500 });
+  });
+
+  test("差額0なら方向を持たない(精算不要)", () => {
+    expect(
+      calcNetBalance(SELF, PARTNER, [paidBySelf(4000), paidByPartner(4000)]),
+    ).toEqual({ fromMemberId: null, toMemberId: null, amount: 0 });
+  });
+
+  test("支出が無ければ0", () => {
+    expect(calcNetBalance(SELF, PARTNER, [])).toEqual({
+      fromMemberId: null,
+      toMemberId: null,
+      amount: 0,
+    });
+  });
+
+  test("どちらから見ても同じ結論になる(引数の順番に依らない)", () => {
+    const expenses = [paidBySelf(5000), paidByPartner(2000)];
+    expect(calcNetBalance(PARTNER, SELF, expenses)).toEqual(
+      calcNetBalance(SELF, PARTNER, expenses),
+    );
+  });
+
+  test("全額自己負担の支出は差額に影響しない", () => {
+    expect(
+      calcNetBalance(SELF, PARTNER, [
+        { paidBy: SELF, items: [item(9000, onlySelf())] },
+        paidBySelf(1000),
+      ]),
+    ).toEqual({ fromMemberId: PARTNER, toMemberId: SELF, amount: 500 });
+  });
+
+  test("世帯の2名以外が支払者の支出は無視する", () => {
+    expect(
+      calcNetBalance(SELF, PARTNER, [
+        { paidBy: "stranger", items: [item(5000, split())] },
+      ]),
+    ).toEqual({ fromMemberId: null, toMemberId: null, amount: 0 });
+  });
+
+  test("端数は支出ごとに丸めてから合算する", () => {
+    // 333円折半=167 を2件立て替え、相手が333円折半=167を1件 → 334 − 167 = 167
+    expect(
+      calcNetBalance(SELF, PARTNER, [
+        paidBySelf(333),
+        paidBySelf(333),
+        paidByPartner(333),
+      ]),
+    ).toEqual({ fromMemberId: PARTNER, toMemberId: SELF, amount: 167 });
   });
 });

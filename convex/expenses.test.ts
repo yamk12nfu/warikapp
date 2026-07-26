@@ -540,6 +540,7 @@ describe("expenses.save(更新)", () => {
         toMemberId: members.self._id,
         amount: 2500,
         settledBy: members.self._id,
+        expenseCount: 1,
       });
       await ctx.db.patch("expenses", expenseId, { settlementId });
     });
@@ -616,6 +617,7 @@ async function markSettled(
       toMemberId: members.self._id,
       amount: 2500,
       settledBy: members.self._id,
+      expenseCount: 1,
     });
     await ctx.db.patch("expenses", expenseId, { settlementId });
   });

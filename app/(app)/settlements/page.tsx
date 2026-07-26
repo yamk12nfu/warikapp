@@ -1,6 +1,7 @@
 import { requireSignedIn } from "@/lib/server-auth";
+import SettlementsClient from "./settlements-client";
 
 export default async function SettlementsHistoryPage() {
   await requireSignedIn(); // リソースレベル認証
-  return <main className="p-8">TODO: 精算履歴(S-008)</main>;
+  return <SettlementsClient />;
 }

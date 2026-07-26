@@ -56,10 +56,14 @@ export default defineSchema({
   })
     // 「すべて」表示用: 世帯内を購入日順に読む
     .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
-    // 「未精算のみ」(デフォルト表示)用: settlementId 未設定をインデックス範囲で絞り込む
-    .index("by_coupleId_and_settlementId_and_purchasedAt", [
+    // 「未精算のみ」(デフォルト表示)と精算対象の収集用。
+    // deletedAt もインデックスに含める: 論理削除された支出は settlementId が
+    // 未設定のまま永久にこの範囲に残るため、.filter() で落とす作りだと
+    // 削除が積み上がるほど走査行数が増えていく(取得件数は有界でも走査は有界でない)
+    .index("by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt", [
       "coupleId",
       "settlementId",
+      "deletedAt",
       "purchasedAt",
     ]),
 
@@ -70,6 +74,10 @@ export default defineSchema({
     amount: v.number(),
     memo: v.optional(v.string()), // 100文字以内
     settledBy: v.id("members"),
+    // 精算履歴(S-008)に出す対象支出数。行を数えるためだけに expenses を全件
+    // 読み直すのを避けるため、精算実行時に確定した件数をここに持たせる。
+    // 精算済み支出は編集・削除ができず、取り消しは精算ごと消すので値はずれない
+    expenseCount: v.number(),
   }).index("by_coupleId", ["coupleId"]),
 
   // AI読み取りのレート制限用(要件: 30回/時/世帯)。時刻は _creationTime を使う

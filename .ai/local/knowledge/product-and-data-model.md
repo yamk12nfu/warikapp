@@ -29,8 +29,8 @@
 | `couples` | 世帯(name のみ) | — |
 | `members` | 世帯メンバー。`tokenIdentifier` で認証 ID と紐付け | `by_tokenIdentifier`, `by_coupleId` |
 | `invitations` | 招待コード(code, expiresAt, usedAt) | `by_code` |
-| `expenses` | 支出。品目 `items[]` をドキュメントに内包 | `by_coupleId_and_purchasedAt`, `by_coupleId_and_settlementId_and_purchasedAt` |
-| `settlements` | 精算(from/to member, amount, memo, settledBy) | `by_coupleId` |
+| `expenses` | 支出。品目 `items[]` をドキュメントに内包 | `by_coupleId_and_purchasedAt`, `by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt` |
+| `settlements` | 精算(from/to member, amount, memo, settledBy, expenseCount) | `by_coupleId` |
 | `parseLogs` | AI 読み取りのレート制限集計用(30 回/時/世帯) | `by_coupleId` |
 
 設計上の要点:
