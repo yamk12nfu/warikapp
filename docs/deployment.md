@@ -152,6 +152,18 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 
 #### 1-2a. Cloudflare にレコードを入れる
 
+> ✅ **DNSがCloudflareなら、Clerkが自動で入れてくれる。** Clerkの画面に
+> 「Authorize DNS records from Clerk」が出たら、そちらを使うほうが確実
+> (一回限りの認可で、以降Clerkが勝手に変更することはない)。
+> 表示される5件が下の表と同じ形(`clerk.warikapp` / `accounts.warikapp` /
+> `clkmail.warikapp` / `clk._domainkey.warikapp` / `clk2._domainkey.warikapp`、
+> すべて **DNS only**)であることだけ確認して Authorize を押す。
+> **この場合、下の手入力は不要**。二重付与とプロキシONの罠を両方回避できるので、
+> 手入力より安全。手入力するのは、この連携が出ないときだけ。
+
+<details>
+<summary>手入力する場合(Clerkの自動連携が出ないとき)</summary>
+
 1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Websites** → `yamk12nfu.com` → **DNS** → **Records**
 2. **Add record** を押し、Clerkの一覧の1件ぶんを入れる:
 
@@ -177,6 +189,8 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 > 自分のIPで隠してしまい、**Clerkのドメイン検証が永久に通らない**。
 > `_` で始まる名前(`clk._domainkey` など)は元からプロキシできないのでグレーのままになる。
 > 切り替えが要るのは `clerk` / `accounts` / `clkmail` あたり。
+
+</details>
 
 #### 1-2b. 入ったかを自分で確認する
 
