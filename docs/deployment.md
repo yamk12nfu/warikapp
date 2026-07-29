@@ -18,6 +18,7 @@
 | Convex 開発デプロイ | `benevolent-koala-496`。`CLERK_JWT_ISSUER_DOMAIN` と `GEMINI_API_KEY` を登録済み |
 | Clerk | 開発インスタンスのみ(共有Google認証を利用中) |
 | Vercel | 未Import |
+| ドメイン | **`yamk12nfu.com` 取得済み**(Cloudflare Registrar)。アプリは `warikapp.yamk12nfu.com` を使う |
 
 ### ⚠️ 先に用意すること: 自分のドメイン
 
@@ -44,9 +45,9 @@ Vercel側にもそのドメインを追加する(§3-3)。
 
 ### 0-1. ドメインを取る(Cloudflare Registrar)
 
-ルートは個人名義、アプリはサブドメインにする。以降この手順書では
-**ルート `yamk12nfu.com` / アプリ `warikapp.yamk12nfu.com`** を例に書く
-(実際に取ったものに読み替えること)。
+**この節は取得済み(2026-07-30)。** 記録として残す。
+ルートは個人名義、アプリはサブドメインにするという方針で
+**ルート `yamk12nfu.com` / アプリ `warikapp.yamk12nfu.com`** にした。
 
 Cloudflare Registrar を使う理由: **原価販売**(レジストリの卸値そのままで、更新時の値上げが無い)、
 WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用に5件前後・Vercel用に1件のDNSレコードを
@@ -121,12 +122,13 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 ### 1-2. ドメインとDNS
 
 1. Clerk Dashboard → **Domains**
-2. 使うドメイン(例: `warikapp.example.com`)を入力
+2. **`warikapp.yamk12nfu.com`** を入力(ルートではなくアプリ用のサブドメイン)
 3. **サブドメインを入れた場合、Clerkは「Primary application か Secondary application か」を聞いてくる。**
-   どちらを選ぶかでClerk基盤のホスト名が変わる(`clerk.example.com` になるか
-   `clerk.warikapp.example.com` になるか)。**どちらでも動く**が、以降の手順で使う
-   リダイレクトURIとIssuer URLは**必ずClerkの画面に出ている実物をコピーする**こと
-   (この手順書の `clerk.<あなたのドメイン>` はあくまで例)
+   **Secondary application を選ぶ。** 理由: `yamk12nfu.com` は他のプロジェクトでも使う前提なので、
+   このアプリのClerk基盤はアプリのサブドメイン配下(`clerk.warikapp.yamk12nfu.com`)に閉じ込めたい。
+   Primary を選ぶとルート直下(`clerk.yamk12nfu.com`)を取ってしまう。
+   ⚠️ 以降の手順で使うリダイレクトURIとIssuer URLは**必ずClerkの画面に出ている実物をコピーする**こと
+   (この手順書の値は選択がSecondaryだった場合の想定形)
 4. 表示されるCNAMEレコード(5件前後。`clerk`, `accounts`, `clkmail`, `clk._domainkey` など)を
    **画面に出ているとおりに**ドメインのDNS設定に追加する
 5. Clerkの画面でレコードが緑になるまで待つ
@@ -142,7 +144,7 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 
 1. Clerk Dashboard(本番インスタンス)→ **SSO Connections** → **Google**
 2. **Use custom credentials** をONにする
-3. 表示される **Authorized Redirect URI**(`https://clerk.<あなたのドメイン>/v1/oauth_callback` の形)を
+3. 表示される **Authorized Redirect URI**(`https://clerk.warikapp.yamk12nfu.com/v1/oauth_callback` の形)を
    コピーしておく。この画面は開いたままにする
 
 次に [Google Cloud Console](https://console.cloud.google.com):
@@ -157,8 +159,8 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
      ここが「自分は入れるのにパートナーが入れない」の原因になる
 3. **APIとサービス → 認証情報 → 認証情報を作成 → OAuth クライアント ID**
    - アプリケーションの種類: **ウェブアプリケーション**
-   - **承認済みの JavaScript 生成元**: **アプリのドメインを入れる**(例: `https://warikapp.example.com`。
-     `www` 付きも使うなら両方)。Clerkの手順が明示的に要求している
+   - **承認済みの JavaScript 生成元**: `https://warikapp.yamk12nfu.com` を入れる。
+     Clerkの手順が明示的に要求している
    - **承認済みのリダイレクト URI**: 上でコピーしたClerkのURIを貼る
      - ⚠️ 末尾スラッシュの有無・大文字小文字の違いでも一致しない。**貼り付けるだけで手打ちしない**
    - 作成 → **クライアントID** と **クライアントシークレット** をコピー
@@ -172,20 +174,20 @@ Clerkに戻る:
 1. Clerk Dashboard(本番インスタンス)→ **Configure** → **JWT Templates** → **New template** → **Convex**
 2. ⚠️ **テンプレート名は `convex`(小文字)のまま変えない**。`convex/auth.config.ts` の
    `applicationID: "convex"` と一致している必要がある
-3. 保存し、**Issuer URL**(`https://clerk.<あなたのドメイン>` の形)をコピー → §2 で使う
+3. 保存し、**Issuer URL**(`https://clerk.warikapp.yamk12nfu.com` の形)をコピー → §2 で使う
 
 ### 1-5. Allowed Subdomains を絞る
 
 1. Clerk Dashboard(本番インスタンス)→ **Allowed Subdomains**
 2. **Enable allowed subdomains** をONにする
-3. 許可するサブドメインを**完全修飾ドメインで**登録する(例: `warikapp.example.com`)
+3. 許可するサブドメインを**完全修飾ドメインで**登録する(`warikapp.yamk12nfu.com`)
 
-> **§1-2 で Primary application を選んだ場合**: Clerkの Primary domain はルートドメイン側になるので、
-> アプリのFQDN(`warikapp.example.com`)を明示的に許可リストに入れる。
-> **Secondary application を選んだ場合**: アプリ自身が Primary domain なので**常に許可される**。
-> この場合ここに足すものは無い(他に許可したいサブドメインがあるときだけ入れる)。
-> Primary domain が常に許可される以上、どちらを選ぶかは許可範囲そのものに影響する。
-> 迷ったら Clerk の画面に出ている現在の Primary domain を確認してから決める。
+> **§1-2 の選択で作業が変わる。** Secondary application を選んだ場合(こちらの想定)は、
+> **アプリ自身が Primary domain なので常に許可され、ここに足すものは無い**
+> (他に許可したいサブドメインがあるときだけ入れる)。
+> Primary application を選んだ場合は Primary domain がルート側になるので、
+> アプリのFQDN(`warikapp.yamk12nfu.com`)を明示的に許可リストに入れる。
+> Clerkの画面に出ている現在の Primary domain を見れば、どちらの状態か分かる。
 
 **なぜ必要か**: Clerkは既定でルートドメイン配下の**どのサブドメインからでも**Frontend APIへの
 リクエストを許す。同じルートドメインに別のサイト(ブログなど)を置いていて、そちらが乗っ取られると、
@@ -261,7 +263,7 @@ Clerkの**開発インスタンスは本番URLからでも動く**ので、ド�
 ### コマンドでやる場合
 
 ```bash
-npx convex env set CLERK_JWT_ISSUER_DOMAIN 'https://clerk.example.com' --prod
+npx convex env set CLERK_JWT_ISSUER_DOMAIN 'https://clerk.warikapp.yamk12nfu.com' --prod
 ```
 
 APIキーはシェル履歴に残したくないので、値を省いて対話入力にする:
@@ -356,7 +358,7 @@ Deployが成功すると、ビルドログに `Deploying to https://accurate-cap
 
 | 変数 | 値 | Environment |
 |---|---|---|
-| `CLERK_AUTHORIZED_PARTIES` | 本番URL(例: `https://warikapp.example.com`。複数あればカンマ区切り) | Production |
+| `CLERK_AUTHORIZED_PARTIES` | `https://warikapp.yamk12nfu.com`(複数あればカンマ区切り) | Production |
 
 入れたら **Deployments → 最新 → Redeploy**。
 
