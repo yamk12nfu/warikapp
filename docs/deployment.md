@@ -113,7 +113,7 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 1-2 Clerk Domains にドメイン登録 → CNAMEをDNSに追加(反映待ち)
 1-3 Clerk でリダイレクトURIを表示 → Google Cloud で OAuthクライアント作成 → Clerkに貼る
 1-4 JWTテンプレート convex を作成 → Issuer URL を控える
-1-5 Allowed Subdomains を絞る
+1-5 Allowed Subdomains(この構成では設定不要)
 1-6 Clerk で「Deploy certificates」を押して本番インスタンスを有効化
 1-7 pk_live / sk_live を控える
 2   Convex prod に環境変数を登録
@@ -245,27 +245,35 @@ Clerkに戻る:
    `applicationID: "convex"` と一致している必要がある
 3. 保存し、**Issuer URL**(`https://clerk.warikapp.yamk12nfu.com` の形)をコピー → 手順2 で使う
 
-### 1-5. Allowed Subdomains を絞る
+### 1-5. Allowed Subdomains — **この構成では設定不要**
 
-1. Clerk Dashboard(本番インスタンス)→ **Allowed Subdomains**
-2. **Enable allowed subdomains** をONにする
-3. 許可するサブドメインを**完全修飾ドメインで**登録する(`warikapp.yamk12nfu.com`)
+**Enable allowed subdomains は OFF のままでよい。** 触らずに手順1-6へ進む。
 
-> **手順1-2 の選択で作業が変わる。** Secondary application を選んだ場合(こちらの想定)は、
-> **アプリ自身が Primary domain なので常に許可され、ここに足すものは無い**
-> (他に許可したいサブドメインがあるときだけ入れる)。
-> Primary application を選んだ場合は Primary domain がルート側になるので、
-> アプリのFQDN(`warikapp.yamk12nfu.com`)を明示的に許可リストに入れる。
-> Clerkの画面に出ている現在の Primary domain を見れば、どちらの状態か分かる。
+**理由**: この設定が制限するのは「**プライマリドメイン配下**のサブドメイン」。手順1-2 で
+Secondary application を選んだ結果、**プライマリドメインは `warikapp.yamk12nfu.com` 自身**に
+なっている(Clerkの Domains → Allowed subdomains の画面に表示される)。したがって:
 
-**なぜ必要か**: Clerkは既定でルートドメイン配下の**どのサブドメインからでも**Frontend APIへの
-リクエストを許す。同じルートドメインに別のサイト(ブログなど)を置いていて、そちらが乗っ取られると、
-そこからこのアプリの認証フローに手が届く。Clerkも本番では有効化を強く推奨している。
+- アプリが動く `warikapp.yamk12nfu.com` は**プライマリドメインそのものなので常に許可**される。
+  入力欄に入れようとしても `Subdomain cannot be the domain itself` で弾かれる
+- 制限の対象になるのは `なにか.warikapp.yamk12nfu.com` だけ。**そんなホストは作らない**
+- ⚠️ **ルートに置く別プロジェクト(`blog.yamk12nfu.com` など)は、そもそもこのClerkインスタンスの
+  サブドメイン空間の外**。この設定では守れないし、守る必要もない
 
-⚠️ **`CLERK_AUTHORIZED_PARTIES`(手順3-4)だけでは足りない。** あちらが効くのは Next.js の Proxy を
-通るリクエストだけで、**画面のデータはClerkのJWTを直接Convexへ送る経路で流れている**。
-Convex側(`convex/auth.config.ts`)は Issuer と `applicationID` しか検証しないため、Proxy側の
-検査は迂回できる。Clerk側で塞ぐのがこの設定。
+つまり **Secondary application を選んだ時点で、この設定でやりたかった分離は構造的に達成済み**。
+
+> ⚠️ **ONにして空リストのまま放置しないこと。** 「有効だが1件も登録されていない」状態になり、
+> Clerk自身のホスト(`accounts.` / `clerk.`)への影響が読めない。得るものが無いのでOFFが安全。
+>
+> **もし手順1-2 で Primary application を選んでいた場合は話が別**(プライマリドメインが
+> `yamk12nfu.com` になり、ルート配下の別サイトが実際に脅威になる)。その場合はONにして
+> アプリのFQDN `warikapp.yamk12nfu.com` を登録する。どちらの状態かは、この画面に表示されている
+> プライマリドメイン名を見れば分かる。
+
+**補足 — `CLERK_AUTHORIZED_PARTIES`(手順3-4)との関係**: あちらが効くのは Next.js の Proxy を
+通るリクエストだけで、**画面のデータはClerkのJWTを直接Convexへ送る経路で流れている**
+(`convex/auth.config.ts` は Issuer と `applicationID` しか検証しない)。つまり Proxy 側の検査は
+Convexへの直接アクセスには効かない。ただし本構成では、その迂回に使えるサブドメインが
+そもそも存在しないため、実害のある経路にはならない。
 
 ### 1-6. 証明書をデプロイして本番インスタンスを有効化する
 
@@ -479,7 +487,8 @@ dig +short warikapp.yamk12nfu.com
 
 > ⚠️ **これだけでは足りない。** 効くのは Next.js の Proxy を通るリクエストだけで、画面のデータは
 > ClerkのJWTを直接Convexへ送る経路で流れている。サブドメインからの迂回は
-> **Clerkの Allowed Subdomains(手順1-5)** で塞ぐこと。
+> **Clerkの Allowed Subdomains(手順1-5)** の領分。ただし本構成ではプライマリドメインが
+> アプリ自身なので、迂回に使えるサブドメインがそもそも無い(手順1-5 参照)。
 
 ### 3-5. デプロイ後の仕上げ
 
@@ -588,5 +597,5 @@ Limits でワークスペースの月額上限を設定する。
 | `CLERK_AUTHORIZED_PARTIES` を入れたのに効いていない | http(s)のオリジンとして解釈できる値が**1件も残らなかった**ため、`proxy.ts` が検査なしに倒した(`example.com` のようにスキームが無い、`ftp://` などの別スキーム、`,` だけ)。**このときは締め出しにはならない** | 手順3-4。Vercelの実行ログに `CLERK_AUTHORIZED_PARTIES:` で始まる警告が出る |
 | **Clerkのドメイン検証がいつまでも緑にならない** | ①Proxy status が Proxied(オレンジ)のまま ②Name欄でゾーン名が二重になっている ③単に未反映 | 手順1-2a / 手順1-2b。`dig` で引いて、CloudflareのIPが返るなら①、空なら②か③ |
 | Vercelのドメインが Valid Configuration にならない | 同上。Vercel用CNAMEも DNS only にする | 手順3-3 |
-| ログインは通るのに、別サブドメインからもデータが取れてしまう | Clerkの **Allowed Subdomains** が未設定。`CLERK_AUTHORIZED_PARTIES` はConvexへの直接アクセスには効かない | 手順1-5 |
+| Clerkの Allowed Subdomains で `Subdomain cannot be the domain itself` と出る | 入力欄はプライマリドメイン「配下」のサブドメイン用。本構成ではプライマリドメインがアプリ自身なので**入れるものが無い**(設定不要) | 手順1-5 |
 | 本番でエラーが「Server Error」としか出ない | 素の `Error` を投げている箇所がある | 画面に出す文言は `ConvexError` で投げる(計画書の12章「初心者がハマりやすいポイント集」の #12) |
