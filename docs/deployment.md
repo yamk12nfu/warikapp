@@ -114,7 +114,7 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 1-3 Clerk でリダイレクトURIを表示 → Google Cloud で OAuthクライアント作成 → Clerkに貼る
 1-4 JWTテンプレート convex を作成 → Issuer URL を控える
 1-5 Allowed Subdomains(この構成では設定不要)
-1-6 Clerk で「Deploy certificates」を押して本番インスタンスを有効化
+1-6 証明書(SSL certificates)が Issued になっているか確認
 1-7 pk_live / sk_live を控える
 2   Convex prod に環境変数を登録
 3   Vercel に Import(環境変数3つ)→ Deploy → ドメイン追加 → 許可オリジンを足して再デプロイ
@@ -275,13 +275,29 @@ Secondary application を選んだ結果、**プライマリドメインは `war
 Convexへの直接アクセスには効かない。ただし本構成では、その迂回に使えるサブドメインが
 そもそも存在しないため、実害のある経路にはならない。
 
-### 1-6. 証明書をデプロイして本番インスタンスを有効化する
+### 1-6. 証明書を確認する
 
-1. Clerk Dashboard → **Domains**
-2. DNSレコードがすべて緑になっていることを確認
-3. **Deploy certificates** を押す
+Clerk Dashboard → **Domains**(Primary タブ)を開き、3つとも緑になっていることを確認する:
 
-⚠️ **この操作を飛ばすと本番インスタンスが有効にならない。** DNSを張っただけでは動かない。
+| 項目 | あるべき状態 |
+|---|---|
+| Primary domain | `warikapp.yamk12nfu.com` **Verified** |
+| DNS configuration | **Verified** |
+| SSL certificates | **Issued** ← これが本番インスタンス有効化のゴール |
+
+**`Deploy certificates` ボタンが見当たらなければ、既に発行済み**(DNS検証が通った時点でClerkが
+自動発行する)。ボタンが出ている場合だけ押す。
+
+手元からも確認できる:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://clerk.warikapp.yamk12nfu.com/.well-known/openid-configuration
+```
+
+`200` が返れば証明書もFrontend APIも生きている。
+
+> ⚠️ 同じ画面の `Danger zone` にある **Change domain** は押さないこと。ドメインを変えると
+> Issuer が変わり、`members.tokenIdentifier` が全件一致しなくなる(手順0 の警告)。
 
 ### 1-7. 本番APIキーを控える
 
