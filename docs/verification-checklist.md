@@ -29,13 +29,13 @@
 
 ### 1.1 F-001 認証
 
-> 仕様参照: `docs/requirements.md > §3.2 F-001: 認証`
+> 仕様参照: `docs/requirements.md > 3.2 F-001: 認証`
 
 - [ ] `[!!!]` 本番URLで**2つの別Googleアカウント**からログインできる
   - 実装: `proxy.ts` > `clerkMiddleware`(78行)/ `components/ConvexClientProvider.tsx:16` / `app/login/[[...rest]]/page.tsx`
-  - 前提条件: `docs/deployment.md` §1〜§3 が完了し本番URLが開ける。手元に2つのGoogleアカウント
+  - 前提条件: `docs/deployment.md` の手順1〜手順3 が完了し本番URLが開ける。手元に2つのGoogleアカウント
   - 期待結果: どちらのアカウントでも Google 同意画面 → アプリに戻り、世帯未所属なら `/setup`、所属済みなら `/` が出る
-  - 懸念: Clerk本番インスタンスは開発と違い自前のOAuth認証情報が要る。**Google Cloud の OAuth同意画面が「テスト」公開ステータスのままだと、テストユーザーに登録していないアカウントだけが弾かれる**(`docs/deployment.md` §1-3)
+  - 懸念: Clerk本番インスタンスは開発と違い自前のOAuth認証情報が要る。**Google Cloud の OAuth同意画面が「テスト」公開ステータスのままだと、テストユーザーに登録していないアカウントだけが弾かれる**(`docs/deployment.md` の手順1-3)
 - [ ] `[!!]` 未ログインで保護ページのURLを直接開くとログイン画面に飛び、**ログイン後に元のページへ戻る**
   - 実装: `proxy.ts:86`(`redirectToSignIn({ returnBackUrl: req.url })`)
   - 前提条件: シークレットウィンドウで本番の `/settlement` を直接開く
@@ -50,7 +50,7 @@
 
 ### 1.2 F-002 世帯作成・招待ペアリング
 
-> 仕様参照: `docs/requirements.md > §3.2 F-002` / バリデーション V-201〜V-203
+> 仕様参照: `docs/requirements.md > 3.2 F-002` / バリデーション V-201〜V-203
 
 - [ ] `[!!!]` 招待コードでパートナーが参加し、**2人が同じ支出データを見られる**
   - 実装: `convex/couples.ts:207`(`joinCouple`)/ `convex/couples.ts:144`(`household`)
@@ -78,20 +78,20 @@
 
 ### 1.3 F-003 レシート読み取り(SR-001)
 
-> 仕様参照: `docs/requirements.md > §3.2 F-003` / エラーハンドリング表
+> 仕様参照: `docs/requirements.md > 3.2 F-003` / エラーハンドリング表
 
 - [ ] `[!!!]` **スマホ実機**で 撮影 → 読み取り → 仕分け → 確定 が通る(iOS Safari)
   - 実装: `app/(app)/expenses/new/receipt/receipt-client.tsx` / `convex/receipts.ts:60`
   - 前提条件: iPhone の Safari で本番URLを開き、実物のレシートを撮影
   - 期待結果: 店名・購入日・品目・金額が自動入力され、確定するとホームの一覧と未精算差額に反映される
-  - 懸念: iPhoneはHEICで渡ることがあり、`lib/image.ts` の Canvas 再エンコードで吸収している(計画書 §10.4)。**PC のファイル選択では踏まない経路**なので実機で確認が要る
+  - 懸念: iPhoneはHEICで渡ることがあり、`lib/image.ts` の Canvas 再エンコードで吸収している(計画書の10.4節)。**PC のファイル選択では踏まない経路**なので実機で確認が要る
 - [ ] `[!!!]` **スマホ実機**で同じ流れが通る(Android Chrome)
   - 前提条件: Android Chrome で本番URLを開き、実物のレシートを撮影
   - 期待結果: 上と同じ。カメラが `capture="environment"` で背面カメラが開くこと
 - [ ] `[!!]` 読み取りが**通常15秒以内**、進捗表示が出る(要件 5.1)
   - 実装: `convex/receipts.ts:33`(合計30秒)/ `receipt-client.tsx:395`(スケルトン)
   - 前提条件: 実機・モバイル回線でレシートを1枚読み取る
-  - 期待結果: 「レシートを読み取っています…」とスケルトンが出て、15秒以内に仕分け画面へ。dev環境の実測は 10〜12秒(計画書 §10.4)
+  - 期待結果: 「レシートを読み取っています…」とスケルトンが出て、15秒以内に仕分け画面へ。dev環境の実測は 10〜12秒(計画書の10.4節)
 - [ ] `[!!]` 品目合計とレシート合計がずれるレシートで「調整(税・割引等)」行が自動追加される
   - 実装: `lib/receipt.ts:185`(`withAdjustmentItem`)
   - 前提条件: 消費税が別記されているレシートを読み取る
@@ -120,7 +120,7 @@
 
 ### 1.4 F-004 品目仕分け・確認
 
-> 仕様参照: `docs/requirements.md > §3.2 F-004` / バリデーション V-401〜V-403
+> 仕様参照: `docs/requirements.md > 3.2 F-004` / バリデーション V-401〜V-403
 
 - [ ] `[!!!]` **1レシート20品目を1分以内に片手で仕分けられる**(要件 F-004 画面要件)
   - 実装: `components/ExpenseEditor.tsx:448`(チップのタップで 折半→自分→相手→折半 を循環)
@@ -146,7 +146,7 @@
 
 ### 1.5 F-005 手入力支出登録
 
-> 仕様参照: `docs/requirements.md > §3.2 F-005`
+> 仕様参照: `docs/requirements.md > 3.2 F-005`
 
 - [ ] `[!!]` **名目+金額だけ**入力して確定できる(他はデフォルト)
   - 実装: `app/(app)/expenses/new/manual/manual-client.tsx`
@@ -158,7 +158,7 @@
 
 ### 1.6 F-006 支出一覧・詳細・編集・削除
 
-> 仕様参照: `docs/requirements.md > §3.2 F-006`
+> 仕様参照: `docs/requirements.md > 3.2 F-006`
 
 - [ ] `[!!]` 一覧が購入日降順で、20件ずつ読み込まれる
   - 実装: `convex/expenses.ts:265`(`paginate`)/ `app/(app)/home-client.tsx`
@@ -183,7 +183,7 @@
 
 ### 1.7 F-007 精算
 
-> 仕様参照: `docs/requirements.md > §3.2 F-007` / バリデーション V-701/V-702
+> 仕様参照: `docs/requirements.md > 3.2 F-007` / バリデーション V-701/V-702
 
 - [ ] `[!!!]` 精算実行 → **未精算差額が0円になり、履歴に残る**
   - 実装: `convex/settlements.ts:187`(`execute`)/ `app/(app)/settlement/settlement-client.tsx`
@@ -215,14 +215,14 @@
 ### 2.1 仕様の曖昧さに起因する懸念
 
 - [ ] `[!!!]` 精算の端数処理が二人の感覚に合うか(TBD-003)
-  - 仕様参照: `docs/requirements.md > §3.2 F-007 差額計算ロジック`「※品目単位で計算し、端数は品目ごとに四捨五入」
+  - 仕様参照: `docs/requirements.md > 3.2 F-007 差額計算ロジック`「※品目単位で計算し、端数は品目ごとに四捨五入」
   - 実装: `lib/settlement.ts:13`(`shareAmount` が品目ごとに `Math.round`)/ `lib/settlement.ts:63`(`calcNetBalance`)
   - 観測事実: 仕様は丸めの単位を「品目ごと」と決めているが、**合計金額に割合を掛け直した値とは1円単位でずれる**。`lib/settlement.ts:60-62` のコメントもこれを明記している。仕様には「支出詳細の表示と差額計算で丸め基準を揃える」とは書かれていない
   - 前提条件: 奇数円の品目(例: 315円)を折半で複数件登録する
   - 期待結果: 支出詳細に出る立て替え額の合計と、ホームの未精算差額が**一致する**
   - 確認方法: 品目が奇数円の支出を3件ほど作り、各詳細画面の立て替え額を手で足して、ホームの差額と突き合わせる
 - [ ] `[!!]` 税・割引の「調整行(既定:折半)」方式が実運用で妥当か(TBD-003)
-  - 仕様参照: `docs/requirements.md > §8 TBD-003`「代替案: 品目金額比での自動按分」
+  - 仕様参照: `docs/requirements.md > 8 TBD-003`「代替案: 品目金額比での自動按分」
   - 実装: `lib/receipt.ts:185`(`withAdjustmentItem`)
   - 観測事実: 差額を1行にまとめて折半で持たせる実装。個人負担の品目が多いレシートでは、その品目に掛かった税ぶんまで折半されることになる
   - 前提条件: 片方の個人品目(酒・化粧品など)が金額の大半を占めるレシートで運用する
@@ -249,7 +249,7 @@
 - [ ] `[!!!]` Convex 本番に環境変数が入っており、AI読み取りが本番で動く
   - 実装: `convex/ai/config.ts:102`(`requireApiKey`)/ `convex/auth.config.ts:6`
   - 観測事実: `npx convex env list --prod` の結果が**0件**(2026-07-27時点)。`CLERK_JWT_ISSUER_DOMAIN` が無いと**デプロイ自体が失敗**し、`GEMINI_API_KEY` が無いと読み取りが「AIの設定が未完了です」で止まる
-  - 前提条件: `docs/deployment.md` §2 を実施
+  - 前提条件: `docs/deployment.md` の手順2 を実施
   - 期待結果: `npx convex env list --prod` に2つ以上出る。本番でレシートが読み取れる
   - 確認方法: デプロイ前に `npx convex env list --prod`、デプロイ後に本番URLでレシートを1枚読み取る
 - [ ] `[!!]` Gemini のモデルID・キーの設定ミスが**画面に文言として出る**
@@ -296,12 +296,12 @@
 ### 3.1 仕様にあるが未実装(または部分実装)
 
 - [ ] `[!!]` 同時編集の競合メッセージ「他の端末で更新されました」
-  - 仕様参照: `docs/requirements.md > §3.2 F-006 エラーハンドリング`「相手が同時に編集して競合 → 『他の端末で更新されました』→ 最新データを再取得して表示(後勝ち)」
+  - 仕様参照: `docs/requirements.md > 3.2 F-006 エラーハンドリング`「相手が同時に編集して競合 → 『他の端末で更新されました』→ 最新データを再取得して表示(後勝ち)」
   - 観測事実: (1) 「他の端末で更新されました」という文言が `app` / `components` / `convex` のどこにも無い。(2) **「最新データを再取得して表示」も満たしていない**。`components/ExpenseEditor.tsx:168-186` は `initialValue` をマウント時にしかstateへ取り込まず、`app/(app)/expenses/[id]/edit/expense-edit-client.tsx` も key の付け替えや同期をしていない。編集画面を開いたまま相手が保存しても**フォームは古いまま**で、そのまま保存すると古い内容で上書きされる
   - 状態: 未実装(メッセージ・再取得の両方)
   - 確認方法: A・Bで同じ支出の編集画面を同時に開く → Aが品目を1件足して保存 → **Bの編集画面が古いままか**を確認 → Bがそのまま保存して、Aの追加が消えるかを見る。運用上困るなら別途対応する(Phase 9 のスコープ外)
 - [ ] `[!]` 世帯からの退出・世帯削除・アカウント削除の導線(TBD-007)
-  - 仕様参照: `docs/requirements.md > §8 TBD-007`「MVPでは設定画面に最小限の導線のみ」
+  - 仕様参照: `docs/requirements.md > 8 TBD-007`「MVPでは設定画面に最小限の導線のみ」
   - 観測事実: `convex/couples.ts:20` に「先に既存の世帯から退出してください」という案内文はあるが、**退出する手段が設定画面にも Convex 関数にも見当たらない**。設定画面にあるのは 表示名変更 / 招待コード再発行 / ログアウト の3つ
   - 状態: 未実装
   - 確認方法: 間違った世帯に参加してしまった場合に詰まる。運用上必要になるか判断する
@@ -313,7 +313,7 @@
   - 観測事実: 要件のレート制限は F-003 の「読み取り30回/時」のみ。アップロードURL発行側の制限は仕様に記載がないが追加されている(`convex/uploads.ts:96-98` に理由のコメントあり)
 - [ ] `[!]` `uploads` テーブル(画像の世帯帰属台帳)
   - 実装: `convex/schema.ts:87`
-  - 観測事実: 要件 §6.3 の主要テーブル一覧に `uploads` の記載はない(記載があるのは couples / members / invitations / expenses / settlements / parseLogs)。逆に `parseLogs` は実装されておらず、レート制限はコンポーネント側のテーブルが持つ(`convex/rateLimits.ts:15`)
+  - 観測事実: 要件定義書 6.3 の主要テーブル一覧に `uploads` の記載はない(記載があるのは couples / members / invitations / expenses / settlements / parseLogs)。逆に `parseLogs` は実装されておらず、レート制限はコンポーネント側のテーブルが持つ(`convex/rateLimits.ts:15`)
 
 ---
 
@@ -330,7 +330,7 @@
   - テスト手順: レシート以外の画像で1回失敗させる → そのまま「レシートを撮影・選択」で本物のレシートを選ぶ → 確定 → Convex Dashboard の File Storage を見る
   - 期待結果: 失敗したときの画像が `uploads.discard` で消えており、確定した支出に紐づく1枚だけが残っている
   - 注意: **差し替え経路(`releaseUpload`)は現状のUIからは到達できない**。読み取り成功後は編集モードに入ってファイル選択が消え、編集画面(`/expenses/[id]/edit`)にも画像の差し替えUIが無いため。`expenses.save` の安全網としては効いているので、この項目で確認できるのは `uploads.discard` の経路だけ
-  - 補足: **読み取りに失敗して画面を離れたぶんは残る**(TBD-002 / 計画書 §11 で運用開始後に回すと判断済み)
+  - 補足: **読み取りに失敗して画面を離れたぶんは残る**(TBD-002 / 計画書の11章 で運用開始後に回すと判断済み)
 - [ ] `[!!]` 品目が100件近いレシートでも保存できる
   - 実装: `convex/expenses.ts:96`(`MAX_ITEMS`)/ `lib/receipt.ts:24`(AI由来は99件まで、調整行を足して100件)
   - テスト手順: 品目の多い長いレシート(スーパーのまとめ買い)を読み取る
@@ -352,7 +352,7 @@
   - 画面/コンポーネント: `/`(ホーム)/ `/settlement` / `/settlements` / `/expenses/new/receipt`
   - 前提条件: スマホ実機・モバイル回線(Wi-Fi を切る)で本番URLを開く。**アプリを開いてから数字や一覧が出るまで**を測る
   - 期待結果: 各画面2秒以内
-  - 確認ポイント: ローカル(本番ビルド + localhost)の実測は ホーム LCP 1,652ms / 精算 1,820ms / 精算履歴 1,596ms、**JSチャンク未キャッシュの初回は 2,764ms**(計画書 §11)。内訳の大半は Clerk のクライアント初期化(clerk.browser.js → /v1/environment → /v1/client → セッショントークンで約1.5秒)で、**実機・4Gではこれより遅くなる**。超えていた場合の手当てはPhase 9のスコープ外なので、結果を記録して別途判断する
+  - 確認ポイント: ローカル(本番ビルド + localhost)の実測は ホーム LCP 1,652ms / 精算 1,820ms / 精算履歴 1,596ms、**JSチャンク未キャッシュの初回は 2,764ms**(計画書の11章)。内訳の大半は Clerk のクライアント初期化(clerk.browser.js → /v1/environment → /v1/client → セッショントークンで約1.5秒)で、**実機・4Gではこれより遅くなる**。超えていた場合の手当てはPhase 9のスコープ外なので、結果を記録して別途判断する
 - [ ] `[!!]` **リアルタイム同期**が本番でも効く
   - 画面/コンポーネント: `components/ConvexClientProvider.tsx`
   - 前提条件: A(スマホ)と B(PC)で同時にホームを開く
@@ -367,7 +367,7 @@
   - 前提条件: 端末の外観設定をダークにして全画面を開く
   - 期待結果: エラー(赤枠)・警告(黄枠)・非活性ボタンのコントラストが確保されている
 - [ ] `[!]` 画面遷移が仕様の遷移図どおり
-  - 仕様参照: `docs/requirements.md > §4.2 画面遷移図`
+  - 仕様参照: `docs/requirements.md > 4.2 画面遷移図`
   - 確認ポイント: ホームの差額表示タップ → 精算画面、精算実行 → 精算履歴、読み取り失敗 → 手入力、の3経路
 
 ---
@@ -377,24 +377,24 @@
 > 手順は `docs/deployment.md`。ここは「終わったか」の確認だけ。
 
 - [ ] `[!!!]` Vercel のビルドが成功し、**Convex 関数も一緒にデプロイされている**
-  - 前提条件: `docs/deployment.md` §3 を実施
+  - 前提条件: `docs/deployment.md` の手順3 を実施
   - 期待結果: ビルドログに Convex の本番デプロイ(`accurate-capybara-527`)の行が出ている。フロントだけが新しい状態になっていない
 - [ ] `[!!!]` `CONVEX_DEPLOY_KEY` の Environment が **Production だけ**になっている
   - 期待結果: Vercel の Settings → Environment Variables で Preview / Development にチェックが入っていない
   - 確認ポイント: 全環境に入っていると、PRのプレビュービルドが本番の Convex 関数を書き換える(`vercel.json` の `ignoreCommand` で二重に防いではいる)
 - [ ] `[!!]` Clerk 本番インスタンスの **Deploy certificates** を押してある
-  - 前提条件: `docs/deployment.md` §1-6 を実施
+  - 前提条件: `docs/deployment.md` の手順1-6 を実施
   - 期待結果: Clerk Dashboard → Domains で本番インスタンスが有効になっている
   - 確認ポイント: DNSレコードを張っただけでは有効にならない。ここを飛ばすと本番ログインが通らない
 - [ ] `[!!]` `CLERK_AUTHORIZED_PARTIES` を Vercel に設定してある
   - 実装: `proxy.ts:38`(`parseAuthorizedParties`)/ `:65`(`toHttpOrigin`)。未設定なら指定なし = 従来どおりの挙動
   - 前提条件: 本番URLが確定している
   - 期待結果: Vercel の環境変数に本番URLが `https://` から始まる形で Production に入っており、設定後も普通にログインできる
-  - 確認ポイント: Clerkは `azp` と**完全一致**で判定する。`proxy.ts` が http(s) のオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収される。値はカンマ区切りの1件ずつ処理され、症状は残ったオリジンの集合で決まる: **1件以上残ったが本番のものを含まなければ全員ログインできなくなり、0件なら検査なしに倒れて保護が掛からない**。前者は値として正しいオリジンなので、**それ自体には警告が出ない**(後者は出る)。詳細は `docs/deployment.md` §3-4 の表。設定後は必ずログインし直して確認する
+  - 確認ポイント: Clerkは `azp` と**完全一致**で判定する。`proxy.ts` が http(s) のオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収される。値はカンマ区切りの1件ずつ処理され、症状は残ったオリジンの集合で決まる: **1件以上残ったが本番のものを含まなければ全員ログインできなくなり、0件なら検査なしに倒れて保護が掛からない**。前者は値として正しいオリジンなので、**それ自体には警告が出ない**(後者は出る)。詳細は `docs/deployment.md` の手順3-4 の表。設定後は必ずログインし直して確認する
   - ⚠️ **これだけではConvexへの直接アクセスを塞げない**(次の項目)
 - [ ] `[!!!]` Clerk の **Allowed Subdomains** が有効で、このアプリのサブドメインだけに絞られている
   - 実装: 設定はClerk側。アプリのコードには現れない
-  - 前提条件: `docs/deployment.md` §1-5 を実施
+  - 前提条件: `docs/deployment.md` の手順1-5 を実施
   - 期待結果: Clerk Dashboard → Allowed Subdomains で「Enable allowed subdomains」がONで、必要なサブドメインだけが登録されている
   - 確認ポイント: **`CLERK_AUTHORIZED_PARTIES` では代替できない**。あちらが効くのは Next.js の Proxy を通るリクエストだけで、画面のデータは `ConvexProviderWithClerk` がClerkのJWTを直接Convexへ送る経路で流れている。`convex/auth.config.ts` は Issuer と `applicationID` しか検証しないため、Proxy側の `azp` 検査は迂回できる。同じルートドメインに別のサイトを置いている場合は特に重要
 - [ ] `[!!]` `NEXT_PUBLIC_CONVEX_URL` を Vercel に**手で設定していない**

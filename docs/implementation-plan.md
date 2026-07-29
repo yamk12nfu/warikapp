@@ -274,7 +274,7 @@ export default defineSchema({
 
 > 💡 作成日時はConvexが自動で付ける `_creationTime` を使う(自分でcreatedAtカラムを作らない)。精算日時もこれで足りる。
 >
-> 💡 AI読み取りのレート制限(30回/時/世帯)用のテーブルはここには作らない。`@convex-dev/rate-limiter` コンポーネントが自前のテーブルで持つため(Phase 8 / §10.3)。
+> 💡 AI読み取りのレート制限(30回/時/世帯)用のテーブルはここには作らない。`@convex-dev/rate-limiter` コンポーネントが自前のテーブルで持つため(Phase 8 / 10.3節)。
 
 ### 4.3 認可ヘルパー(`convex/lib/auth.ts`)
 
@@ -656,7 +656,7 @@ export const execute = mutation({
     const partner = await findPartner(ctx, member);
     if (partner === null) throw new ConvexError("パートナーが参加してから精算してください");
 
-    // 未精算・未削除の支出を有界に読む(古い順に最大200件。§9.1参照)
+    // 未精算・未削除の支出を有界に読む(古い順に最大200件。9.1節を参照)
     const { expenses } = await collectUnsettled(ctx, member.coupleId);
 
     // V-701: ドラフトが残っていたら拒否
@@ -942,14 +942,14 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
   - ダッシュボード設定はリポジトリに残らないので、プロジェクトを作り直すと消える。消えると「フロントは新しいのにConvex関数は古い」という気づきにくい壊れ方をする
   - フロントとConvex関数を同時にデプロイする、というこのアプリの不可分な要件がコードレビューの対象になる
   - `ignoreCommand` で**本番以外のビルドを止められる**。プレビュービルドが本番用デプロイキーで `npx convex deploy` を走らせて本番のConvex関数を書き換える事故を、設定ミスがあっても起こさない
-  - ⚠️ `vercel.json` は厳格なJSONでコメントを書けないため、この理由は手順書 `docs/deployment.md` §3-1 にも書いてある
+  - ⚠️ `vercel.json` は厳格なJSONでコメントを書けないため、この理由は手順書 `docs/deployment.md` の手順3-1 にも書いてある
 - [x] **レシート以外の画像のエラー導線を確定**: 風景写真で実際に確認したところ、文言(「レシートを読み取れませんでした。撮り直してください」)は要件どおりだったが、**「もう一度読み取る」ボタンが出ていた**。同じ画像を投げ直しても結果は変わらず、AI呼び出しと読み取り回数の枠を捨てるだけなので、この場合は出さないようにした(撮り直しは上の「レシートを撮影・選択」がそのまま導線になる)。判定文言は `lib/receipt.ts` の `ERR_UNREADABLE_RECEIPT` をサーバーと画面で共有する
 
 ### ダッシュボードでの作業(手順は `docs/deployment.md`)
 
 - [ ] **Clerkを本番インスタンスに**: Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。JWTテンプレート名は `convex` のまま。本番用の `pk_live_...` / `sk_live_...` を控える
   - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。Vercel側にも同じドメインを追加する。DNS登録後は Clerk の **Deploy certificates** を押して有効化するところまでが1セット
-  - ⚠️ **開発インスタンス(`pk_test_...`)のまま公開しないこと**。Clerkは開発インスタンスを「本番のワークロードには適さない」と明言している。ユーザー数上限100だけでなく、セッションを `__clerk_db_jwt` としてクエリ文字列で運ぶ(サーバーログ・ブラウザ履歴に残る)ため。ドメインが間に合わないときの暫定運用は `docs/deployment.md` §1-alt にあるが、実データを入れる前に本番インスタンスへ移ること
+  - ⚠️ **開発インスタンス(`pk_test_...`)のまま公開しないこと**。Clerkは開発インスタンスを「本番のワークロードには適さない」と明言している。ユーザー数上限100だけでなく、セッションを `__clerk_db_jwt` としてクエリ文字列で運ぶ(サーバーログ・ブラウザ履歴に残る)ため。ドメインが間に合わないときの暫定運用は `docs/deployment.md` の手順1-alt にあるが、実データを入れる前に本番インスタンスへ移ること
   - ⚠️ GoogleのOAuthクライアントには**リダイレクトURIだけでなく「承認済みのJavaScript生成元」にもアプリのドメインを入れる**(Clerkの手順が要求している)
   - ⚠️ Clerkの **Allowed Subdomains** を有効にして、このアプリが使うサブドメインだけに絞る。既定ではルートドメイン配下のどのサブドメインからでもClerkのFrontend APIを叩けるため、同じルートドメインに置いた別サイトが乗っ取られると認証フローに手が届く。**`CLERK_AUTHORIZED_PARTIES`(Vercel側)では代替できない** — あちらが効くのはNext.jsのProxyを通るリクエストだけで、画面のデータはClerkのJWTを直接Convexへ送る経路で流れており、Convexは Issuer と `applicationID` しか検証しない
 - [ ] **Convex本番環境の環境変数**: `CLERK_JWT_ISSUER_DOMAIN`(本番ClerkのIssuer URL)と `GEMINI_API_KEY` の**2つが必須**。`RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` はコード側に既定値(`gemini` / `gemini-3.6-flash`)があるので任意
@@ -1001,7 +1001,7 @@ Phase 9 では実装しない。理由:
   - どちらも `convex/crons.ts` から日次で回す。24時間空ければ確認画面を開いたままの利用者を巻き込む心配もない
 
 判断の閾値: **Convexダッシュボードの File Storage が無料枠の50%を超えたら**上記を実装する。
-それまでは `docs/deployment.md` §5 のとおり使用量を眺めるだけでよい。
+それまでは `docs/deployment.md` の手順5 のとおり使用量を眺めるだけでよい。
 
 > なお `releaseUpload`(支出の画像が差し替わったとき、古い画像を消す)は `expenses.save` の
 > 安全網としては効いているが、**現状のUIからは到達できない**。読み取り成功後は編集モードに入って
@@ -1076,5 +1076,5 @@ Phase 9 のスコープ外(認証まわりの構成変更になる)なので、�
 | 5.2 セキュリティ | requireMemberによる認可・Storage保護・APIキー管理 | Phase 2(土台)、全フェーズで維持 |
 | 5.4 運用 | ログ・コスト管理・自動デプロイ | Phase 8(ログ)、Phase 9 |
 | TBD-001 | Claudeモデル選定 | Phase 8で実レシート検証して決定 |
-| TBD-002 | Convexストレージ容量の推移確認・置き去りアップロードの掃除 | Phase 9で「運用開始後に回す」と判断(§11に理由・実装方針・着手の閾値) |
+| TBD-002 | Convexストレージ容量の推移確認・置き去りアップロードの掃除 | Phase 9で「運用開始後に回す」と判断(11章に理由・実装方針・着手の閾値) |
 | TBD-003 | 調整行方式の妥当性 | 運用開始後に二人で確認 |
