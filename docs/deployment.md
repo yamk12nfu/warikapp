@@ -145,14 +145,53 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
    Primary を選ぶとルート直下(`clerk.yamk12nfu.com`)を取ってしまう。
    ⚠️ 以降の手順で使うリダイレクトURIとIssuer URLは**必ずClerkの画面に出ている実物をコピーする**こと
    (この手順書の値は選択がSecondaryだった場合の想定形)
-4. 表示されるCNAMEレコード(5件前後。`clerk`, `accounts`, `clkmail`, `clk._domainkey` など)を
-   **画面に出ているとおりに**ドメインのDNS設定に追加する
-5. Clerkの画面でレコードが緑になるまで待つ
+4. Clerkが**追加すべきDNSレコードの一覧**を出す。CNAMEが5件前後
+   (`clerk`, `accounts`, `clkmail`, `clk._domainkey`, `clk2._domainkey` など)。
+   この画面は開いたままにして、下の 1-2a で1件ずつCloudflareに入れる
+5. 全部入れ終わったらClerkの画面で **Verify** を押し、レコードが緑になるまで待つ
 
-> ⚠️ Cloudflare をDNSに使っている場合、**プロキシ(オレンジの雲)はOFF**にする。ONだとClerkの
-> 検証が通らない。
+#### 1-2a. Cloudflare にレコードを入れる
 
-> Vercel用のDNSレコード(§3-3)とは別名なので競合しない。両方が要る。
+1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Websites** → `yamk12nfu.com` → **DNS** → **Records**
+2. **Add record** を押し、Clerkの一覧の1件ぶんを入れる:
+
+| 欄 | 入れるもの |
+|---|---|
+| Type | `CNAME` |
+| **Name** | Clerkが表示している名前(下の⚠️を読むこと) |
+| **Target** | Clerkが表示している値をそのまま貼る |
+| **Proxy status** | **DNS only(グレーの雲)** ← 既定はProxiedなので**必ず切り替える** |
+| TTL | `Auto` のままでよい |
+
+3. Clerkの一覧の件数ぶん繰り返す
+
+> ⚠️ **Name 欄の二重付与に注意。** CloudflareのName欄は**ゾーン名が自動で補われる**。
+> Clerkは完全修飾名(`clerk.warikapp.yamk12nfu.com`)で表示するので、そのまま貼ると
+> `clerk.warikapp.yamk12nfu.com.yamk12nfu.com` になりうる。
+>
+> **確実なのは、入力後にレコード一覧に表示された名前がClerkの表示と一字一句一致しているかを
+> 目で確かめること。** ずれていたら、`.yamk12nfu.com` を除いた部分
+> (`clerk.warikapp`)だけを入れ直す。
+
+> ⚠️ **Proxy status は必ず DNS only。** オレンジの雲(Proxied)のままだと、CloudflareがCNAMEを
+> 自分のIPで隠してしまい、**Clerkのドメイン検証が永久に通らない**。
+> `_` で始まる名前(`clk._domainkey` など)は元からプロキシできないのでグレーのままになる。
+> 切り替えが要るのは `clerk` / `accounts` / `clkmail` あたり。
+
+#### 1-2b. 入ったかを自分で確認する
+
+Clerkの Verify を押す前に、手元から引けるか確かめられる。反映は数分〜数時間。
+
+```bash
+for n in clerk accounts clkmail; do echo "== $n"; dig +short "$n.warikapp.yamk12nfu.com" CNAME; done
+```
+
+Clerkが指定したTargetがそのまま返ってくれば入っている。**空で返る**なら未反映か名前の間違い。
+**Cloudflareのプロキシ用のIPアドレスが返る**なら Proxy status が Proxied のままなので、
+DNS only に切り替える。
+
+> Vercel用のDNSレコード(§3-3)は `warikapp` 自身に対するもので、ここで入れる
+> `clerk.warikapp` などとは別名。競合しないので両方入れる。
 
 ### 1-3. Google Cloud Console で OAuth クライアントを作る
 
@@ -363,10 +402,31 @@ Deployが成功すると、ビルドログに `Deploying to https://accurate-cap
 
 **Clerk本番インスタンスを使うなら必須。** `*.vercel.app` のままでは本番のClerkキーが使えない(§0)。
 
-1. Vercel の **Settings → Domains** → §1-2 で Clerk に登録したのと**同じドメイン**を追加
-2. 表示されたDNSレコード(A または CNAME)をドメインのDNS設定に追加する
-   - Clerkが要求する `clerk.` などのサブドメイン用CNAMEとは**別名のレコード**。競合しないので両方入れる
-3. Vercelの画面でドメインが有効になるまで待つ
+1. Vercel の **Settings → Domains** → `warikapp.yamk12nfu.com` を追加
+   (§1-2 で Clerk に登録したのと**同じFQDN**)
+2. Vercelが追加すべきDNSレコードを表示する。サブドメインなので通常は **CNAME 1件**:
+
+| 欄 | 入れるもの |
+|---|---|
+| Type | `CNAME`(Vercelの表示に従う) |
+| Name | `warikapp`(Cloudflareがゾーン名を補うので、`warikapp.yamk12nfu.com` と二重にしない) |
+| Target | Vercelが表示する値をそのまま貼る(`cname.vercel-dns.com` 系) |
+| **Proxy status** | **DNS only(グレーの雲)** |
+| TTL | `Auto` |
+
+3. Vercelの画面でドメインが有効(Valid Configuration)になるまで待つ
+
+> ⚠️ **ここも Proxy status は DNS only にする。** Cloudflareのプロキシを通すと、Vercel側の
+> 証明書発行が通らなかったり、CloudflareのSSLモード次第でリダイレクトループになる。
+> Cloudflareのキャッシュ/WAFは今回使わないので、素通しでよい。
+
+> §1-2 で入れた `clerk.warikapp` などとは**別名のレコード**。競合しないので両方が並ぶ。
+
+確認:
+
+```bash
+dig +short warikapp.yamk12nfu.com
+```
 
 ### 3-4. `CLERK_AUTHORIZED_PARTIES` を足して再デプロイ
 
@@ -512,5 +572,7 @@ Limits でワークスペースの月額上限を設定する。
 | PRを出すとVercelのチェックが「Skipped」になる | `ignoreCommand` の意図どおりの動作 | 問題なし(§3-1) |
 | **`CLERK_AUTHORIZED_PARTIES` を入れた直後から全員ログインできない** | 値が本番URLと**別のオリジン**を指している(別ドメイン・タイポ・`http` と `https` の取り違え)。Clerkは完全一致で判定する | §3-4。切り分けは変数を消して再デプロイ(消せば検査なしに戻る) |
 | `CLERK_AUTHORIZED_PARTIES` を入れたのに効いていない | http(s)のオリジンとして解釈できる値が**1件も残らなかった**ため、`proxy.ts` が検査なしに倒した(`example.com` のようにスキームが無い、`ftp://` などの別スキーム、`,` だけ)。**このときは締め出しにはならない** | §3-4。Vercelの実行ログに `CLERK_AUTHORIZED_PARTIES:` で始まる警告が出る |
+| **Clerkのドメイン検証がいつまでも緑にならない** | ①Proxy status が Proxied(オレンジ)のまま ②Name欄でゾーン名が二重になっている ③単に未反映 | §1-2a / §1-2b。`dig` で引いて、CloudflareのIPが返るなら①、空なら②か③ |
+| Vercelのドメインが Valid Configuration にならない | 同上。Vercel用CNAMEも DNS only にする | §3-3 |
 | ログインは通るのに、別サブドメインからもデータが取れてしまう | Clerkの **Allowed Subdomains** が未設定。`CLERK_AUTHORIZED_PARTIES` はConvexへの直接アクセスには効かない | §1-5 |
 | 本番でエラーが「Server Error」としか出ない | 素の `Error` を投げている箇所がある | 画面に出す文言は `ConvexError` で投げる(計画書 §12「初心者がハマりやすいポイント集」の #12) |
