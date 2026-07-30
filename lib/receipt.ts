@@ -9,6 +9,13 @@
 
 export const ADJUSTMENT_ITEM_NAME = "調整(税・割引等)";
 
+// レシートとして読めなかった(風景写真など、品目が1件も取れなかった)ときの文言。
+// convex/receipts.ts が投げ、画面(S-004)は「同じ画像をもう一度AIに投げても
+// 結果は変わらない」ケースの判定にも使う。両側から同じ定数を参照することで、
+// 片方だけ文言を直したときに判定が静かに壊れるのを防ぐ。
+export const ERR_UNREADABLE_RECEIPT =
+  "レシートを読み取れませんでした。撮り直してください";
+
 // expenses.save 側の制約に合わせる(convex/expenses.ts と同じ値)
 const MAX_ITEM_NAME_LENGTH = 50;
 const MAX_PRICE = 9_999_999;
