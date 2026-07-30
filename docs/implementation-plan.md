@@ -948,10 +948,10 @@ const parsed = ReceiptSchema.safeParse(JSON.parse(response.text));
 ### ダッシュボードでの作業(手順は `docs/deployment.md`)
 
 - [ ] **Clerkを本番インスタンスに**: Production インスタンスを作成し、**Google Cloud ConsoleでOAuthクライアントを作成して認証情報を登録**(本番はClerk共有認証が使えないため。リダイレクトURIはClerkの画面に表示されるものを貼る)。JWTテンプレート名は `convex` のまま。本番用の `pk_live_...` / `sk_live_...` を控える
-  - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。Vercel側にも同じドメインを追加する。DNS登録後は Clerk の **Deploy certificates** を押して有効化するところまでが1セット
+  - ⚠️ **Clerkの本番インスタンスは自分が所有するドメインが必須**(ClerkのCNAMEを自分で張る必要があるため、`*.vercel.app` では作れない)。Vercel側にも同じドメインを追加する。DNS登録後は **SSL certificates が Issued になる**ところまでが1セット(`Deploy certificates` ボタンが出ていれば押す。DNS検証の完了時点で自動発行されていることもある)
   - ⚠️ **開発インスタンス(`pk_test_...`)のまま公開しないこと**。Clerkは開発インスタンスを「本番のワークロードには適さない」と明言している。ユーザー数上限100だけでなく、セッションを `__clerk_db_jwt` としてクエリ文字列で運ぶ(サーバーログ・ブラウザ履歴に残る)ため。ドメインが間に合わないときの暫定運用は `docs/deployment.md` の手順1-alt にあるが、実データを入れる前に本番インスタンスへ移ること
   - ⚠️ GoogleのOAuthクライアントには**リダイレクトURIだけでなく「承認済みのJavaScript生成元」にもアプリのドメインを入れる**(Clerkの手順が要求している)
-  - ⚠️ Clerkの **Allowed Subdomains** を有効にして、このアプリが使うサブドメインだけに絞る。既定ではルートドメイン配下のどのサブドメインからでもClerkのFrontend APIを叩けるため、同じルートドメインに置いた別サイトが乗っ取られると認証フローに手が届く。**`CLERK_AUTHORIZED_PARTIES`(Vercel側)では代替できない** — あちらが効くのはNext.jsのProxyを通るリクエストだけで、画面のデータはClerkのJWTを直接Convexへ送る経路で流れており、Convexは Issuer と `applicationID` しか検証しない
+  - ⚠️ Clerkの **Allowed Subdomains** を有効にする(**リストは空のまま**)。プライマリドメインは常に許可されるので、Secondary application 構成ではアプリ自身は影響を受けず、`*.warikapp.yamk12nfu.com` だけが塞がれる。**`CLERK_AUTHORIZED_PARTIES`(Vercel側)では代替できない** — あちらが効くのはNext.jsのProxyを通るリクエストだけで、画面のデータはClerkのJWTを直接Convexへ送る経路で流れており、Convexは Issuer と `applicationID` しか検証しない
 - [ ] **Convex本番環境の環境変数**: `CLERK_JWT_ISSUER_DOMAIN`(本番ClerkのIssuer URL)と `GEMINI_API_KEY` の**2つが必須**。`RECEIPT_AI_PROVIDER` / `RECEIPT_AI_MODEL` はコード側に既定値(`gemini` / `gemini-3.6-flash`)があるので任意
 - [ ] **Vercelデプロイ**:
   - GitHubリポジトリをVercelにImport(**Build Commandは触らない**。`vercel.json` が優先される)

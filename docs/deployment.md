@@ -16,7 +16,7 @@
 |---|---|
 | Convex 本番デプロイ | `accurate-capybara-527` が作成済み。**テーブル0件・環境変数0件**(まだ何も入っていない) |
 | Convex 開発デプロイ | `benevolent-koala-496`。`CLERK_JWT_ISSUER_DOMAIN` と `GEMINI_API_KEY` を登録済み |
-| Clerk | 開発インスタンスのみ(共有Google認証を利用中) |
+| Clerk | **本番インスタンス構築済み**(2026-07-31)。Primary domain `warikapp.yamk12nfu.com` = Verified / DNS = Verified / SSL = Issued。Google OAuth は自前の認証情報を登録済み。Issuer は `https://clerk.warikapp.yamk12nfu.com` |
 | Vercel | 未Import |
 | ドメイン | **`yamk12nfu.com` 取得済み**(Cloudflare Registrar)。アプリは `warikapp.yamk12nfu.com` を使う |
 
@@ -37,8 +37,9 @@ Vercel側にもそのドメインを追加する(手順3-3)。
 ドメインを取ること**。取得直後から使える(DNSの反映に最大48時間かかるとClerkは案内しているが、
 実際は数分〜数時間で通ることが多い)。
 
-> ⚠️ **ルートドメインは後から変えられないと思っておくこと。** Clerk本番インスタンスのIssuerは
-> `https://clerk.<ルートドメイン>` になり、その文字列が `members.tokenIdentifier` の先頭に
+> ⚠️ **一度決めたドメインは後から変えられないと思っておくこと。** Clerk本番インスタンスのIssuerは
+> `https://clerk.<Clerkに登録したドメイン>` になり(本構成では
+> `https://clerk.warikapp.yamk12nfu.com`)、その文字列が `members.tokenIdentifier` の先頭に
 > 焼き付く(`<issuer>|<subject>` の形)。ドメインを変えると既存のメンバー行が一致しなくなり、
 > 世帯も支出も精算履歴も**DBに残ったまま誰からも見えなくなる**。
 > 救うには新旧の `tokenIdentifier` を対応付ける一回限りのmutationが要る。
@@ -49,14 +50,15 @@ Vercel側にもそのドメインを追加する(手順3-3)。
 ルートは個人名義、アプリはサブドメインにするという方針で
 **ルート `yamk12nfu.com` / アプリ `warikapp.yamk12nfu.com`** にした。
 
-Cloudflare Registrar を使う理由: **原価販売**(レジストリの卸値そのままで、更新時の値上げが無い)、
+Cloudflare Registrar を使う理由: **原価販売**(レジストリの卸値に上乗せしない。更新時も同じ考え方なので
+「初年度だけ激安」が無い。ただしレジストリ自体が値上げすればそれは反映される)、
 WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用に5件前後・Vercel用に1件のDNSレコードを
 入れるので、そこが素直なのは効く。
 
 1. [Cloudflare](https://dash.cloudflare.com/sign-up) でアカウントを作る(無料プランでよい)
 2. ダッシュボード左メニュー → **Domain Registration** → **Register Domain**
 3. `yamk12nfu` で検索 → TLDを選ぶ(`.com` が無難)→ カートへ
-4. 登録者の連絡先情報を入力する。**実在の情報を入れること**(下の ICANN 確認メールで使う)。
+4. 登録者の連絡先情報を入力する。**実在の情報を入れること**(ICANNの登録者情報として使われる)。
    WHOISには Cloudflare の代理情報が出るので、個人情報は公開されない
 5. クレジットカードを登録して購入(`.com` で年10ドル前後 + ICANN手数料)
 6. 購入すると、そのドメインは**自動的にCloudflareのゾーンとして追加され、ネームサーバーも
@@ -80,8 +82,9 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 >
 > - `addPeriod` … 登録直後5日間のグレース期間。正常
 > - `clientTransferProhibited` … レジストラが掛ける移管ロック。正常
-> - **`clientHold` … これが付いていたら要対応。** 登録者検証が滞留している状態で、
->   この間ドメインは名前解決しない。Cloudflareのダッシュボードに指示が出ているはず
+> - **`clientHold` … これが付いていたら要対応。** この間ドメインは名前解決しない。
+>   原因は登録者検証の滞留だけでなく、支払い不備や紛争などもありうるので、
+>   WHOISだけで断定せずCloudflareのダッシュボードの表示を見ること
 >
 > 実測(2026-07-30): `addPeriod` と `clientTransferProhibited` のみ。検証待ちではない
 
@@ -108,13 +111,13 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 ドメインが Clerk と Vercel の両方に要るので、行ったり来たりする。迷ったらこの並びに戻る。
 
 ```
-0-1 Cloudflare Registrar でドメインを取る → ICANN確認メールに応答
+0-1 Cloudflare Registrar でドメインを取る
 1-1 Clerk本番インスタンス作成
 1-2 Clerk Domains にドメイン登録 → CNAMEをDNSに追加(反映待ち)
 1-3 Clerk でリダイレクトURIを表示 → Google Cloud で OAuthクライアント作成 → Clerkに貼る
 1-4 JWTテンプレート convex を作成 → Issuer URL を控える
-1-5 Allowed Subdomains(この構成では設定不要)
-1-6 証明書(SSL certificates)が Issued になっているか確認
+1-5 Allowed Subdomains を有効化(リストは空のまま)
+1-6 SSL certificates が Issued か確認(ボタンが出ていれば押す)
 1-7 pk_live / sk_live を控える
 2   Convex prod に環境変数を登録
 3   Vercel に Import(環境変数3つ)→ Deploy → ドメイン追加 → 許可オリジンを足して再デプロイ
@@ -197,15 +200,29 @@ WHOISプライバシーが無料、DNSの管理画面が速い。今回 Clerk用
 Clerkの Verify を押す前に、手元から引けるか確かめられる。反映は数分〜数時間。
 
 ```bash
-for n in clerk accounts clkmail; do echo "== $n"; dig +short "$n.warikapp.yamk12nfu.com" CNAME; done
+for n in clerk accounts clkmail clk._domainkey clk2._domainkey; do
+  h="$n.warikapp.yamk12nfu.com"
+  printf "%-20s CNAME=%-40s A=%s\n" "$n" "$(dig +short "$h" CNAME | tr '\n' ' ')" "$(dig +short "$h" A | tr '\n' ' ')"
+done
 ```
 
-Clerkが指定したTargetがそのまま返ってくれば入っている。**空で返る**なら未反映か名前の間違い。
-**Cloudflareのプロキシ用のIPアドレスが返る**なら Proxy status が Proxied のままなので、
-DNS only に切り替える。
+判定:
 
-> Vercel用のDNSレコード(手順3-3)は `warikapp` 自身に対するもので、ここで入れる
-> `clerk.warikapp` などとは別名。競合しないので両方入れる。
+| 結果 | 状態 |
+|---|---|
+| **CNAME に Clerk のターゲットが返る** | **正常**(DNS only)。Verify を押してよい |
+| **CNAME が空で、A だけ返る** | **Proxied のまま**。Cloudflareで DNS only に切り替える |
+| CNAME も A も空 | 未反映か、Name の間違い(1-2a の二重付与) |
+
+> ⚠️ **判定に使うのは「CNAMEが返るかどうか」だけ。IPアドレスでは判定できない。**
+> Cloudflareはプロキシ中のCNAMEを flatten するので、Proxiedだと**CNAME問い合わせが空**になり
+> A問い合わせにCloudflareのIPが返る — これが見分け方。
+>
+> 一方、**IPが `104.x` / `172.64.x`(Cloudflareのanycast)でも異常ではない**。
+> Clerkのバックエンド自体がCloudflareの裏にあるため、正常な DNS only の状態でも
+> A問い合わせはこれらのIPを返す(実測: `clerk` → `frontend-api.clerk.services.` →
+> `worker.clerkprod-cloudflare.net.` → `104.18.34.146` / `172.64.153.110`)。
+> IPだけ見て「プロキシされている」と誤診しないこと。
 
 ### 1-3. Google Cloud Console で OAuth クライアントを作る
 
@@ -245,35 +262,40 @@ Clerkに戻る:
    `applicationID: "convex"` と一致している必要がある
 3. 保存し、**Issuer URL**(`https://clerk.warikapp.yamk12nfu.com` の形)をコピー → 手順2 で使う
 
-### 1-5. Allowed Subdomains — **この構成では設定不要**
+### 1-5. Allowed Subdomains を有効化する(リストは空のまま)
 
-**Enable allowed subdomains は OFF のままでよい。** 触らずに手順1-6へ進む。
+1. Clerk Dashboard(本番)→ **Domains** → **Allowed subdomains** タブ
+2. **Enable allowed subdomains** を **ON**
+3. **リストには何も足さない**
 
-**理由**: この設定が制限するのは「**プライマリドメイン配下**のサブドメイン」。手順1-2 で
-Secondary application を選んだ結果、**プライマリドメインは `warikapp.yamk12nfu.com` 自身**に
-なっている(Clerkの Domains → Allowed subdomains の画面に表示される)。したがって:
+**なぜ空でよいか**: この設定が制限するのは「**プライマリドメイン配下**のサブドメイン」。
+手順1-2 で Secondary application を選んだので、**プライマリドメインはアプリ自身
+(`warikapp.yamk12nfu.com`)**。プライマリドメインは**常に許可される**ので、
+アプリは何も登録しなくても動く。入力欄に入れようとしても
+`Subdomain cannot be the domain itself` で弾かれるのはこのため。
 
-- アプリが動く `warikapp.yamk12nfu.com` は**プライマリドメインそのものなので常に許可**される。
-  入力欄に入れようとしても `Subdomain cannot be the domain itself` で弾かれる
-- 制限の対象になるのは `なにか.warikapp.yamk12nfu.com` だけ。**そんなホストは作らない**
-- ⚠️ **ルートに置く別プロジェクト(`blog.yamk12nfu.com` など)は、そもそもこのClerkインスタンスの
-  サブドメイン空間の外**。この設定では守れないし、守る必要もない
+**なぜONにするか**: OFFのままだと `なにか.warikapp.yamk12nfu.com` が**すべて許可**されたままになる。
+ONで空リストにすると「プライマリドメインだけ許可」= 最も狭い状態になる。
+今そういうホストは無いが、将来足したときに黙って許可されるのを防げる。
 
-つまり **Secondary application を選んだ時点で、この設定でやりたかった分離は構造的に達成済み**。
-
-> ⚠️ **ONにして空リストのまま放置しないこと。** 「有効だが1件も登録されていない」状態になり、
-> Clerk自身のホスト(`accounts.` / `clerk.`)への影響が読めない。得るものが無いのでOFFが安全。
+> 「Allowed subdomains is enabled but no subdomains have been added.
+> This will prevent all subdomains from accessing the application.」という警告が出るが、
+> **これは意図どおり**。止めたいのはまさに「サブドメインからのアクセス」で、
+> アプリ本体はプライマリドメインなので影響を受けない。
 >
-> **もし手順1-2 で Primary application を選んでいた場合は話が別**(プライマリドメインが
-> `yamk12nfu.com` になり、ルート配下の別サイトが実際に脅威になる)。その場合はONにして
-> アプリのFQDN `warikapp.yamk12nfu.com` を登録する。どちらの状態かは、この画面に表示されている
-> プライマリドメイン名を見れば分かる。
+> ⚠️ ONにしたら**必ず本番URLでログインし直して確認すること**(手順3-5)。
+> 万一ログインできなくなったらOFFに戻せばよい。この設定は即時に効き、いつでも戻せる。
+
+> **手順1-2 で Primary application を選んでいた場合は話が別。** プライマリドメインが
+> `yamk12nfu.com`(ルート)になり、アプリは `warikapp.yamk12nfu.com` = その配下のサブドメイン
+> なので、**空リストのままだとアプリ自身が弾かれる**。この場合は
+> `warikapp.yamk12nfu.com` を明示的に登録する。どちらの状態かは、この画面に表示されている
+> プライマリドメイン名で判別できる。
 
 **補足 — `CLERK_AUTHORIZED_PARTIES`(手順3-4)との関係**: あちらが効くのは Next.js の Proxy を
 通るリクエストだけで、**画面のデータはClerkのJWTを直接Convexへ送る経路で流れている**
 (`convex/auth.config.ts` は Issuer と `applicationID` しか検証しない)。つまり Proxy 側の検査は
-Convexへの直接アクセスには効かない。ただし本構成では、その迂回に使えるサブドメインが
-そもそも存在しないため、実害のある経路にはならない。
+Convexへの直接アクセスには効かない。サブドメイン経由の迂回を塞ぐのはこちらの設定。
 
 ### 1-6. 証明書を確認する
 
@@ -285,8 +307,9 @@ Clerk Dashboard → **Domains**(Primary タブ)を開き、3つとも緑にな�
 | DNS configuration | **Verified** |
 | SSL certificates | **Issued** ← これが本番インスタンス有効化のゴール |
 
-**`Deploy certificates` ボタンが見当たらなければ、既に発行済み**(DNS検証が通った時点でClerkが
-自動発行する)。ボタンが出ている場合だけ押す。
+**完了条件は `SSL certificates: Issued` の表示**。`Deploy certificates` ボタンが出ていれば押す。
+出ていなければ既に発行済み(必要条件が揃った時点で発行が済んでいることがある)。
+**ボタンの有無ではなく Issued 表示で判断する。**
 
 手元からも確認できる:
 
@@ -503,15 +526,15 @@ dig +short warikapp.yamk12nfu.com
 
 > ⚠️ **これだけでは足りない。** 効くのは Next.js の Proxy を通るリクエストだけで、画面のデータは
 > ClerkのJWTを直接Convexへ送る経路で流れている。サブドメインからの迂回は
-> **Clerkの Allowed Subdomains(手順1-5)** の領分。ただし本構成ではプライマリドメインが
-> アプリ自身なので、迂回に使えるサブドメインがそもそも無い(手順1-5 参照)。
+> **Clerkの Allowed Subdomains(手順1-5)** の領分。空リストで有効化しておけば、
+> プライマリドメイン以外は塞がれる。
 
 ### 3-5. デプロイ後の仕上げ
 
 1. カスタムドメインで本番URLを開き、Googleログインが通ることを確認する
 2. Clerk Dashboard(本番インスタンス)→ **Paths** で、サインイン後のリダイレクト先が
    `/` になっていることを確認する
-3. `docs/verification-checklist.md` の 手順6 を上から潰す
+3. `docs/verification-checklist.md` の「6. 本番デプロイ・運用」を上から潰す
 
 ---
 
@@ -611,7 +634,7 @@ Limits でワークスペースの月額上限を設定する。
 | PRを出すとVercelのチェックが「Skipped」になる | `ignoreCommand` の意図どおりの動作 | 問題なし(手順3-1) |
 | **`CLERK_AUTHORIZED_PARTIES` を入れた直後から全員ログインできない** | 値が本番URLと**別のオリジン**を指している(別ドメイン・タイポ・`http` と `https` の取り違え)。Clerkは完全一致で判定する | 手順3-4。切り分けは変数を消して再デプロイ(消せば検査なしに戻る) |
 | `CLERK_AUTHORIZED_PARTIES` を入れたのに効いていない | http(s)のオリジンとして解釈できる値が**1件も残らなかった**ため、`proxy.ts` が検査なしに倒した(`example.com` のようにスキームが無い、`ftp://` などの別スキーム、`,` だけ)。**このときは締め出しにはならない** | 手順3-4。Vercelの実行ログに `CLERK_AUTHORIZED_PARTIES:` で始まる警告が出る |
-| **Clerkのドメイン検証がいつまでも緑にならない** | ①Proxy status が Proxied(オレンジ)のまま ②Name欄でゾーン名が二重になっている ③単に未反映 | 手順1-2a / 手順1-2b。`dig` で引いて、CloudflareのIPが返るなら①、空なら②か③ |
+| **Clerkのドメイン検証がいつまでも緑にならない** | ①Proxy status が Proxied(オレンジ)のまま ②Name欄でゾーン名が二重になっている ③単に未反映 | 手順1-2a / 手順1-2b。**CNAMEが空でAだけ返るなら①**、両方空なら②か③(IPの値では判定できない) |
 | Vercelのドメインが Valid Configuration にならない | 同上。Vercel用CNAMEも DNS only にする | 手順3-3 |
 | Clerkの Allowed Subdomains で `Subdomain cannot be the domain itself` と出る | 入力欄はプライマリドメイン「配下」のサブドメイン用。本構成ではプライマリドメインがアプリ自身なので**入れるものが無い**(設定不要) | 手順1-5 |
 | 本番でエラーが「Server Error」としか出ない | 素の `Error` を投げている箇所がある | 画面に出す文言は `ConvexError` で投げる(計画書の12章「初心者がハマりやすいポイント集」の #12) |

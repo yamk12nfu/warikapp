@@ -382,21 +382,23 @@
 - [ ] `[!!!]` `CONVEX_DEPLOY_KEY` の Environment が **Production だけ**になっている
   - 期待結果: Vercel の Settings → Environment Variables で Preview / Development にチェックが入っていない
   - 確認ポイント: 全環境に入っていると、PRのプレビュービルドが本番の Convex 関数を書き換える(`vercel.json` の `ignoreCommand` で二重に防いではいる)
-- [ ] `[!!]` Clerk 本番インスタンスの **Deploy certificates** を押してある
+- [ ] `[!!]` Clerk 本番インスタンスの **SSL certificates が Issued** になっている
   - 前提条件: `docs/deployment.md` の手順1-6 を実施
-  - 期待結果: Clerk Dashboard → Domains で本番インスタンスが有効になっている
-  - 確認ポイント: DNSレコードを張っただけでは有効にならない。ここを飛ばすと本番ログインが通らない
+  - 期待結果: Clerk Dashboard → Domains で Primary domain = Verified / DNS configuration = Verified / **SSL certificates = Issued**
+  - 確認ポイント: **判定はボタンの有無ではなく `Issued` 表示で行う**。`Deploy certificates` ボタンが出ていれば押すが、必要条件が揃った時点で自動発行されていてボタンが無いこともある。手元からは `curl -s -o /dev/null -w "%{http_code}\n" https://clerk.warikapp.yamk12nfu.com/.well-known/openid-configuration` が `200` なら生きている
 - [ ] `[!!]` `CLERK_AUTHORIZED_PARTIES` を Vercel に設定してある
   - 実装: `proxy.ts:38`(`parseAuthorizedParties`)/ `:65`(`toHttpOrigin`)。未設定なら指定なし = 従来どおりの挙動
   - 前提条件: 本番URLが確定している
   - 期待結果: Vercel の環境変数に本番URLが `https://` から始まる形で Production に入っており、設定後も普通にログインできる
   - 確認ポイント: Clerkは `azp` と**完全一致**で判定する。`proxy.ts` が http(s) のオリジンに正規化するので末尾スラッシュ・大文字・`:443` は吸収される。値はカンマ区切りの1件ずつ処理され、症状は残ったオリジンの集合で決まる: **1件以上残ったが本番のものを含まなければ全員ログインできなくなり、0件なら検査なしに倒れて保護が掛からない**。前者は値として正しいオリジンなので、**それ自体には警告が出ない**(後者は出る)。詳細は `docs/deployment.md` の手順3-4 の表。設定後は必ずログインし直して確認する
   - ⚠️ **これだけではConvexへの直接アクセスを塞げない**(次の項目)
-- [ ] `[!!]` Clerk の **プライマリドメインがアプリ自身**(`warikapp.yamk12nfu.com`)になっている
+- [ ] `[!!]` Clerk の **Allowed subdomains が有効**で、リストが**空**になっている
   - 実装: 設定はClerk側。アプリのコードには現れない
-  - 前提条件: `docs/deployment.md` の手順1-5 を参照
-  - 期待結果: Clerk Dashboard → Domains → Allowed subdomains の説明文に、プライマリドメインとして `warikapp.yamk12nfu.com` が表示されている。**Enable allowed subdomains は OFF のままでよい**
-  - 確認ポイント: プライマリドメインがアプリ自身なら、ルートに置く別プロジェクト(`blog.yamk12nfu.com` など)は**このClerkインスタンスのサブドメイン空間の外**なので、乗っ取られてもこのアプリの認証には届かない。逆にプライマリドメインが `yamk12nfu.com`(ルート)になっていたら、Allowed Subdomains をONにしてアプリのFQDNだけを許可すること。`CLERK_AUTHORIZED_PARTIES` は Next.js の Proxy を通るリクエストにしか効かず、Convexへの直接アクセスは塞げないので代替にならない
+  - 前提条件: `docs/deployment.md` の手順1-5 を実施
+  - 期待結果: Domains → Allowed subdomains で **Enable allowed subdomains が ON**、登録済みサブドメインは **0件**。この状態で本番URLからログインできる
+  - 確認ポイント: プライマリドメイン(`warikapp.yamk12nfu.com`)は**常に許可される**のでアプリ自身は影響を受けず、`*.warikapp.yamk12nfu.com` だけが塞がれる。「no subdomains have been added」の警告は**意図どおり**。**ONにしたら必ずログインし直すこと**(通らなければOFFに戻せる。即時に効いて即時に戻せる設定)
+  - ⚠️ プライマリドメインが `yamk12nfu.com`(ルート)になっている場合は話が別で、**空リストだとアプリ自身が弾かれる**。その場合は `warikapp.yamk12nfu.com` を登録する
+  - 補足: `CLERK_AUTHORIZED_PARTIES` は Next.js の Proxy を通るリクエストにしか効かず、Convexへの直接アクセスは塞げないので代替にならない
 - [ ] `[!!]` `NEXT_PUBLIC_CONVEX_URL` を Vercel に**手で設定していない**
   - 期待結果: 環境変数一覧に無い。`npx convex deploy --cmd` がビルド時に渡す
 - [ ] `[!!]` Gemini の月額上限が設定されている(要件 5.4)
