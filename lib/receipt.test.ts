@@ -45,20 +45,50 @@ describe("distributeDifference", () => {
     expect(result.skipped).toBe(false);
   });
 
-  // 品目ごとに割合を掛けて丸めると合計が1円ずれることがある。
-  // 累積の目標値から逆算することで、合計は常にレシート金額と一致させる
-  test("端数が出ても合計はレシートの金額とぴったり合う", () => {
+  // 品目ごとに割合を掛けて丸めると合計が1円ずれることがある
+  // (1円の品目3件を10円に配分するなら、各 round(10/3)=3円 で合計9円)。
+  // 累積の目標値から逆算すると繰り上がりが次の品目に渡り、合計が必ず一致する
+  test("端数が繰り上がっても合計はレシートの金額とぴったり合う", () => {
     const odd = [
-      { name: "A", price: 101, quantity: 1 },
-      { name: "B", price: 101, quantity: 1 },
-      { name: "C", price: 101, quantity: 1 },
+      { name: "A", price: 1, quantity: 1 },
+      { name: "B", price: 1, quantity: 1 },
+      { name: "C", price: 1, quantity: 1 },
     ];
-    const result = distributeDifference(odd, 333);
-    expect(sumItems(result.items)).toBe(333);
-    // 誤差は1円以内で散る(全部を末尾に寄せたりしない)
+    const result = distributeDifference(odd, 10);
+    // 3円ずつでは9円にしかならない。2件目が繰り上がりを受けて4円になる
+    expect(result.items.map((item) => item.price)).toEqual([3, 4, 3]);
+    expect(sumItems(result.items)).toBe(10);
+  });
+
+  // 品目ごとに丸めた場合と違って、誤差が末尾に溜まらないことを確かめる。
+  // 7で割り切れない配分を10件並べても、各品目のズレは1円以内に収まる
+  test("品目数が多くても誤差は各品目1円以内に散る", () => {
+    const many = Array.from({ length: 10 }, (_, index) => ({
+      name: `品目${index}`,
+      price: 100,
+      quantity: 1,
+    }));
+    const result = distributeDifference(many, 1007);
+    expect(sumItems(result.items)).toBe(1007);
     for (const item of result.items) {
-      expect(Math.abs(item.price - 111)).toBeLessThanOrEqual(1);
+      expect(Math.abs(item.price - 100.7)).toBeLessThanOrEqual(1);
     }
+  });
+
+  test("配分後がちょうど上限9,999,999円なら受け入れる", () => {
+    const result = distributeDifference(
+      [{ name: "A", price: 9_999_998, quantity: 1 }],
+      9_999_999,
+    );
+    expect(result.items[0].price).toBe(9_999_999);
+    expect(result.distributed).toBe(true);
+  });
+
+  test("配分後が上限を超えるときは配分しない", () => {
+    const items = [{ name: "A", price: 9_999_999, quantity: 1 }];
+    const result = distributeDifference(items, 10_000_000);
+    expect(result.items).toEqual(items);
+    expect(result.skipped).toBe(true);
   });
 
   // 総額から値引きされるレシート。調整行方式では「マイナスの品目」が作れず
@@ -92,6 +122,33 @@ describe("distributeDifference", () => {
 
   test("配分先が無い・比率を決められないときは印を返す", () => {
     expect(distributeDifference([], 1000).skipped).toBe(true);
+    expect(distributeDifference([], 0).skipped).toBe(true);
+    // 品目合計が0円以下だと金額比を決められない
+    expect(
+      distributeDifference([{ name: "A", price: 0, quantity: 1 }], 100).skipped,
+    ).toBe(true);
+    expect(
+      distributeDifference([{ name: "A", price: -1, quantity: 1 }], -1).skipped,
+    ).toBe(true);
+  });
+
+  // 比較演算は NaN に対して常に false を返すので、金額の範囲だけを見ていると
+  // NaN が「範囲内」として素通りし、expenses.save が必ず弾く支出ができる
+  test("計算がNaN・Infinityになる入力では配分しない", () => {
+    const huge = [{ name: "A", price: 2, quantity: Number.MAX_VALUE }];
+    const result = distributeDifference(huge, 1);
+    expect(result.items).toEqual(huge);
+    expect(result.skipped).toBe(true);
+    expect(result.distributed).toBe(false);
+  });
+
+  // 累積の目標値を丸める前提が崩れ、配分後の合計が totalAmount と一致しなくなる
+  test("合計金額が整数でないときは配分しない", () => {
+    const items = [{ name: "A", price: 100, quantity: 1 }];
+    const result = distributeDifference(items, 100.4);
+    expect(result.items).toEqual(items);
+    expect(result.skipped).toBe(true);
+    expect(result.distributed).toBe(false);
   });
 });
 
@@ -150,6 +207,27 @@ describe("normalizeParsedReceipt", () => {
     ]);
     expect(sumItems(result.items)).toBe(1080);
     expect(result.distributed).toBe(true);
+  });
+
+  // 配分できなかったことが画面まで伝わる(receipt-client が
+  // 「金額を確認してください」を出す条件)
+  test("配分できないときは distributionSkipped が立ち、品目は元のまま", () => {
+    const result = normalizeParsedReceipt(
+      raw({
+        items: [
+          { name: "牛肉", price: 600, quantity: 1 },
+          { name: "レジ袋", price: 1, quantity: 1 }, // 配分すると1円未満に潰れる
+        ],
+        total_amount: 100,
+      }),
+      TODAY,
+    );
+    expect(result.items).toEqual([
+      { name: "牛肉", price: 600, quantity: 1 },
+      { name: "レジ袋", price: 1, quantity: 1 },
+    ]);
+    expect(result.distributionSkipped).toBe(true);
+    expect(result.distributed).toBe(false);
   });
 
   test("保存できない品目を捨てたぶんも残った品目に配分する", () => {

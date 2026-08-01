@@ -200,13 +200,23 @@ export function distributeDifference(
   totalAmount: number,
 ): { items: ReceiptDraftItem[]; distributed: boolean; skipped: boolean } {
   const base = sumItems(items);
+  // 配分できない入力は先に弾く。「差額0なら何もしない」を先に見ると、
+  // 0円どうし・NaNどうしのような壊れた入力を「正常」として通してしまう。
+  //   - 品目0件 / 品目合計が0円以下: 配分先が無い、比率を決められない
+  //   - 合計金額が整数でない: 累積の目標値を丸める前提が崩れ、
+  //     配分後の合計が totalAmount と一致しなくなる
+  // 呼び出し元(normalizeParsedReceipt)は整数に丸めてから渡すが、
+  // この関数単体の契約としてもここで保証する
+  if (
+    items.length === 0 ||
+    !Number.isFinite(base) ||
+    base <= 0 ||
+    !Number.isInteger(totalAmount)
+  ) {
+    return { items, distributed: false, skipped: true };
+  }
   if (base === totalAmount) {
     return { items, distributed: false, skipped: false };
-  }
-  // 配分先が無い(品目0件)、比率を決められない(合計0円)ときは配分できない。
-  // 画面で金額を確認してもらう
-  if (items.length === 0 || base <= 0) {
-    return { items, distributed: false, skipped: true };
   }
 
   let allocated = 0;
@@ -224,8 +234,17 @@ export function distributeDifference(
 
   // 金額は1円以上9,999,999円以下の整数(V-403)。マイナスの差額が大きく、
   // 小さな品目が1円未満に潰れるようなときは配分を諦めて画面で直してもらう
-  // (中途半端に丸めると合計がレシート金額と合わなくなる)
-  if (distributed.some((item) => item.price < 1 || item.price > MAX_PRICE)) {
+  // (中途半端に丸めると合計がレシート金額と合わなくなる)。
+  // 範囲だけでなく整数かどうかも見る: 比較演算は NaN に対して常に false を
+  // 返すので、範囲の判定だけだと NaN の金額がそのまま素通りする
+  if (
+    distributed.some(
+      (item) =>
+        !Number.isInteger(item.price) ||
+        item.price < 1 ||
+        item.price > MAX_PRICE,
+    )
+  ) {
     return { items, distributed: false, skipped: true };
   }
   return { items: distributed, distributed: true, skipped: false };
