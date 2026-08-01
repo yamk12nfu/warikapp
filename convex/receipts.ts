@@ -137,8 +137,12 @@ export const parse = action({
       throw new ConvexError(ERR_UNREADABLE_RECEIPT);
     }
 
+    // distributed / skipped も出す。これが無いと「税別レシートで配分が走ったか」を
+    // 後から確認する手段が無く、保存された品目を見て推測するしかない
+    // (品目合計と合計金額がたまたま一致していると、配分が走ったのか差額0だったのか
+    //  区別が付かない)。真偽値だけなのでレシートの中身は漏れない(要件 5.4)
     console.log(
-      `receipts.parse ok provider=${parser.providerName} ms=${Date.now() - startedAt} items=${normalized.items.length}`,
+      `receipts.parse ok provider=${parser.providerName} ms=${Date.now() - startedAt} items=${normalized.items.length} distributed=${normalized.distributed} skipped=${normalized.distributionSkipped}`,
     );
     return normalized;
   },
