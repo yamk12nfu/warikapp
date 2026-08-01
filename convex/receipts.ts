@@ -123,11 +123,12 @@ export const parse = action({
       throw new ConvexError(ERR_FAILED);
     }
 
-    // 5. 品目合計 ≠ 合計金額 なら差額を「調整(税・割引等)」として品目に足す
+    // 5. 品目合計 ≠ 合計金額 なら、差額(税別レシートの消費税など)を
+    //    各品目へ金額比で配分する
     const normalized = normalizeParsedReceipt(parsed, todayInJst());
 
-    // 判定はAI由来の品目数(調整行を足す前)で行う。items の件数で見ると、
-    // 品目0件でも合計金額だけ返ってきたときに「調整行だけの支出」ができてしまう
+    // 判定はAI由来の品目数で行う(items は配分で件数が変わらないので実質同じだが、
+    // 「読めたかどうか」の意図を型の上でも明示しておく)
     if (normalized.sourceItemCount === 0) {
       // レシート以外の画像・不鮮明な画像。画面は撮り直し+手入力導線を出す
       console.error(
@@ -136,8 +137,12 @@ export const parse = action({
       throw new ConvexError(ERR_UNREADABLE_RECEIPT);
     }
 
+    // distributed / skipped も出す。これが無いと「税別レシートで配分が走ったか」を
+    // 後から確認する手段が無く、保存された品目を見て推測するしかない
+    // (品目合計と合計金額がたまたま一致していると、配分が走ったのか差額0だったのか
+    //  区別が付かない)。真偽値だけなのでレシートの中身は漏れない(要件 5.4)
     console.log(
-      `receipts.parse ok provider=${parser.providerName} ms=${Date.now() - startedAt} items=${normalized.items.length}`,
+      `receipts.parse ok provider=${parser.providerName} ms=${Date.now() - startedAt} items=${normalized.items.length} distributed=${normalized.distributed} skipped=${normalized.distributionSkipped}`,
     );
     return normalized;
   },

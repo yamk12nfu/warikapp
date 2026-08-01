@@ -10,7 +10,7 @@
 export type ParsedReceipt = {
   store_name: string | null;
   purchased_at: string | null; // "YYYY-MM-DD"。判読不能ならnull
-  total_amount: number; // 税込・円・整数
+  total_amount: number; // 税込(レシートの支払額)・円・整数
   items: { name: string; price: number; quantity: number }[];
 };
 

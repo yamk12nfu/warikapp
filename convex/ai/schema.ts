@@ -24,7 +24,9 @@ export const ReceiptSchema = z.object({
       price: z
         .number()
         .int()
-        .describe("その行の税込金額(円・整数)。1個あたりの単価ではない"),
+        .describe(
+          "その行に印字されている金額(円・整数)。1個あたりの単価ではない。税抜表記ならそのまま税抜で返す",
+        ),
       quantity: z.number().int().describe("その行の数量。表示がなければ1"),
     }),
   ),
@@ -32,7 +34,8 @@ export const ReceiptSchema = z.object({
 
 export const PROMPT = `このレシート画像から購入情報を抽出してください。
 - 品目名は略称を可能な範囲で正式名に展開する(例: 「ﾆﾝｼﾞﾝ」→「にんじん」)
-- price はその行に印字されている税込金額(円・整数)。1個あたりの単価ではなく行の合計
+- price はその行に印字されている金額(円・整数)。1個あたりの単価ではなく行の合計
+- 税抜表記のレシートでも税込に計算し直さず、印字されている金額をそのまま返す(税は total_amount との差から自動で配分する)
 - quantity はその行の数量(数量の表示がなければ1)。数量は name に含めない(例:「牛乳 x2」→ name は「牛乳」、quantity は 2)
 - 値引きはその品目の price に反映する
 - total_amount はレシートの合計金額(税込)

@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toUserMessage } from "@/lib/convex-error";
 import { todayLocalDate } from "@/lib/date";
+import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
 import type { ExpenseItemInput } from "@/lib/types";
@@ -33,6 +34,18 @@ type Phase = "select" | "working" | "editing";
 // 失敗した工程。"unreadable"(レシート以外・不鮮明)は読み取り失敗の一種だが、
 // 再読み取りが無意味な点だけが違うので別扱いにする
 type FailedStep = "upload" | "parse" | "unreadable";
+
+// 品目リストの上に出す一言。"warn" は金額を直してほしいとき、
+// "info" は「こう解釈した」と伝えるだけのとき
+type Notice = { text: string; tone: "warn" | "info" };
+
+// info にも背景色を敷く。枠線と灰色の文字だけだと画面上部の説明文と見分けが
+// つかず、「このレシートで今起きたこと」を伝える一言が常設の案内として
+// 読み飛ばされる(実機で確認した)
+const NOTICE_TONE_CLASS: Record<Notice["tone"], string> = {
+  warn: "border-amber-500 text-amber-700 dark:text-amber-400",
+  info: "border-black/20 bg-black/[0.06] text-gray-800 dark:border-white/30 dark:bg-white/10 dark:text-gray-200",
+};
 
 const buttonClass =
   "w-full rounded-md border border-black/15 px-4 py-3 text-center text-sm font-medium disabled:opacity-50 dark:border-white/25";
@@ -93,7 +106,9 @@ export default function ReceiptExpenseClient() {
   const [error, setError] = useState<string | null>(null);
   // 失敗した工程に応じて出すボタンを変える
   const [failedStep, setFailedStep] = useState<FailedStep | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // 品目リストの上に出す一言。金額を直してほしいときは警告(amber)、
+  // 「こう解釈した」と伝えるだけのときはお知らせ(gray)で色を分ける
+  const [notice, setNotice] = useState<Notice | null>(null);
   // 再試行のために、選んだ画像とアップロード済みの storageId を保持する
   const [file, setFile] = useState<File | null>(null);
   const [storageId, setStorageId] = useState<Id<"_storage"> | null>(null);
@@ -184,10 +199,27 @@ export default function ReceiptExpenseClient() {
     setExpenseId(savedId);
     setInitialValue(value);
     setEditorKey((key) => key + 1);
+    // 税別レシートなどで品目合計と合計金額がずれた場合、差額は各品目へ
+    // 金額比で配分してある(lib/receipt.ts の distributeDifference)。
+    // 品目の金額がレシートの表記と変わるので、黙って変えずに一言添える
     setNotice(
-      parsed.adjustmentSkipped
-        ? "レシートの合計金額と品目の合計が一致しません。金額を確認してください"
-        : null,
+      parsed.distributionSkipped
+        ? {
+            text: "レシートの合計金額と品目の合計が一致しません。金額を確認してください",
+            tone: "warn",
+          }
+        : parsed.distributed
+          ? {
+              // 金額を出す。文言だけだと「本当に合っているか」をユーザーが
+              // レシートと突き合わせて確認できない。合計を併記することで、
+              // レシートの支払額と一目で照合できる
+              text:
+                parsed.distributedAmount > 0
+                  ? `消費税などの差額 ${formatYen(parsed.distributedAmount)} を各品目に上乗せしました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`
+                  : `値引きなどの差額 ${formatYen(-parsed.distributedAmount)} を各品目から差し引きました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`,
+              tone: "info",
+            }
+          : null,
     );
     setPhase("editing");
   }
@@ -281,7 +313,10 @@ export default function ReceiptExpenseClient() {
     const partnerId = household.partner?._id ?? null;
     setError(null);
     setFailedStep(null);
-    setNotice("読み取り結果なしで開いています。品目を入力してください");
+    setNotice({
+      text: "読み取り結果なしで開いています。品目を入力してください",
+      tone: "warn",
+    });
     setInitialValue({
       paidBy: household.self._id,
       storeName: "",
@@ -410,8 +445,10 @@ export default function ReceiptExpenseClient() {
       {phase === "editing" && initialValue !== null && (
         <>
           {notice !== null && (
-            <p className="rounded-lg border border-amber-500 p-3 text-sm text-amber-700 dark:text-amber-400">
-              {notice}
+            <p
+              className={`rounded-lg border p-3 text-sm ${NOTICE_TONE_CLASS[notice.tone]}`}
+            >
+              {notice.text}
             </p>
           )}
           <ExpenseEditor
