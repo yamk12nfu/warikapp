@@ -426,17 +426,28 @@ npx convex env list --names-only --prod
    ```json
    {
      "buildCommand": "npx convex deploy --cmd 'npm run build'",
-     "ignoreCommand": "[ \"$VERCEL_ENV\" != production ]"
+     "ignoreCommand": "echo \"VERCEL_ENV=$VERCEL_ENV REF=$VERCEL_GIT_COMMIT_REF\"; [ \"$VERCEL_GIT_COMMIT_REF\" != main ]"
    }
    ```
 
    - `buildCommand`: Convex関数とフロントを**同時に**デプロイする。ダッシュボードにだけ書くと
      設定がリポジトリに残らず、プロジェクトを作り直したときに消える。消えると
      「フロントは新しいのに Convex 関数は古い」という気づきにくい壊れ方をする
-   - `ignoreCommand`: 本番以外(PRのプレビュー)のビルドを**丸ごと止める**。プレビュービルドが
+   - `ignoreCommand`: `main` 以外(PRのプレビュー)のビルドを**丸ごと止める**。プレビュービルドが
      本番用のデプロイキーで `npx convex deploy` を走らせて**本番のConvex関数を書き換える**
      事故を、設定ミスがあっても起きないようにするため。プレビュー環境が欲しくなったら
-     Convex側でプレビュー用デプロイキーを発行したうえで、この行を消す
+     Convex側でプレビュー用デプロイキーを発行したうえで、この行を消す。
+     終了コードは **1でビルド続行・0でスキップ**(直感と逆なので注意)
+   - 先頭の `echo` は診断用。スキップされたときにビルドログで判定材料を見られるようにする
+
+   > ⚠️ **`$VERCEL_ENV` で判定してはいけない(2026-08-02の障害)。**
+   > 以前は `[ "$VERCEL_ENV" != production ]` と書いていたが、`main` へのマージで
+   > **production のビルドまでスキップされた**(`Canceled by Ignored Build Step`)。
+   > Branch Tracking は `main` で正しく、Ignored Build Step も意図どおり
+   > `vercel.json` で上書きされていたにもかかわらず起きた。Ignored Build Step の
+   > 実行時に `VERCEL_ENV` が `production` になっていなかったことになる。
+   > ブランチ名(`VERCEL_GIT_COMMIT_REF`)で判定すれば同じ目的を果たせて、依存が減る。
+   > 詳細は下の「3-6. 自動デプロイが動いていることの確認」を参照。
 
 ### 3-2. 環境変数(Import時に入れる3つ)
 
@@ -535,6 +546,35 @@ dig +short warikapp.yamk12nfu.com
 2. Clerk Dashboard(本番インスタンス)→ **Paths** で、サインイン後のリダイレクト先が
    `/` になっていることを確認する
 3. `docs/verification-checklist.md` の「6. 本番デプロイ・運用」を上から潰す
+
+### 3-6. 自動デプロイが動いていることの確認
+
+**初回セットアップの「Deploy」「Redeploy」はダッシュボードからの手動操作なので、
+これが通っても「`main` へのpushで自動デプロイされる」ことの確認にはならない。**
+セットアップが終わったら、`main` に何か1つマージして**push起因で本番が更新されることを
+必ず1回確かめる**。
+
+確認方法:
+
+```bash
+# マージ後、その SHA に対する Vercel のデプロイ記録ができているか
+gh api repos/yamk12nfu/warikapp/deployments --jq '.[0] | "\(.created_at) \(.environment) sha=\(.sha[0:7])"'
+
+# ビルドが走ったのか、スキップされたのか
+gh api repos/yamk12nfu/warikapp/commits/main/status --jq '.statuses[] | "\(.state) | \(.description)"'
+```
+
+- `Deployment has completed` → 実際にビルドされた
+- `Canceled by Ignored Build Step` → **スキップされている。本番は更新されていない**
+  (`state` は `success` と出るので、GitHubのチェックマークだけ見ると気づけない)
+
+ビルドログに `Deploying to https://accurate-capybara-527.convex.cloud` が出ているかも見る。
+出ていないと**フロントだけ新しくてConvex関数が古い**状態になる。
+
+> 📌 **2026-08-02の障害**: PR #16 をマージしたが `Canceled by Ignored Build Step` で
+> スキップされ、本番が3日前のまま放置された。GitHub上のチェックは緑(`success`)で、
+> マージした本人は反映されたと思っていた。`ignoreCommand` の判定を `$VERCEL_ENV` から
+> ブランチ名に変えて対処(手順3-1参照)。**「緑だから出た」と判断しない**こと。
 
 ---
 
