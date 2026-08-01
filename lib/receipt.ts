@@ -187,6 +187,20 @@ function flattenQuantity(item: SanitizedItem): ReceiptDraftItem {
   return { name, price: item.price, quantity: 1 };
 }
 
+// そのまま expenses.save に渡せる品目か(金額 V-403: 1円以上9,999,999円以下の
+// 整数 / 数量: 1以上の整数)。
+// 範囲だけでなく整数かどうかも見る: 比較演算は NaN に対して常に false を返すので、
+// 範囲の判定だけだと NaN が「範囲内」として素通りする
+function isSavableItem(item: ReceiptDraftItem): boolean {
+  return (
+    Number.isInteger(item.price) &&
+    item.price >= 1 &&
+    item.price <= MAX_PRICE &&
+    Number.isInteger(item.quantity) &&
+    item.quantity >= 1
+  );
+}
+
 // 品目合計と合計金額の差額(税別レシートの消費税、総額からの値引きなど)を
 // 各品目へ金額比で配分する(要件 F-003 / TBD-003)。配分後の品目は税込になり、
 // 税は品目ごとの負担区分にそのまま従う。
@@ -200,17 +214,20 @@ export function distributeDifference(
   totalAmount: number,
 ): { items: ReceiptDraftItem[]; distributed: boolean; skipped: boolean } {
   const base = sumItems(items);
-  // 配分できない入力は先に弾く。「差額0なら何もしない」を先に見ると、
-  // 0円どうし・NaNどうしのような壊れた入力を「正常」として通してしまう。
-  //   - 品目0件 / 品目合計が0円以下: 配分先が無い、比率を決められない
+  // 配分できない入力は「差額0なら何もしない」より**前**に弾く。等価判定を先に
+  // 見ると、1.5円 + 0.5円 = 2円 のような保存できない品目を「差額0だから正常」
+  // として素通ししてしまう(合計だけ見ても各品目の妥当性は分からない)。
+  //   - 品目0件: 配分先が無い
+  //   - 保存できない品目がある: 配分しても保存できない(V-403 / V-404)
+  //   - 品目合計が Infinity: 比率を決められない
   //   - 合計金額が整数でない: 累積の目標値を丸める前提が崩れ、
   //     配分後の合計が totalAmount と一致しなくなる
-  // 呼び出し元(normalizeParsedReceipt)は整数に丸めてから渡すが、
+  // 呼び出し元(normalizeParsedReceipt)は sanitizeItem で均してから渡すが、
   // この関数単体の契約としてもここで保証する
   if (
     items.length === 0 ||
+    !items.every(isSavableItem) ||
     !Number.isFinite(base) ||
-    base <= 0 ||
     !Number.isInteger(totalAmount)
   ) {
     return { items, distributed: false, skipped: true };
@@ -232,19 +249,9 @@ export function distributeDifference(
     return { ...item, price, quantity: 1 };
   });
 
-  // 金額は1円以上9,999,999円以下の整数(V-403)。マイナスの差額が大きく、
-  // 小さな品目が1円未満に潰れるようなときは配分を諦めて画面で直してもらう
-  // (中途半端に丸めると合計がレシート金額と合わなくなる)。
-  // 範囲だけでなく整数かどうかも見る: 比較演算は NaN に対して常に false を
-  // 返すので、範囲の判定だけだと NaN の金額がそのまま素通りする
-  if (
-    distributed.some(
-      (item) =>
-        !Number.isInteger(item.price) ||
-        item.price < 1 ||
-        item.price > MAX_PRICE,
-    )
-  ) {
+  // マイナスの差額が大きく、小さな品目が1円未満に潰れるようなときは配分を
+  // 諦めて画面で直してもらう(中途半端に丸めると合計がレシート金額と合わなくなる)
+  if (!distributed.every(isSavableItem)) {
     return { items, distributed: false, skipped: true };
   }
   return { items: distributed, distributed: true, skipped: false };

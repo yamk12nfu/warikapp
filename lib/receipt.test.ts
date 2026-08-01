@@ -150,6 +150,32 @@ describe("distributeDifference", () => {
     expect(result.skipped).toBe(true);
     expect(result.distributed).toBe(false);
   });
+
+  // 入力の検査は「差額0なら何もしない」より**前**に置く必要がある。
+  // 後ろに置くと、下の2件はどちらも差額0なので等価判定で素通りしてしまう
+  // (合計だけ見ても各品目が保存できるかは分からない)
+  test("差額0でも保存できない品目があれば配分しない", () => {
+    // 1.5 + 0.5 = 2 で合計は一致するが、金額は整数でなければならない(V-403)
+    const fractional = [
+      { name: "A", price: 1.5, quantity: 1 },
+      { name: "B", price: 0.5, quantity: 1 },
+    ];
+    const result = distributeDifference(fractional, 2);
+    expect(result.items).toEqual(fractional);
+    expect(result.skipped).toBe(true);
+    expect(result.distributed).toBe(false);
+
+    // 品目合計・合計金額ともに整数でないケース
+    const equalFraction = [{ name: "A", price: 100.4, quantity: 1 }];
+    expect(distributeDifference(equalFraction, 100.4).skipped).toBe(true);
+
+    // 0円の品目。合計は一致するが1円以上でなければ保存できない(V-403)
+    const zero = [
+      { name: "A", price: 0, quantity: 1 },
+      { name: "B", price: 100, quantity: 1 },
+    ];
+    expect(distributeDifference(zero, 100).skipped).toBe(true);
+  });
 });
 
 describe("normalizePurchasedAt", () => {
