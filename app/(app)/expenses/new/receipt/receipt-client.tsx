@@ -34,6 +34,15 @@ type Phase = "select" | "working" | "editing";
 // 再読み取りが無意味な点だけが違うので別扱いにする
 type FailedStep = "upload" | "parse" | "unreadable";
 
+// 品目リストの上に出す一言。"warn" は金額を直してほしいとき、
+// "info" は「こう解釈した」と伝えるだけのとき
+type Notice = { text: string; tone: "warn" | "info" };
+
+const NOTICE_TONE_CLASS: Record<Notice["tone"], string> = {
+  warn: "border-amber-500 text-amber-700 dark:text-amber-400",
+  info: "border-black/15 text-gray-600 dark:border-white/25 dark:text-gray-400",
+};
+
 const buttonClass =
   "w-full rounded-md border border-black/15 px-4 py-3 text-center text-sm font-medium disabled:opacity-50 dark:border-white/25";
 
@@ -93,7 +102,9 @@ export default function ReceiptExpenseClient() {
   const [error, setError] = useState<string | null>(null);
   // 失敗した工程に応じて出すボタンを変える
   const [failedStep, setFailedStep] = useState<FailedStep | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // 品目リストの上に出す一言。金額を直してほしいときは警告(amber)、
+  // 「こう解釈した」と伝えるだけのときはお知らせ(gray)で色を分ける
+  const [notice, setNotice] = useState<Notice | null>(null);
   // 再試行のために、選んだ画像とアップロード済みの storageId を保持する
   const [file, setFile] = useState<File | null>(null);
   const [storageId, setStorageId] = useState<Id<"_storage"> | null>(null);
@@ -184,10 +195,21 @@ export default function ReceiptExpenseClient() {
     setExpenseId(savedId);
     setInitialValue(value);
     setEditorKey((key) => key + 1);
+    // 税別レシートなどで品目合計と合計金額がずれた場合、差額は各品目へ
+    // 金額比で配分してある(lib/receipt.ts の distributeDifference)。
+    // 品目の金額がレシートの表記と変わるので、黙って変えずに一言添える
     setNotice(
-      parsed.adjustmentSkipped
-        ? "レシートの合計金額と品目の合計が一致しません。金額を確認してください"
-        : null,
+      parsed.distributionSkipped
+        ? {
+            text: "レシートの合計金額と品目の合計が一致しません。金額を確認してください",
+            tone: "warn",
+          }
+        : parsed.distributed
+          ? {
+              text: "消費税などの差額を各品目に配分しました。金額はレシートの表記と異なる場合があります",
+              tone: "info",
+            }
+          : null,
     );
     setPhase("editing");
   }
@@ -281,7 +303,10 @@ export default function ReceiptExpenseClient() {
     const partnerId = household.partner?._id ?? null;
     setError(null);
     setFailedStep(null);
-    setNotice("読み取り結果なしで開いています。品目を入力してください");
+    setNotice({
+      text: "読み取り結果なしで開いています。品目を入力してください",
+      tone: "warn",
+    });
     setInitialValue({
       paidBy: household.self._id,
       storeName: "",
@@ -410,8 +435,10 @@ export default function ReceiptExpenseClient() {
       {phase === "editing" && initialValue !== null && (
         <>
           {notice !== null && (
-            <p className="rounded-lg border border-amber-500 p-3 text-sm text-amber-700 dark:text-amber-400">
-              {notice}
+            <p
+              className={`rounded-lg border p-3 text-sm ${NOTICE_TONE_CLASS[notice.tone]}`}
+            >
+              {notice.text}
             </p>
           )}
           <ExpenseEditor

@@ -1,10 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
-  ADJUSTMENT_ITEM_NAME,
+  distributeDifference,
   normalizeParsedReceipt,
   normalizePurchasedAt,
   sumItems,
-  withAdjustmentItem,
   type RawParsedReceipt,
 } from "./receipt";
 
@@ -21,39 +20,78 @@ const raw = (overrides: Partial<RawParsedReceipt> = {}): RawParsedReceipt => ({
   ...overrides,
 });
 
-describe("withAdjustmentItem", () => {
-  const items = [{ name: "牛肉", price: 600, quantity: 1 }];
+describe("distributeDifference", () => {
+  const items = [
+    { name: "牛肉", price: 600, quantity: 1 },
+    { name: "にんじん", price: 400, quantity: 1 },
+  ];
 
-  test("差額があれば「調整(税・割引等)」を末尾に足す", () => {
-    const result = withAdjustmentItem(items, 660);
-    expect(result.items).toHaveLength(2);
-    expect(result.items[1]).toEqual({
-      name: ADJUSTMENT_ITEM_NAME,
-      price: 60,
-      quantity: 1,
-    });
-    expect(result.adjustmentSkipped).toBe(false);
-    expect(sumItems(result.items)).toBe(660);
+  // 税別レシートの本命ケース。差額(消費税)を1行にまとめず各品目に乗せることで、
+  // 税は品目ごとの負担区分にそのまま従う(TBD-003)
+  test("差額を品目の金額比で配分する", () => {
+    const result = distributeDifference(items, 1100); // 消費税10%
+    expect(result.items).toEqual([
+      { name: "牛肉", price: 660, quantity: 1 },
+      { name: "にんじん", price: 440, quantity: 1 },
+    ]);
+    expect(result.distributed).toBe(true);
+    expect(result.skipped).toBe(false);
   });
 
   test("差額がなければ品目はそのまま", () => {
-    const result = withAdjustmentItem(items, 600);
+    const result = distributeDifference(items, 1000);
     expect(result.items).toEqual(items);
-    expect(result.adjustmentSkipped).toBe(false);
+    expect(result.distributed).toBe(false);
+    expect(result.skipped).toBe(false);
   });
 
-  test("品目合計が合計金額を上回るときは調整行を作らず印を返す", () => {
-    // 金額は1円以上の整数(V-403)なのでマイナスの調整行が作れない
-    const result = withAdjustmentItem(items, 500);
-    expect(result.items).toEqual(items);
-    expect(result.adjustmentSkipped).toBe(true);
+  // 品目ごとに割合を掛けて丸めると合計が1円ずれることがある。
+  // 累積の目標値から逆算することで、合計は常にレシート金額と一致させる
+  test("端数が出ても合計はレシートの金額とぴったり合う", () => {
+    const odd = [
+      { name: "A", price: 101, quantity: 1 },
+      { name: "B", price: 101, quantity: 1 },
+      { name: "C", price: 101, quantity: 1 },
+    ];
+    const result = distributeDifference(odd, 333);
+    expect(sumItems(result.items)).toBe(333);
+    // 誤差は1円以内で散る(全部を末尾に寄せたりしない)
+    for (const item of result.items) {
+      expect(Math.abs(item.price - 111)).toBeLessThanOrEqual(1);
+    }
   });
 
-  test("差額が金額の上限を超えるときも調整行を作らない", () => {
-    // 作ってしまうと expenses.save が必ず弾く(V-403)ので、印だけ返す
-    const result = withAdjustmentItem(items, 20_000_000);
-    expect(result.items).toEqual(items);
-    expect(result.adjustmentSkipped).toBe(true);
+  // 総額から値引きされるレシート。調整行方式では「マイナスの品目」が作れず
+  // 諦めていたが、按分ならそのまま扱える
+  test("差額がマイナス(値引き)でも配分できる", () => {
+    const result = distributeDifference(items, 900);
+    expect(result.items).toEqual([
+      { name: "牛肉", price: 540, quantity: 1 },
+      { name: "にんじん", price: 360, quantity: 1 },
+    ]);
+    expect(result.distributed).toBe(true);
+  });
+
+  test("1円未満に潰れる品目が出るときは配分せず印を返す", () => {
+    // 金額は1円以上の整数(V-403)。中途半端に丸めると合計が合わなくなるので、
+    // 画面で直してもらう
+    const result = distributeDifference(
+      [
+        { name: "牛肉", price: 600, quantity: 1 },
+        { name: "レジ袋", price: 1, quantity: 1 },
+      ],
+      100,
+    );
+    expect(result.items).toEqual([
+      { name: "牛肉", price: 600, quantity: 1 },
+      { name: "レジ袋", price: 1, quantity: 1 },
+    ]);
+    expect(result.skipped).toBe(true);
+    expect(result.distributed).toBe(false);
+  });
+
+  test("配分先が無い・比率を決められないときは印を返す", () => {
+    expect(distributeDifference([], 1000).skipped).toBe(true);
   });
 });
 
@@ -86,35 +124,35 @@ describe("normalizeParsedReceipt", () => {
         { name: "にんじん", price: 400, quantity: 1 },
       ],
       sourceItemCount: 2,
-      adjustmentSkipped: false,
+      distributed: false,
+      distributionSkipped: false,
     });
   });
 
-  // 「レシートとして読めたか」は調整行を足す前の件数で判定する。
-  // items で見ると、品目0件でも合計金額だけ返ってきたときに
-  // 調整行だけの支出ができてしまう
+  // 「レシートとして読めたか」は品目の件数で判定する。合計金額だけ返ってきても
+  // 配分先が無いので、金額だけの支出ができることはない
   test("品目が読めず合計金額だけ返ってきた場合は sourceItemCount が0", () => {
     const result = normalizeParsedReceipt(
       raw({ items: [], total_amount: 5000 }),
       TODAY,
     );
     expect(result.sourceItemCount).toBe(0);
-    expect(result.items).toEqual([
-      { name: ADJUSTMENT_ITEM_NAME, price: 5000, quantity: 1 },
-    ]);
+    expect(result.items).toEqual([]);
   });
 
-  test("品目合計と合計金額のズレを調整行が吸収する", () => {
+  // 税別レシート(品目が税抜、合計が税込)。差額を各品目に乗せるので、
+  // 品目ごとの負担区分がそのまま税にも効く
+  test("品目合計と合計金額のズレを各品目に配分する", () => {
     const result = normalizeParsedReceipt(raw({ total_amount: 1080 }), TODAY);
-    expect(result.items.at(-1)).toEqual({
-      name: ADJUSTMENT_ITEM_NAME,
-      price: 80,
-      quantity: 1,
-    });
+    expect(result.items).toEqual([
+      { name: "牛肉", price: 648, quantity: 1 },
+      { name: "にんじん", price: 432, quantity: 1 },
+    ]);
     expect(sumItems(result.items)).toBe(1080);
+    expect(result.distributed).toBe(true);
   });
 
-  test("保存できない品目は捨て、その差額も調整行が吸収する", () => {
+  test("保存できない品目を捨てたぶんも残った品目に配分する", () => {
     const result = normalizeParsedReceipt(
       raw({
         items: [
@@ -126,10 +164,8 @@ describe("normalizeParsedReceipt", () => {
       }),
       TODAY,
     );
-    expect(result.items).toEqual([
-      { name: "牛肉", price: 600, quantity: 1 },
-      { name: ADJUSTMENT_ITEM_NAME, price: 400, quantity: 1 },
-    ]);
+    // 合計は必ずレシートの金額に合わせる(捨てた品目のぶんが行方不明にならない)
+    expect(result.items).toEqual([{ name: "牛肉", price: 1000, quantity: 1 }]);
   });
 
   test("数量と品目名を保存可能な範囲に丸める", () => {
@@ -238,7 +274,7 @@ describe("normalizeParsedReceipt", () => {
     expect(sumItems(result.items)).toBe(450);
   });
 
-  test("単価か行合計か判定できないときは行合計として扱い、差額は調整行が吸収する", () => {
+  test("単価か行合計か判定できないときは行合計として扱い、差額を配分する", () => {
     const result = normalizeParsedReceipt(
       raw({
         items: [{ name: "牛乳", price: 150, quantity: 3 }],
@@ -246,14 +282,11 @@ describe("normalizeParsedReceipt", () => {
       }),
       TODAY,
     );
-    expect(result.items).toEqual([
-      { name: "牛乳 ×3", price: 150, quantity: 1 },
-      { name: ADJUSTMENT_ITEM_NAME, price: 350, quantity: 1 },
-    ]);
+    expect(result.items).toEqual([{ name: "牛乳 ×3", price: 500, quantity: 1 }]);
     expect(sumItems(result.items)).toBe(500);
   });
 
-  test("品目が多すぎる場合は99件に切って調整行のぶんを空ける", () => {
+  test("品目が多すぎる場合は上限の100件に切る", () => {
     const items = Array.from({ length: 120 }, (_, index) => ({
       name: `品目${index}`,
       price: 100,
@@ -263,7 +296,7 @@ describe("normalizeParsedReceipt", () => {
       raw({ items, total_amount: 12_000 }),
       TODAY,
     );
-    // 99件 + 調整行1件 = 100件(expenses.save の上限)
+    // 100件 = expenses.save の上限(V-402)。差額は行を増やさず配分する
     expect(result.items).toHaveLength(100);
     expect(sumItems(result.items)).toBe(12_000);
   });
@@ -271,19 +304,19 @@ describe("normalizeParsedReceipt", () => {
   test("上限で切る前に捨てる行を除くので、有効な品目が目減りしない", () => {
     const items = [
       { name: "  ", price: 100, quantity: 1 }, // 捨てられる行
-      ...Array.from({ length: 99 }, (_, index) => ({
+      ...Array.from({ length: 100 }, (_, index) => ({
         name: `品目${index}`,
         price: 100,
         quantity: 1,
       })),
     ];
     const result = normalizeParsedReceipt(
-      raw({ items, total_amount: 9900 }),
+      raw({ items, total_amount: 10_000 }),
       TODAY,
     );
-    // 先に99件で切っていると有効な品目が98件になってしまう
-    expect(result.sourceItemCount).toBe(99);
-    expect(result.items).toHaveLength(99); // 差額0なので調整行は増えない
+    // 先に100件で切っていると有効な品目が99件になってしまう
+    expect(result.sourceItemCount).toBe(100);
+    expect(result.items).toHaveLength(100);
   });
 
   test("店名の空白のみ・購入日の判読不能はnullにする", () => {

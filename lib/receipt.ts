@@ -5,9 +5,14 @@
 // 整形の役割は3つ:
 //   1. AIが返した値を expenses.save の制約(V-402 / V-403)に収まる形に均す
 //   2. 数量を品目名に畳み込んで quantity を1にする(理由は normalizeItem のコメント)
-//   3. 品目合計と合計金額のズレを「調整(税・割引等)」品目として吸収する(要件 F-003)
-
-export const ADJUSTMENT_ITEM_NAME = "調整(税・割引等)";
+//   3. 品目合計と合計金額のズレを各品目へ金額比で配分する(要件 F-003 / TBD-003)
+//
+// 3 は当初「差額を『調整(税・割引等)』1行にまとめる」実装だった。税別レシートを
+// 実運用したところ、その行の負担区分が既定の折半になるため、片方の個人品目
+// (酒・化粧品など)に掛かった消費税まで折半されてしまい、毎回手で直す必要が
+// あった。しかも1行にまとまっているので「いくらを誰に寄せるのが正しいのか」を
+// ユーザーが判断できない。TBD-003 の代替案どおり金額比の按分に切り替えた結果、
+// 税は各品目の負担区分にそのまま従うようになり、手直しも判断も要らなくなった。
 
 // レシートとして読めなかった(風景写真など、品目が1件も取れなかった)ときの文言。
 // convex/receipts.ts が投げ、画面(S-004)は「同じ画像をもう一度AIに投げても
@@ -20,12 +25,12 @@ export const ERR_UNREADABLE_RECEIPT =
 const MAX_ITEM_NAME_LENGTH = 50;
 const MAX_PRICE = 9_999_999;
 const MAX_QUANTITY = 999;
-// 調整行を足しても上限(100件)を超えないようにAI由来の品目は99件までにする
-const MAX_AI_ITEMS = 99;
+// expenses.save の品目上限(V-402)。差額は既存の品目へ配分するので行は増えない
+const MAX_AI_ITEMS = 100;
 
 export type ReceiptDraftItem = {
   name: string;
-  price: number; // 税込・円・整数。「その行の合計金額」を入れる
+  price: number; // 円・整数。「その行の合計金額」を入れる(配分後は税込)
   // AI由来の品目は常に1。数量は品目名に「×3」として残す(下の normalizeItem 参照)
   quantity: number;
 };
@@ -44,14 +49,16 @@ export type NormalizedReceipt = {
   purchasedAt: string | null; // 妥当でなければ null(画面側で当日を既定にする)
   totalAmount: number;
   items: ReceiptDraftItem[];
-  // 調整行を足す前の、AI由来の品目数。0なら「レシートとして読めなかった」。
-  // items の件数で判定すると、品目0件でも合計金額だけ返ってきたときに
-  // 調整行だけの支出ができてしまう
+  // AI由来の品目数。0なら「レシートとして読めなかった」(convex/receipts.ts が
+  // この値で判定して撮り直しを促す)
   sourceItemCount: number;
-  // 差額を調整行にできなかった場合に true。金額は「1円以上9,999,999円以下の
-  // 整数」(V-403)なので、差額がマイナスのときと上限を超えるときは行を作れない。
+  // 品目合計と合計金額の差額を各品目へ配分した場合に true。品目の金額が
+  // レシートの表記(税別レシートなら税抜)と変わるので、画面はその旨を伝える
+  distributed: boolean;
+  // 差額を配分できなかった場合に true。金額は「1円以上9,999,999円以下の
+  // 整数」(V-403)なので、配分すると1円未満に潰れる品目が出るときは配分できない。
   // 画面はこのときだけ「金額を確認してください」と促す
-  adjustmentSkipped: boolean;
+  distributionSkipped: boolean;
 };
 
 export function sumItems(items: ReceiptDraftItem[]): number {
@@ -92,7 +99,7 @@ function normalizeStoreName(storeName: string | null): string | null {
 }
 
 // AI由来の1品目を保存可能な形に均す。名前が空・金額が1円未満など
-// 直しようがない行は null を返して捨てる(差額は調整行が吸収する)。
+// 直しようがない行は null を返して捨てる(その金額は残った品目へ配分される)。
 //
 // **数量は品目名に畳み込み、quantity は常に1にする**。理由:
 //   - AIには「price = その行の合計金額」を返させている。そのまま quantity を
@@ -129,7 +136,7 @@ function sanitizeItem(item: {
 // プロンプトでは行の合計を返すよう指示しているが、AIが単価を返すこともある。
 // レシートの合計金額と突き合わせて「単価として掛けたときだけ一致する」場合は
 // 単価だったとみなして行合計に直す(どちらとも判定できないときは指示どおり
-// 行合計として扱う。ズレは調整行が吸収する)。
+// 行合計として扱う。ズレは差額の配分が吸収する)。
 function toLineTotals(
   items: SanitizedItem[],
   totalAmount: number,
@@ -180,28 +187,48 @@ function flattenQuantity(item: SanitizedItem): ReceiptDraftItem {
   return { name, price: item.price, quantity: 1 };
 }
 
-// 品目合計と合計金額の差額を「調整(税・割引等)」として品目に足す(要件 F-003)。
-// 負担区分の初期値(折半)は画面側の既定値がそのまま適用される。
-export function withAdjustmentItem(
+// 品目合計と合計金額の差額(税別レシートの消費税、総額からの値引きなど)を
+// 各品目へ金額比で配分する(要件 F-003 / TBD-003)。配分後の品目は税込になり、
+// 税は品目ごとの負担区分にそのまま従う。
+//
+// 端数は「累積の目標値との差」で決める。品目ごとに割合を掛けて丸めると
+// 丸め誤差が積もって合計がレシート金額と1円ずれるが、累積値を丸めて前との
+// 差を取る形なら、最後の品目の目標値が totalAmount そのものになるので
+// 合計は必ず一致する。誤差は各品目に1円以内で散る。
+export function distributeDifference(
   items: ReceiptDraftItem[],
   totalAmount: number,
-): { items: ReceiptDraftItem[]; adjustmentSkipped: boolean } {
-  const difference = totalAmount - sumItems(items);
-  if (difference === 0) {
-    return { items, adjustmentSkipped: false };
+): { items: ReceiptDraftItem[]; distributed: boolean; skipped: boolean } {
+  const base = sumItems(items);
+  if (base === totalAmount) {
+    return { items, distributed: false, skipped: false };
   }
-  // 金額は1円以上9,999,999円以下の整数(V-403)。マイナスの差額も、
-  // 上限を超える差額も品目にできないので、画面で直してもらう
-  if (difference < 0 || difference > MAX_PRICE) {
-    return { items, adjustmentSkipped: true };
+  // 配分先が無い(品目0件)、比率を決められない(合計0円)ときは配分できない。
+  // 画面で金額を確認してもらう
+  if (items.length === 0 || base <= 0) {
+    return { items, distributed: false, skipped: true };
   }
-  return {
-    items: [
-      ...items,
-      { name: ADJUSTMENT_ITEM_NAME, price: difference, quantity: 1 },
-    ],
-    adjustmentSkipped: false,
-  };
+
+  let allocated = 0;
+  let cumulative = 0;
+  const distributed = items.map((item) => {
+    cumulative += item.price * item.quantity;
+    // 「先頭からこの品目までの合計は、配分後いくらであるべきか」
+    const target = Math.round((totalAmount * cumulative) / base);
+    const price = target - allocated;
+    allocated = target;
+    // price は「行の合計金額」なので quantity は1に落とす。残すと配分後の
+    // 行合計に数量が二重に効く(呼び出し元は畳み込み済みだが、念のため)
+    return { ...item, price, quantity: 1 };
+  });
+
+  // 金額は1円以上9,999,999円以下の整数(V-403)。マイナスの差額が大きく、
+  // 小さな品目が1円未満に潰れるようなときは配分を諦めて画面で直してもらう
+  // (中途半端に丸めると合計がレシート金額と合わなくなる)
+  if (distributed.some((item) => item.price < 1 || item.price > MAX_PRICE)) {
+    return { items, distributed: false, skipped: true };
+  }
+  return { items: distributed, distributed: true, skipped: false };
 }
 
 // AI抽出結果 → 画面に流し込める形。today はJST基準の当日("YYYY-MM-DD")。
@@ -225,10 +252,10 @@ export function normalizeParsedReceipt(
     : sanitized;
   const items = lineTotals.map(flattenQuantity);
 
-  // 合計が読めなかった場合は品目合計で代用する(差額0=調整行なし)
+  // 合計が読めなかった場合は品目合計で代用する(差額0=配分なし)
   const totalAmount = hasTotal ? rawTotal : sumItems(items);
 
-  const adjusted = withAdjustmentItem(items, totalAmount);
+  const adjusted = distributeDifference(items, totalAmount);
 
   return {
     storeName: normalizeStoreName(parsed.store_name),
@@ -236,6 +263,7 @@ export function normalizeParsedReceipt(
     totalAmount,
     items: adjusted.items,
     sourceItemCount: items.length,
-    adjustmentSkipped: adjusted.adjustmentSkipped,
+    distributed: adjusted.distributed,
+    distributionSkipped: adjusted.skipped,
   };
 }
