@@ -208,6 +208,7 @@ describe("normalizeParsedReceipt", () => {
       ],
       sourceItemCount: 2,
       distributed: false,
+      distributedAmount: 0,
       distributionSkipped: false,
     });
   });
@@ -233,6 +234,23 @@ describe("normalizeParsedReceipt", () => {
     ]);
     expect(sumItems(result.items)).toBe(1080);
     expect(result.distributed).toBe(true);
+    // 画面が「消費税などの差額 ¥80 を各品目に上乗せしました」と出すのに使う
+    expect(result.distributedAmount).toBe(80);
+  });
+
+  // 総額から値引きされるレシート。画面の文言が「上乗せ」か「差し引き」かを
+  // 符号で切り替えるので、負の値がそのまま届くことを確かめる
+  test("差額がマイナスなら distributedAmount も負になる", () => {
+    const result = normalizeParsedReceipt(raw({ total_amount: 900 }), TODAY);
+    expect(result.distributed).toBe(true);
+    expect(result.distributedAmount).toBe(-100);
+    expect(sumItems(result.items)).toBe(900);
+  });
+
+  test("配分しなければ distributedAmount は0", () => {
+    const result = normalizeParsedReceipt(raw(), TODAY);
+    expect(result.distributed).toBe(false);
+    expect(result.distributedAmount).toBe(0);
   });
 
   // 配分できなかったことが画面まで伝わる(receipt-client が

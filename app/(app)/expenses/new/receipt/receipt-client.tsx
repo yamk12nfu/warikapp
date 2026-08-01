@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toUserMessage } from "@/lib/convex-error";
 import { todayLocalDate } from "@/lib/date";
+import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
 import type { ExpenseItemInput } from "@/lib/types";
@@ -38,9 +39,12 @@ type FailedStep = "upload" | "parse" | "unreadable";
 // "info" は「こう解釈した」と伝えるだけのとき
 type Notice = { text: string; tone: "warn" | "info" };
 
+// info にも背景色を敷く。枠線と灰色の文字だけだと画面上部の説明文と見分けが
+// つかず、「このレシートで今起きたこと」を伝える一言が常設の案内として
+// 読み飛ばされる(実機で確認した)
 const NOTICE_TONE_CLASS: Record<Notice["tone"], string> = {
   warn: "border-amber-500 text-amber-700 dark:text-amber-400",
-  info: "border-black/15 text-gray-600 dark:border-white/25 dark:text-gray-400",
+  info: "border-black/20 bg-black/[0.06] text-gray-800 dark:border-white/30 dark:bg-white/10 dark:text-gray-200",
 };
 
 const buttonClass =
@@ -206,7 +210,13 @@ export default function ReceiptExpenseClient() {
           }
         : parsed.distributed
           ? {
-              text: "消費税などの差額を各品目に配分しました。金額はレシートの表記と異なる場合があります",
+              // 金額を出す。文言だけだと「本当に合っているか」をユーザーが
+              // レシートと突き合わせて確認できない。合計を併記することで、
+              // レシートの支払額と一目で照合できる
+              text:
+                parsed.distributedAmount > 0
+                  ? `消費税などの差額 ${formatYen(parsed.distributedAmount)} を各品目に上乗せしました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`
+                  : `値引きなどの差額 ${formatYen(-parsed.distributedAmount)} を各品目から差し引きました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`,
               tone: "info",
             }
           : null,

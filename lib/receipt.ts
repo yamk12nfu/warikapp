@@ -55,6 +55,10 @@ export type NormalizedReceipt = {
   // 品目合計と合計金額の差額を各品目へ配分した場合に true。品目の金額が
   // レシートの表記(税別レシートなら税抜)と変わるので、画面はその旨を伝える
   distributed: boolean;
+  // 配分した差額(円)。税別レシートなら消費税ぶんで正、総額からの値引きなら負。
+  // 配分していなければ0。画面が「いくら動かしたか」を出すために使う。
+  // 文言だけだとユーザーはレシートと突き合わせて確認できない
+  distributedAmount: number;
   // 差額を配分できなかった場合に true。金額は「1円以上9,999,999円以下の
   // 整数」(V-403)なので、配分すると1円未満に潰れる品目が出るときは配分できない。
   // 画面はこのときだけ「金額を確認してください」と促す
@@ -290,6 +294,8 @@ export function normalizeParsedReceipt(
     items: adjusted.items,
     sourceItemCount: items.length,
     distributed: adjusted.distributed,
+    // 配分「前」の品目合計との差。items は配分前の値なのでここで計算できる
+    distributedAmount: adjusted.distributed ? totalAmount - sumItems(items) : 0,
     distributionSkipped: adjusted.skipped,
   };
 }
