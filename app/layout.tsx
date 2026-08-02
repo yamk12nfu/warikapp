@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Zen_Maru_Gothic } from "next/font/google";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// 丸ゴシックはアプリ全体の声。日本語グリフはビルド時に分割self-hostされるが、
+// 全部を先読みすると重いので preload は latin だけに留める(preload: false)
+const zenMaru = Zen_Maru_Gothic({
+  variable: "--font-zen-maru",
+  weight: ["400", "500", "700"],
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -24,10 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="ja"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="ja" className={`${zenMaru.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>

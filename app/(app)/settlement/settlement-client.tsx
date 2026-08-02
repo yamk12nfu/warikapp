@@ -3,6 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
+import { inputClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -61,20 +62,20 @@ export default function SettlementClient() {
   }
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
   }
   // 支払者名を household から引くため、揃うまで待つ
   if (pending === undefined || household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
 
   // 支出の行に出す名前(「○○が支払い」)。ホームの一覧と同じ書き方に揃える
@@ -101,16 +102,18 @@ export default function SettlementClient() {
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
       <div>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
           ← ホーム
         </Link>
         <h1 className="mt-2 text-xl font-bold">精算</h1>
       </div>
 
-      <section className="rounded-lg border border-black/15 p-4 dark:border-white/25">
-        <p className="text-sm text-gray-500">未精算差額</p>
-        <p className="text-2xl font-bold">{formatYen(pending.amount)}</p>
-        <p className="mt-1 text-xs text-gray-500">
+      <section className="rounded-2xl bg-surface p-4 shadow-card">
+        <p className="text-sm text-muted">未精算差額</p>
+        <p className="text-2xl font-bold tabular-nums">
+          {formatYen(pending.amount)}
+        </p>
+        <p className="mt-1 text-xs text-muted">
           {pending.amount === 0
             ? pending.expenseCount === 0
               ? "未精算の支出はありません"
@@ -122,20 +125,20 @@ export default function SettlementClient() {
       </section>
 
       {household.partner === null && (
-        <p className="text-sm text-amber-700 dark:text-amber-400">
+        <p className="text-sm text-warn-strong">
           パートナーが参加してから精算できます
         </p>
       )}
 
       {hasDraft && (
-        <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">
+        <p role="alert" className="text-sm text-warn-strong">
           未確定のレシートが{pending.draftCount}件あります。
           確定または削除してから精算してください
         </p>
       )}
 
       {pending.truncated && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted">
           未精算の支出が多いため、古いほうから{pending.expenseCount}
           件を今回の対象にしています。残りは次回の精算に回ります
         </p>
@@ -146,23 +149,23 @@ export default function SettlementClient() {
           精算の対象({pending.expenseCount}件)
         </h2>
         {pending.expenses.length === 0 ? (
-          <p className="text-sm text-gray-500">精算する支出がありません</p>
+          <p className="text-sm text-muted">精算する支出がありません</p>
         ) : (
           <ul className="space-y-2">
             {pending.expenses.map((expense) => (
               <li
                 key={expense._id}
-                className="rounded-lg border border-black/15 p-3 dark:border-white/25"
+                className="rounded-2xl bg-surface p-3 shadow-card"
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 truncate font-medium">
+                  <span className="min-w-0 truncate font-bold">
                     {expense.title}
                   </span>
-                  <span className="whitespace-nowrap font-bold">
+                  <span className="whitespace-nowrap font-bold tabular-nums">
                     {formatYen(expense.totalAmount)}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-muted">
                   {formatDateLabel(expense.purchasedAt)} ・{" "}
                   {memberName(expense.paidBy)}が支払い ・ 立て替え{" "}
                   {formatYen(expense.advanceAmount)}
@@ -184,15 +187,15 @@ export default function SettlementClient() {
           maxLength={MAX_MEMO_LENGTH}
           onChange={(event) => setMemo(event.target.value)}
           placeholder="例: 6月分"
-          className="w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/25"
+          className={inputClass}
         />
-        <p className="text-right text-xs text-gray-500">
+        <p className="text-right text-xs text-muted">
           {memo.length}/{MAX_MEMO_LENGTH}
         </p>
       </section>
 
       {error !== null && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
@@ -201,11 +204,11 @@ export default function SettlementClient() {
         type="button"
         onClick={handleExecute}
         disabled={!canExecute || submitting}
-        className="w-full rounded-md bg-foreground px-4 py-3 text-sm font-medium text-background disabled:opacity-50"
+        className="w-full rounded-full bg-me px-4 py-3 text-sm font-bold text-on-accent disabled:opacity-50"
       >
         {submitting ? "精算中…" : "精算する"}
       </button>
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-muted">
         実際の送金はアプリの外(現金・送金アプリなど)で行ってください
       </p>
     </main>

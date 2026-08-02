@@ -67,26 +67,26 @@ export default function ExpenseEditClient({
   }
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
   }
   if (expense === undefined || household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (expense === null) {
     // 他世帯・削除済み・存在しないIDはすべて同じ表示にする(存在を漏らさない)
     return (
       <main className="mx-auto w-full max-w-md space-y-4 p-6">
         <p className="text-sm">支出が見つかりません</p>
-        <Link href="/" className="block text-sm text-blue-600 underline">
+        <Link href="/" className="block text-sm font-medium text-me-strong underline underline-offset-4">
           ホームへ戻る
         </Link>
       </main>
@@ -98,7 +98,7 @@ export default function ExpenseEditClient({
         <p className="text-sm">精算済みの記録は変更できません</p>
         <Link
           href={`/expenses/${expense._id}`}
-          className="block text-sm text-blue-600 underline"
+          className="block text-sm font-medium text-me-strong underline underline-offset-4"
         >
           支出の詳細へ戻る
         </Link>
@@ -111,7 +111,7 @@ export default function ExpenseEditClient({
       <div>
         <Link
           href={`/expenses/${expense._id}`}
-          className="text-sm text-blue-600 underline"
+          className="text-sm font-medium text-me-strong underline underline-offset-4"
         >
           ← 詳細に戻る
         </Link>
@@ -119,7 +119,7 @@ export default function ExpenseEditClient({
           {expense.status === "draft" ? "下書きを確認" : "支出を編集"}
         </h1>
         {expense.status === "draft" && (
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-muted">
             確定するとホームの未精算差額に反映されます。
           </p>
         )}

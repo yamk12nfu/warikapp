@@ -2,6 +2,16 @@
 
 import { api } from "@/convex/_generated/api";
 import { formatDateLabel, formatYen } from "@/lib/format";
+import {
+  amountClass,
+  badgeClass,
+  cardClass,
+  linkClass,
+  payerEdgeClass,
+  primaryButtonClass,
+  rowCardClass,
+  secondaryButtonClass,
+} from "@/lib/ui";
 import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -19,9 +29,6 @@ const FILTER_LABEL: Record<Filter, string> = {
   unsettled: "未精算のみ",
   all: "すべて",
 };
-
-const badgeClass =
-  "rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap";
 
 export default function HomeClient() {
   const router = useRouter();
@@ -53,13 +60,13 @@ export default function HomeClient() {
   }, [isAuthenticated, member, router]);
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
@@ -104,32 +111,84 @@ export default function HomeClient() {
     return parts.join(" ・ ");
   };
 
+  // 支払者が自分かどうか。household 読み込み前は null(行の左縁を無色にする)
+  const paidBySelf = (paidBy: string): boolean | null =>
+    household === undefined ? null : paidBy === household.self._id;
+
+  // 天秤バー。未精算(確定済み)の支払い合計をメンバー色で分け、
+  // 多く払っている側へわずかに傾ける(ふたりの貸し借りをひと目で伝える要素)
+  const beam = () => {
+    if (balance === undefined || household === undefined) {
+      return null;
+    }
+    // ?? 0 はデプロイ順の防御。フロントが先に新しくなり、Convex側が
+    // まだ旧関数(このフィールドを返さない)の間でも落ちないようにする
+    const paidSelf = balance.paidBySelf ?? 0;
+    const paidPartner = balance.paidByPartner ?? 0;
+    const total = paidSelf + paidPartner;
+    if (total === 0 || household.partner === null) {
+      return null;
+    }
+    const selfPct = Math.round((paidSelf / total) * 100);
+    const tilt = paidSelf > paidPartner ? -1.5 : paidSelf < paidPartner ? 1.5 : 0;
+    return (
+      <div className="mt-3">
+        <div
+          aria-hidden
+          className="flex h-3 overflow-hidden rounded-full"
+          style={{ transform: `rotate(${tilt}deg)` }}
+        >
+          <div className="bg-me" style={{ width: `${selfPct}%` }} />
+          <div className="bg-partner" style={{ width: `${100 - selfPct}%` }} />
+        </div>
+        <div className="mt-2 flex justify-between text-xs text-muted">
+          <span>
+            <span
+              aria-hidden
+              className="mr-1 inline-block size-2 rounded-full bg-me align-[1px]"
+            />
+            あなた {formatYen(paidSelf)}
+          </span>
+          <span>
+            <span
+              aria-hidden
+              className="mr-1 inline-block size-2 rounded-full bg-partner align-[1px]"
+            />
+            {household.partner.displayName}さん {formatYen(paidPartner)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
       <header>
-        <h1 className="text-2xl font-bold">warikapp</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-xl font-bold">
+          warik<span className="text-me">app</span>
+        </h1>
+        <p className="text-sm text-muted">
           こんにちは、{member.displayName} さん
         </p>
       </header>
 
       {/* 未精算差額(F-007)。常時表示し、タップで精算画面へ */}
-      <Link
-        href="/settlement"
-        className="block rounded-lg border border-black/15 p-4 dark:border-white/25"
-      >
-        <p className="text-sm text-gray-500">未精算差額</p>
+      <Link href="/settlement" className={`block ${cardClass} p-5`}>
+        <p className="text-xs font-bold text-muted">未精算差額</p>
         {balance === undefined || household === undefined ? (
           // 差額と支払う側の名前が揃うまでは金額を出さない(名前だけ先に出ると
           // 「あなたが さんに」のような欠けた文になる)
-          <p className="text-2xl font-bold">—</p>
+          <p className={`text-3xl ${amountClass}`}>—</p>
         ) : (
           <>
-            <p className="text-2xl font-bold">{formatYen(balance.amount)}</p>
-            <p className="mt-1 text-xs text-gray-500">{balanceLabel()}</p>
+            <p className={`text-3xl ${amountClass}`}>
+              {formatYen(balance.amount)}
+            </p>
+            <p className="mt-1 text-xs text-muted">{balanceLabel()}</p>
+            {beam()}
             {/* 1回の精算で扱える件数を超えている = ここの金額は一部のぶんだけ */}
             {balance.truncated && (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+              <p className="mt-2 text-xs text-warn-strong">
                 未精算の支出が多いため、古い{balance.expenseCount}
                 件ぶんの差額を表示しています
               </p>
@@ -139,34 +198,32 @@ export default function HomeClient() {
       </Link>
 
       <div className="grid grid-cols-2 gap-3">
-        <Link
-          href="/expenses/new/receipt"
-          className="rounded-md border border-black/15 px-4 py-3 text-center text-sm font-medium dark:border-white/25"
-        >
-          + レシート
+        <Link href="/expenses/new/receipt" className={primaryButtonClass}>
+          ＋ レシート
         </Link>
-        <Link
-          href="/expenses/new/manual"
-          className="rounded-md bg-foreground px-4 py-3 text-center text-sm font-medium text-background"
-        >
-          + 手入力
+        <Link href="/expenses/new/manual" className={secondaryButtonClass}>
+          ＋ 手入力
         </Link>
       </div>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">支出</h2>
-          <div className="flex gap-1" role="group" aria-label="表示する支出">
+          <h2 className="text-sm font-bold">支出</h2>
+          <div
+            className="flex rounded-full bg-line p-0.5"
+            role="group"
+            aria-label="表示する支出"
+          >
             {(["unsettled", "all"] as const).map((value) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setFilter(value)}
                 aria-pressed={filter === value}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
                   filter === value
-                    ? "bg-foreground text-background"
-                    : "border border-black/15 dark:border-white/25"
+                    ? "bg-surface shadow-card"
+                    : "text-muted"
                 }`}
               >
                 {FILTER_LABEL[value]}
@@ -176,9 +233,9 @@ export default function HomeClient() {
         </div>
 
         {expenses.status === "LoadingFirstPage" ? (
-          <p className="text-sm text-gray-500">読み込み中…</p>
+          <p className="text-sm text-muted">読み込み中…</p>
         ) : expenses.results.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted">
             {filter === "unsettled"
               ? "未精算の支出はまだありません"
               : "支出はまだありません"}
@@ -189,33 +246,33 @@ export default function HomeClient() {
               <li key={expense._id}>
                 <Link
                   href={`/expenses/${expense._id}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-black/15 p-3 dark:border-white/25"
+                  className={`flex items-center justify-between gap-3 ${rowCardClass} ${payerEdgeClass(
+                    paidBySelf(expense.paidBy),
+                  )}`}
                 >
                   <span className="min-w-0 space-y-1">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">
+                      <span className="truncate font-bold">
                         {expense.title}
                       </span>
                       {expense.status === "draft" && (
                         <span
-                          className={`${badgeClass} bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100`}
+                          className={`${badgeClass} bg-warn-soft text-warn-strong`}
                         >
                           未確定
                         </span>
                       )}
                       {expense.settled && (
-                        <span
-                          className={`${badgeClass} bg-black/10 text-gray-600 dark:bg-white/15 dark:text-gray-300`}
-                        >
+                        <span className={`${badgeClass} bg-line text-muted`}>
                           精算済み
                         </span>
                       )}
                     </span>
-                    <span className="block text-xs text-gray-500">
+                    <span className="block text-xs text-muted">
                       {rowMeta(expense)}
                     </span>
                   </span>
-                  <span className="whitespace-nowrap font-bold">
+                  <span className={`whitespace-nowrap ${amountClass}`}>
                     {formatYen(expense.totalAmount)}
                   </span>
                 </Link>
@@ -228,22 +285,22 @@ export default function HomeClient() {
           <button
             type="button"
             onClick={() => expenses.loadMore(PAGE_SIZE)}
-            className="w-full rounded-md border border-dashed border-black/25 px-4 py-3 text-sm font-medium dark:border-white/35"
+            className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
           >
             もっと読み込む
           </button>
         )}
         {expenses.status === "LoadingMore" && (
-          <p className="text-sm text-gray-500">読み込み中…</p>
+          <p className="text-sm text-muted">読み込み中…</p>
         )}
       </section>
 
       {/* 精算への導線は上の差額カードが担うので、ここには履歴と設定だけ置く */}
-      <nav className="flex gap-4 text-sm text-blue-600">
-        <Link href="/settlements" className="underline">
+      <nav className="flex gap-4">
+        <Link href="/settlements" className={linkClass}>
           精算履歴
         </Link>
-        <Link href="/settings" className="underline">
+        <Link href="/settings" className={linkClass}>
           設定
         </Link>
       </nav>

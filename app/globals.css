@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* デザイントークン(案「ふたり」)。
+   ふたりで使うアプリなので、メンバーごとの色(自分=青緑 / 相手=菫)を
+   情報設計の軸にする。色はここで一元管理し、画面側は bg-me / text-partner
+   などのユーティリティで参照する(ライト/ダークの切り替えもここで吸収)。
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+   コントラストの基準(WCAG AA): 文字は背景に対して4.5:1以上、
+   入力欄・ボタンの輪郭(--edge)は3:1以上を保つ。値を変えるときは
+   検算すること。--line は情報を持たない区切り線専用で、この基準の対象外。
+   ダークモードの --me / --partner は明るい色なので、その上の文字は
+   白ではなく --on-accent(=濃色)を使う。 */
+:root {
+  --background: #fbf8f4;
+  --surface: #ffffff;
+  --foreground: #33302c;
+  --muted: #767061;
+  --line: #ede7dc;
+  --edge: #98907c;
+  --me: #0b7568;
+  --me-strong: #0b6e63;
+  --me-soft: #e9f4f2;
+  --partner: #7a52d9;
+  --partner-soft: #f0ebfa;
+  --on-accent: #ffffff;
+  --warn-strong: #875d09;
+  --warn-soft: #fceed2;
+  --danger: #bc3a30;
+  --ok: #23694a;
+  --shadow-card-value: 0 2px 10px rgb(120 100 70 / 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1c1a17;
+    --surface: #262320;
+    --foreground: #f0ede8;
+    --muted: #a39b8b;
+    --line: #3a362f;
+    --edge: #7a7365;
+    --me: #2db5a5;
+    --me-strong: #6fd3c6;
+    --me-soft: #1d3330;
+    --partner: #a18be8;
+    --partner-soft: #2e2741;
+    --on-accent: #1c1a17;
+    --warn-strong: #e8b45a;
+    --warn-soft: #3a2f1a;
+    --danger: #e8756a;
+    --ok: #6fbf8f;
+    --shadow-card-value: 0 2px 10px rgb(0 0 0 / 0.3);
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-edge: var(--edge);
+  --color-me: var(--me);
+  --color-me-strong: var(--me-strong);
+  --color-me-soft: var(--me-soft);
+  --color-partner: var(--partner);
+  --color-partner-soft: var(--partner-soft);
+  --color-on-accent: var(--on-accent);
+  --color-warn-strong: var(--warn-strong);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --shadow-card: var(--shadow-card-value);
+  --font-sans: var(--font-zen-maru), "Hiragino Maru Gothic ProN",
+    "Hiragino Sans", "Yu Gothic", sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }

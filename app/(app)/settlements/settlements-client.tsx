@@ -78,13 +78,13 @@ export default function SettlementsClient() {
   }
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
@@ -92,7 +92,7 @@ export default function SettlementsClient() {
   // 精算の方向(誰から誰へ)の表示に household の名前が要る。先に一覧だけ出すと
   // 「メンバー → メンバー」と表示されてしまうため、揃うまで待つ
   if (household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
 
   const memberName = (memberId: string) => {
@@ -108,34 +108,34 @@ export default function SettlementsClient() {
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
       <div>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
           ← ホーム
         </Link>
         <h1 className="mt-2 text-xl font-bold">精算履歴</h1>
       </div>
 
       {error !== null && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
 
       {settlements.status === "LoadingFirstPage" ? (
-        <p className="text-sm text-gray-500">読み込み中…</p>
+        <p className="text-sm text-muted">読み込み中…</p>
       ) : settlements.results.length === 0 ? (
-        <p className="text-sm text-gray-500">精算の記録はまだありません</p>
+        <p className="text-sm text-muted">精算の記録はまだありません</p>
       ) : (
         <ul className="space-y-2">
           {settlements.results.map((settlement, index) => (
             <li
               key={settlement._id}
-              className="space-y-2 rounded-lg border border-black/15 p-3 dark:border-white/25"
+              className="space-y-2 rounded-2xl bg-surface p-3 shadow-card"
             >
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-muted">
                   {formatSettledAt(settlement.settledAt)}
                 </span>
-                <span className="whitespace-nowrap font-bold">
+                <span className="whitespace-nowrap font-bold tabular-nums">
                   {formatYen(settlement.amount)}
                 </span>
               </div>
@@ -146,7 +146,7 @@ export default function SettlementsClient() {
                       settlement.toMemberId,
                     )}`}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted">
                 対象 {settlement.expenseCount}件
                 {settlement.memo !== undefined && ` ・ ${settlement.memo}`}
               </p>
@@ -156,7 +156,7 @@ export default function SettlementsClient() {
                   type="button"
                   onClick={() => handleCancel(settlement._id)}
                   disabled={cancelingId !== null}
-                  className="w-full rounded-md border border-black/15 px-4 py-2 text-sm font-medium text-red-600 disabled:opacity-50 dark:border-white/25"
+                  className="w-full rounded-full border border-edge px-4 py-2 text-sm font-medium text-danger disabled:opacity-50"
                 >
                   {cancelingId === settlement._id
                     ? "取り消し中…"
@@ -172,13 +172,13 @@ export default function SettlementsClient() {
         <button
           type="button"
           onClick={() => settlements.loadMore(PAGE_SIZE)}
-          className="w-full rounded-md border border-dashed border-black/25 px-4 py-3 text-sm font-medium dark:border-white/35"
+          className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
         >
           もっと読み込む
         </button>
       )}
       {settlements.status === "LoadingMore" && (
-        <p className="text-sm text-gray-500">読み込み中…</p>
+        <p className="text-sm text-muted">読み込み中…</p>
       )}
     </main>
   );

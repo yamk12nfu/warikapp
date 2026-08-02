@@ -5,7 +5,8 @@ import { formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import { toUserMessage } from "@/lib/convex-error";
-import { FormEvent, useRef, useState } from "react";
+import { amountClass, inputClass } from "@/lib/ui";
+import { CSSProperties, FormEvent, useRef, useState } from "react";
 
 // 品目仕分けUI(F-004)。手入力(S-006)・レシート確認・編集(S-005)の3画面で共用する。
 // 負担区分チップはタップで 折半 → 自分 → 相手 → 折半 と循環し、
@@ -34,14 +35,11 @@ type ItemRow = {
   touched: boolean;
 };
 
-const inputClass =
-  "w-full rounded border border-black/15 bg-transparent px-3 py-2 text-base dark:border-white/25";
-
 const submitClass =
-  "w-full rounded-md bg-foreground px-4 py-3 text-base font-medium text-background disabled:opacity-50";
+  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-on-accent disabled:opacity-50";
 
 const chipClass =
-  "rounded-full border border-black/15 px-3 py-2 text-sm font-medium whitespace-nowrap dark:border-white/25";
+  "rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap";
 
 const yen = formatYen;
 
@@ -108,6 +106,21 @@ const PRESET_LABEL: Record<Preset, string> = {
   self: "自分",
   partner: "相手",
   custom: "カスタム",
+};
+
+// 負担区分チップの色。メンバー色(自分=青緑 / 相手=菫)をそのまま使い、
+// 折半は2色を半々に塗る(誰の負担かが色だけで読めるようにする)
+const PRESET_CHIP_CLASS: Record<Preset, string> = {
+  split: "border-transparent text-on-accent",
+  self: "border-transparent bg-me text-on-accent",
+  partner: "border-transparent bg-partner text-on-accent",
+  custom: "",
+};
+
+const PRESET_CHIP_STYLE: Partial<Record<Preset, CSSProperties>> = {
+  split: {
+    background: "linear-gradient(90deg, var(--me) 50%, var(--partner) 50%)",
+  },
 };
 
 // 折半 → 自分 → 相手 → 折半 の循環(カスタムからは折半に戻す)
@@ -386,13 +399,13 @@ export default function ExpenseEditor({
       <div className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-sm font-semibold">品目</h2>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             チップをタップで 折半 → 自分 → 相手
           </p>
         </div>
 
         {rows.length === 0 && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger">
             品目を1件以上入力してください
           </p>
         )}
@@ -403,10 +416,8 @@ export default function ExpenseEditor({
           return (
             <div
               key={row.key}
-              className={`space-y-2 rounded-lg border p-3 ${
-                item.showErrors
-                  ? "border-red-500"
-                  : "border-black/15 dark:border-white/25"
+              className={`space-y-2 rounded-2xl bg-surface p-3 shadow-card ${
+                item.showErrors ? "border border-danger" : ""
               }`}
             >
               <input
@@ -447,11 +458,8 @@ export default function ExpenseEditor({
                   type="button"
                   onClick={() => cyclePreset(row)}
                   aria-label={`負担区分: ${PRESET_LABEL[preset]}`}
-                  className={`${chipClass} ${
-                    preset === "custom"
-                      ? ""
-                      : "bg-foreground text-background border-transparent"
-                  }`}
+                  className={`${chipClass} ${PRESET_CHIP_CLASS[preset]}`}
+                  style={PRESET_CHIP_STYLE[preset]}
                 >
                   {PRESET_LABEL[preset]}
                 </button>
@@ -472,7 +480,7 @@ export default function ExpenseEditor({
                   type="button"
                   onClick={() => removeRow(row.key)}
                   aria-label="この品目を削除"
-                  className={`${chipClass} text-gray-500`}
+                  className={`${chipClass} text-muted`}
                 >
                   ×
                 </button>
@@ -488,7 +496,7 @@ export default function ExpenseEditor({
                         setShareRatio(row, self._id, event.target.value)
                       }
                       inputMode="numeric"
-                      className="w-16 rounded border border-black/15 bg-transparent px-2 py-1 text-right dark:border-white/25"
+                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
                     />
                     %
                   </label>
@@ -500,7 +508,7 @@ export default function ExpenseEditor({
                         setShareRatio(row, partner._id, event.target.value)
                       }
                       inputMode="numeric"
-                      className="w-16 rounded border border-black/15 bg-transparent px-2 py-1 text-right dark:border-white/25"
+                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
                     />
                     %
                   </label>
@@ -508,7 +516,7 @@ export default function ExpenseEditor({
               )}
 
               {item.showErrors && (
-                <ul role="alert" className="space-y-0.5 text-xs text-red-600">
+                <ul role="alert" className="space-y-0.5 text-xs text-danger">
                   {item.errors.map((message) => (
                     <li key={message}>{message}</li>
                   ))}
@@ -521,26 +529,26 @@ export default function ExpenseEditor({
         <button
           type="button"
           onClick={addRow}
-          className="w-full rounded-md border border-dashed border-black/25 px-4 py-3 text-sm font-medium dark:border-white/35"
+          className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
         >
           + 品目を追加
         </button>
       </div>
 
       {error !== null && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-black/10 bg-background p-4 dark:border-white/20">
+      <div className="fixed inset-x-0 bottom-0 border-t border-line bg-surface p-4">
         <div className="mx-auto w-full max-w-md space-y-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-gray-500">合計</span>
-            <span className="text-lg font-bold">{yen(totalAmount)}</span>
+            <span className="text-sm text-muted">合計</span>
+            <span className={`text-lg ${amountClass}`}>{yen(totalAmount)}</span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-gray-500">立て替え額</span>
+            <span className="text-sm text-muted">立て替え額</span>
             <span className="text-sm">
               {shareIncomplete
                 ? "—" /* 割合が未確定のあいだは金額を出さない(誤解を招くため) */
@@ -551,7 +559,7 @@ export default function ExpenseEditor({
           </div>
           {/* 確定できない理由を控えめに示す(空行を赤枠にしない代わりの案内) */}
           {!canSubmit && !submitting && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted">
               {rows.length === 0
                 ? "品目を1件以上入力してください"
                 : shareIncomplete

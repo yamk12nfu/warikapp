@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcItemShareAmount } from "@/lib/settlement";
+import { memberColorClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,10 +16,10 @@ import { useEffect, useState } from "react";
 // 精算済みの支出は閲覧のみ(サーバー側でも expenses.save / remove が拒否する)。
 
 const badgeClass =
-  "rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap";
+  "rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap";
 
 const buttonClass =
-  "flex-1 rounded-md border border-black/15 px-4 py-3 text-center text-sm font-medium disabled:opacity-50 dark:border-white/25";
+  "flex-1 rounded-full border border-edge bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
 
 export default function ExpenseDetailClient({
   expenseId,
@@ -71,13 +72,13 @@ export default function ExpenseDetailClient({
   }
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
@@ -85,14 +86,14 @@ export default function ExpenseDetailClient({
   // 支払者名と立て替え額の相手を household から引くため、揃うまで待つ
   // (先に出すと名前が空欄になり、立て替え額も「なし」と誤って表示される)
   if (expense === undefined || household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (expense === null) {
     // 他世帯・削除済み・存在しないIDはすべて同じ表示にする(存在を漏らさない)
     return (
       <main className="mx-auto w-full max-w-md space-y-4 p-6">
         <p className="text-sm">支出が見つかりません</p>
-        <Link href="/" className="block text-sm text-blue-600 underline">
+        <Link href="/" className="block text-sm font-medium text-me-strong underline underline-offset-4">
           ホームへ戻る
         </Link>
       </main>
@@ -120,7 +121,7 @@ export default function ExpenseDetailClient({
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
       <div>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
           ← ホーム
         </Link>
         <h1 className="mt-2 text-xl font-bold">
@@ -128,23 +129,19 @@ export default function ExpenseDetailClient({
         </h1>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {expense.status === "draft" && (
-            <span
-              className={`${badgeClass} bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100`}
-            >
+            <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
               未確定
             </span>
           )}
           {expense.settled && (
-            <span
-              className={`${badgeClass} bg-black/10 text-gray-600 dark:bg-white/15 dark:text-gray-300`}
-            >
+            <span className={`${badgeClass} bg-line text-muted`}>
               精算済み
             </span>
           )}
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-muted">
             {formatDateLabel(expense.purchasedAt)}
           </span>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-muted">
             {payerName}が支払い
           </span>
         </div>
@@ -154,10 +151,10 @@ export default function ExpenseDetailClient({
         <section className="space-y-1">
           <h2 className="text-sm font-semibold">レシート画像</h2>
           {imageUrl === undefined ? (
-            <p className="text-sm text-gray-500">読み込み中…</p>
+            <p className="text-sm text-muted">読み込み中…</p>
           ) : imageUrl === null ? (
             // 読み込み中(undefined)と区別する。null は保存先から画像が消えた場合
-            <p className="text-sm text-gray-500">画像を表示できませんでした</p>
+            <p className="text-sm text-muted">画像を表示できませんでした</p>
           ) : (
             // タップで拡大(新しいタブで原寸を開く)。Convexの署名付きURLなので
             // next/image のリモートホスト設定を増やさず素の img を使う
@@ -166,7 +163,7 @@ export default function ExpenseDetailClient({
               <img
                 src={imageUrl}
                 alt="レシート"
-                className="max-h-48 rounded-lg border border-black/15 object-contain dark:border-white/25"
+                className="max-h-48 rounded-2xl border border-line object-contain"
               />
             </a>
           )}
@@ -177,27 +174,31 @@ export default function ExpenseDetailClient({
         <h2 className="text-sm font-semibold">品目と仕分け</h2>
         <ul className="space-y-2">
           {expense.items.map((item, index) => (
-            <li
-              key={index}
-              className="rounded-lg border border-black/15 p-3 dark:border-white/25"
-            >
+            <li key={index} className="rounded-2xl bg-surface p-3 shadow-card">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate font-medium">
+                <span className="min-w-0 truncate font-bold">
                   {item.name}
                   {item.quantity > 1 && (
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm font-medium text-muted">
                       {" "}
                       × {item.quantity}
                     </span>
                   )}
                 </span>
-                <span className="whitespace-nowrap font-bold">
+                <span className="whitespace-nowrap font-bold tabular-nums">
                   {formatYen(item.price * item.quantity)}
                 </span>
               </div>
-              <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
+              <ul className="mt-1 space-y-0.5 text-xs text-muted">
                 {item.shares.map((share) => (
-                  <li key={share.memberId}>
+                  <li key={share.memberId} className="flex items-center gap-1.5">
+                    {/* メンバー識別色(自分=青緑/相手=菫)。ホームの天秤バーと同じ */}
+                    <span
+                      aria-hidden
+                      className={`size-2 rounded-full ${memberColorClass(
+                        share.memberId === household.self._id,
+                      )}`}
+                    />
                     {memberName(share.memberId)} {share.ratioPercent}% ・{" "}
                     {formatYen(calcItemShareAmount(item, share.memberId))}
                   </li>
@@ -208,15 +209,15 @@ export default function ExpenseDetailClient({
         </ul>
       </section>
 
-      <section className="space-y-2 rounded-lg border border-black/15 p-4 dark:border-white/25">
+      <section className="space-y-2 rounded-2xl bg-surface p-4 shadow-card">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-gray-500">合計</span>
-          <span className="text-lg font-bold">
+          <span className="text-sm text-muted">合計</span>
+          <span className="text-lg font-bold tabular-nums">
             {formatYen(expense.totalAmount)}
           </span>
         </div>
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-gray-500">立て替え額</span>
+          <span className="text-sm text-muted">立て替え額</span>
           <span className="text-sm">
             {advanceAmount === 0 || otherId === null
               ? "なし"
@@ -226,12 +227,12 @@ export default function ExpenseDetailClient({
       </section>
 
       {expense.settled && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted">
           精算済みの記録は変更できません
         </p>
       )}
       {error !== null && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
@@ -250,7 +251,7 @@ export default function ExpenseDetailClient({
           type="button"
           onClick={handleRemove}
           disabled={expense.settled || removing}
-          className={`${buttonClass} text-red-600`}
+          className={`${buttonClass} text-danger`}
         >
           {removing ? "削除中…" : "削除"}
         </button>

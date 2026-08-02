@@ -86,6 +86,10 @@ type Summary = {
   expenseCount: number;
   draftCount: number;
   truncated: boolean;
+  // 未精算(確定済み)支出のうち、それぞれが支払った合計。
+  // ホームの差額カードで支払い比率(天秤バー)を描くのに使う
+  paidBySelf: number;
+  paidByPartner: number;
 };
 
 // 未精算支出から差額サマリーを組み立てる。
@@ -102,11 +106,19 @@ function summarize(
     partnerId === null
       ? { fromMemberId: null, toMemberId: null, amount: 0 }
       : calcNetBalance(selfId, partnerId, confirmed);
+  const paidTotal = (memberId: Id<"members"> | null) =>
+    memberId === null
+      ? 0
+      : confirmed
+          .filter((e) => e.paidBy === memberId)
+          .reduce((total, e) => total + e.totalAmount, 0);
   return {
     ...balance,
     expenseCount: confirmed.length,
     draftCount: expenses.length - confirmed.length,
     truncated,
+    paidBySelf: paidTotal(selfId),
+    paidByPartner: paidTotal(partnerId),
   };
 }
 

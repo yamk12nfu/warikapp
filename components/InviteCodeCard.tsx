@@ -56,15 +56,15 @@ export default function InviteCodeCard({
   }
 
   return (
-    <div className="rounded-lg border border-black/10 p-4 space-y-3 dark:border-white/20">
+    <div className="rounded-2xl bg-surface p-4 space-y-3 shadow-card">
       <div>
-        <p className="text-xs text-gray-500">招待コード</p>
-        <p className="font-mono text-3xl font-bold tracking-[0.2em] break-all">
+        <p className="text-xs text-muted">招待コード</p>
+        <p className="font-mono text-3xl font-bold tracking-[0.2em] break-all text-me-strong">
           {code}
         </p>
       </div>
 
-      <p className={`text-xs ${isExpired ? "text-red-600" : "text-gray-500"}`}>
+      <p className={`text-xs ${isExpired ? "text-danger" : "text-muted"}`}>
         {isExpired
           ? "有効期限が切れています。再発行してください"
           : `有効期限: ${expiresAtFormatter.format(new Date(expiresAt))}`}
@@ -74,7 +74,7 @@ export default function InviteCodeCard({
         <button
           type="button"
           onClick={() => copy("code", code)}
-          className="rounded border border-black/15 px-3 py-2 text-sm dark:border-white/25"
+          className="rounded-full border border-edge px-3 py-2 text-sm font-medium"
         >
           {copied === "code" ? "コピーしました" : "コードをコピー"}
         </button>
@@ -82,17 +82,17 @@ export default function InviteCodeCard({
           type="button"
           onClick={() => copy("url", inviteUrl)}
           disabled={inviteUrl === ""}
-          className="rounded border border-black/15 px-3 py-2 text-sm disabled:opacity-50 dark:border-white/25"
+          className="rounded-full border border-edge px-3 py-2 text-sm font-medium disabled:opacity-50"
         >
           {copied === "url" ? "コピーしました" : "招待URLをコピー"}
         </button>
       </div>
 
       {inviteUrl !== "" && (
-        <p className="text-xs break-all text-gray-500">{inviteUrl}</p>
+        <p className="text-xs break-all text-muted">{inviteUrl}</p>
       )}
       {copyError !== null && (
-        <p className="text-xs text-red-600">{copyError}</p>
+        <p className="text-xs text-danger">{copyError}</p>
       )}
     </div>
   );
