@@ -3,7 +3,7 @@ schema_version: 1
 entries:
   - id: product-and-data-model
     document: product-and-data-model.md
-    verified_at_commit: 2bdbcde464280d80bdcd4e2e2d94c738dca11d5d
+    verified_at_commit: d0566f51f4ae1bb297316f66da7237f46709a582
     sources:
       - path: docs/requirements.md
       - path: convex/schema.ts
