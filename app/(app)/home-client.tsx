@@ -163,13 +163,11 @@ export default function HomeClient() {
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
+      {/* ロゴは共通ヘッダー(AppHeader)にあるため、ここは挨拶だけ */}
       <header>
         <h1 className="text-xl font-bold">
-          warik<span className="text-me">app</span>
-        </h1>
-        <p className="text-sm text-muted">
           こんにちは、{member.displayName} さん
-        </p>
+        </h1>
       </header>
 
       {/* 未精算差額(F-007)。常時表示し、タップで精算画面へ */}

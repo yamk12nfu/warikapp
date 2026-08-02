@@ -6,7 +6,6 @@ import { toUserMessage } from "@/lib/convex-error";
 import { inputClass } from "@/lib/ui";
 import { SignOutButton } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -89,12 +88,7 @@ export default function SettingsClient() {
 
   return (
     <main className="mx-auto w-full max-w-md space-y-8 p-6">
-      <div>
-        <h1 className="text-xl font-bold">設定</h1>
-        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
-          ← ホームへ
-        </Link>
-      </div>
+      <h1 className="text-xl font-bold">設定</h1>
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-muted">世帯</h2>

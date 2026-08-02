@@ -1,3 +1,4 @@
+import AppHeader from "@/components/AppHeader";
 import { requireSignedIn } from "@/lib/server-auth";
 import { ReactNode } from "react";
 
@@ -10,5 +11,10 @@ export default async function ProtectedLayout({
   children: ReactNode;
 }) {
   await requireSignedIn();
-  return <>{children}</>;
+  return (
+    <>
+      <AppHeader />
+      {children}
+    </>
+  );
 }

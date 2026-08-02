@@ -10,7 +10,6 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -107,12 +106,7 @@ export default function SettlementsClient() {
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
-      <div>
-        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
-          ← ホーム
-        </Link>
-        <h1 className="mt-2 text-xl font-bold">精算履歴</h1>
-      </div>
+      <h1 className="text-xl font-bold">精算履歴</h1>
 
       {error !== null && (
         <p role="alert" className="text-sm text-danger">
