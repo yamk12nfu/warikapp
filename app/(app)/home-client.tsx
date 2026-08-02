@@ -285,7 +285,7 @@ export default function HomeClient() {
           <button
             type="button"
             onClick={() => expenses.loadMore(PAGE_SIZE)}
-            className="w-full rounded-full border border-dashed border-line px-4 py-3 text-sm font-medium text-muted"
+            className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
           >
             もっと読み込む
           </button>

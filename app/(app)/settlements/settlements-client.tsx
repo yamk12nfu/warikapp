@@ -156,7 +156,7 @@ export default function SettlementsClient() {
                   type="button"
                   onClick={() => handleCancel(settlement._id)}
                   disabled={cancelingId !== null}
-                  className="w-full rounded-full border border-line px-4 py-2 text-sm font-medium text-danger disabled:opacity-50"
+                  className="w-full rounded-full border border-edge px-4 py-2 text-sm font-medium text-danger disabled:opacity-50"
                 >
                   {cancelingId === settlement._id
                     ? "取り消し中…"
@@ -172,7 +172,7 @@ export default function SettlementsClient() {
         <button
           type="button"
           onClick={() => settlements.loadMore(PAGE_SIZE)}
-          className="w-full rounded-full border border-dashed border-line px-4 py-3 text-sm font-medium text-muted"
+          className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
         >
           もっと読み込む
         </button>

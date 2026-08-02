@@ -3,6 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import InviteCodeCard from "@/components/InviteCodeCard";
 import { toUserMessage } from "@/lib/convex-error";
+import { inputClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,14 +13,13 @@ type Tab = "create" | "join";
 
 const tabClass = (active: boolean) =>
   `flex-1 rounded-full px-3 py-2 text-sm font-bold ${
-    active ? "bg-me text-white" : "border border-line bg-surface text-muted"
+    active
+      ? "bg-me text-on-accent"
+      : "border border-edge bg-surface text-muted"
   }`;
 
-const inputClass =
-  "w-full rounded-xl border border-line bg-surface px-3 py-2 text-base";
-
 const submitClass =
-  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-white disabled:opacity-50";
+  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-on-accent disabled:opacity-50";
 
 export default function SetupClient({ initialCode }: { initialCode: string }) {
   const router = useRouter();

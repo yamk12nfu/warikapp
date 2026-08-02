@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcItemShareAmount } from "@/lib/settlement";
+import { memberColorClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,7 +19,7 @@ const badgeClass =
   "rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap";
 
 const buttonClass =
-  "flex-1 rounded-full border border-line bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
+  "flex-1 rounded-full border border-edge bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
 
 export default function ExpenseDetailClient({
   expenseId,
@@ -194,11 +195,9 @@ export default function ExpenseDetailClient({
                     {/* メンバー識別色(自分=青緑/相手=菫)。ホームの天秤バーと同じ */}
                     <span
                       aria-hidden
-                      className={`size-2 rounded-full ${
-                        share.memberId === household.self._id
-                          ? "bg-me"
-                          : "bg-partner"
-                      }`}
+                      className={`size-2 rounded-full ${memberColorClass(
+                        share.memberId === household.self._id,
+                      )}`}
                     />
                     {memberName(share.memberId)} {share.ratioPercent}% ・{" "}
                     {formatYen(calcItemShareAmount(item, share.memberId))}

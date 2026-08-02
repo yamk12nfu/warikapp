@@ -3,17 +3,15 @@
 import { api } from "@/convex/_generated/api";
 import InviteCodeCard from "@/components/InviteCodeCard";
 import { toUserMessage } from "@/lib/convex-error";
+import { inputClass } from "@/lib/ui";
 import { SignOutButton } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
-const inputClass =
-  "w-full rounded-xl border border-line bg-surface px-3 py-2 text-base";
-
 const buttonClass =
-  "rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium disabled:opacity-50";
+  "rounded-full border border-edge bg-surface px-4 py-2 text-sm font-medium disabled:opacity-50";
 
 export default function SettingsClient() {
   const router = useRouter();

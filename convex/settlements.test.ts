@@ -144,6 +144,54 @@ describe("settlements.currentBalance", () => {
     });
   });
 
+  test("メンバー別の支払い合計は視点に合わせて self/partner が入れ替わる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 2000,
+    });
+
+    const fromAlice = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(fromAlice.paidBySelf).toBe(5000);
+    expect(fromAlice.paidByPartner).toBe(2000);
+
+    const fromBob = await t
+      .withIdentity(BOB)
+      .query(api.settlements.currentBalance, {});
+    expect(fromBob.paidBySelf).toBe(2000);
+    expect(fromBob.paidByPartner).toBe(5000);
+  });
+
+  test("支払い合計はドラフトを含めない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await addExpense(t, members, ALICE, { price: 3000, status: "draft" });
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(balance.paidBySelf).toBe(5000); // ドラフトの3,000円は含めない
+    expect(balance.paidByPartner).toBe(0);
+  });
+
+  test("支払い合計は精算後に0へ戻る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await settle(t, ALICE);
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    expect(balance.paidBySelf).toBe(0);
+    expect(balance.paidByPartner).toBe(0);
+  });
+
   test("相手から見ると向きは同じで、金額も一致する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

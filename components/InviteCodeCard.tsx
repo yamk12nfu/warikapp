@@ -74,7 +74,7 @@ export default function InviteCodeCard({
         <button
           type="button"
           onClick={() => copy("code", code)}
-          className="rounded-full border border-line px-3 py-2 text-sm font-medium"
+          className="rounded-full border border-edge px-3 py-2 text-sm font-medium"
         >
           {copied === "code" ? "コピーしました" : "コードをコピー"}
         </button>
@@ -82,7 +82,7 @@ export default function InviteCodeCard({
           type="button"
           onClick={() => copy("url", inviteUrl)}
           disabled={inviteUrl === ""}
-          className="rounded-full border border-line px-3 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-full border border-edge px-3 py-2 text-sm font-medium disabled:opacity-50"
         >
           {copied === "url" ? "コピーしました" : "招待URLをコピー"}
         </button>

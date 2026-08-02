@@ -3,6 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
+import { inputClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -186,7 +187,7 @@ export default function SettlementClient() {
           maxLength={MAX_MEMO_LENGTH}
           onChange={(event) => setMemo(event.target.value)}
           placeholder="例: 6月分"
-          className="w-full rounded-xl border border-line bg-surface px-3 py-2"
+          className={inputClass}
         />
         <p className="text-right text-xs text-muted">
           {memo.length}/{MAX_MEMO_LENGTH}
@@ -203,7 +204,7 @@ export default function SettlementClient() {
         type="button"
         onClick={handleExecute}
         disabled={!canExecute || submitting}
-        className="w-full rounded-full bg-me px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+        className="w-full rounded-full bg-me px-4 py-3 text-sm font-bold text-on-accent disabled:opacity-50"
       >
         {submitting ? "精算中…" : "精算する"}
       </button>

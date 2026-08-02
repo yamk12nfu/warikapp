@@ -48,10 +48,10 @@ const NOTICE_TONE_CLASS: Record<Notice["tone"], string> = {
 };
 
 const buttonClass =
-  "w-full rounded-full border border-line bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
+  "w-full rounded-full border border-edge bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
 
 const primaryButtonClass =
-  "w-full rounded-full bg-me px-4 py-3 text-center text-sm font-bold text-white";
+  "w-full rounded-full bg-me px-4 py-3 text-center text-sm font-bold text-on-accent";
 
 const ERR_UPLOAD = "アップロードに失敗しました";
 

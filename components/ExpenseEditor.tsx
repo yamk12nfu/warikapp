@@ -36,10 +36,10 @@ type ItemRow = {
 };
 
 const submitClass =
-  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-white disabled:opacity-50";
+  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-on-accent disabled:opacity-50";
 
 const chipClass =
-  "rounded-full border border-line px-3 py-2 text-sm font-bold whitespace-nowrap";
+  "rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap";
 
 const yen = formatYen;
 
@@ -111,9 +111,9 @@ const PRESET_LABEL: Record<Preset, string> = {
 // 負担区分チップの色。メンバー色(自分=青緑 / 相手=菫)をそのまま使い、
 // 折半は2色を半々に塗る(誰の負担かが色だけで読めるようにする)
 const PRESET_CHIP_CLASS: Record<Preset, string> = {
-  split: "border-transparent text-white",
-  self: "border-transparent bg-me text-white",
-  partner: "border-transparent bg-partner text-white",
+  split: "border-transparent text-on-accent",
+  self: "border-transparent bg-me text-on-accent",
+  partner: "border-transparent bg-partner text-on-accent",
   custom: "",
 };
 
@@ -496,7 +496,7 @@ export default function ExpenseEditor({
                         setShareRatio(row, self._id, event.target.value)
                       }
                       inputMode="numeric"
-                      className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-right tabular-nums"
+                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
                     />
                     %
                   </label>
@@ -508,7 +508,7 @@ export default function ExpenseEditor({
                         setShareRatio(row, partner._id, event.target.value)
                       }
                       inputMode="numeric"
-                      className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-right tabular-nums"
+                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
                     />
                     %
                   </label>
@@ -529,7 +529,7 @@ export default function ExpenseEditor({
         <button
           type="button"
           onClick={addRow}
-          className="w-full rounded-full border border-dashed border-line px-4 py-3 text-sm font-medium text-muted"
+          className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
         >
           + 品目を追加
         </button>

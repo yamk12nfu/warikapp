@@ -1,32 +1,30 @@
 // 共通の見た目クラス(案「ふたり」)。色や角丸の値は globals.css のトークンが
 // 正で、ここは「部品ごとの組み合わせ」だけを持つ。画面側はここから import し、
 // 画面固有の余白・配置だけを各ファイルに書く。
+// メンバー色(bg-me / bg-partner)の上の文字は text-white ではなく
+// text-on-accent を使う(ダークモードでは濃色文字に切り替わるため)。
 
-// カード: 白地+角丸+柔らかい影。枠線で区切っていた旧デザインの置き換え
-export const cardClass = "rounded-2xl bg-surface p-4 shadow-card";
+// カード。paddingは含めない(画面ごとに p-4 / p-5 などを足す)
+export const cardClass = "rounded-2xl bg-surface shadow-card";
 
 // 一覧の行(タップできるカード)
 export const rowCardClass = "rounded-2xl bg-surface p-3 shadow-card";
 
 // 主要アクション(1画面に1つ)
 export const primaryButtonClass =
-  "rounded-full bg-me px-4 py-3 text-center text-sm font-bold text-white disabled:opacity-50";
+  "rounded-full bg-me px-4 py-3 text-center text-sm font-bold text-on-accent disabled:opacity-50";
 
 // 準主要アクション(主要の隣に置く同格の選択肢)
 export const secondaryButtonClass =
   "rounded-full bg-me-soft px-4 py-3 text-center text-sm font-bold text-me-strong disabled:opacity-50";
 
-// 補助アクション(取り消し・再試行など)
-export const ghostButtonClass =
-  "rounded-full border border-line bg-surface px-4 py-2 text-center text-sm font-medium disabled:opacity-50";
-
 // テキストリンク
 export const linkClass =
   "text-sm font-medium text-me-strong underline underline-offset-4";
 
-// 入力欄
+// 入力欄。輪郭は border-edge(区切り線の border-line より濃い)
 export const inputClass =
-  "w-full rounded-xl border border-line bg-surface px-3 py-2 text-base";
+  "w-full rounded-xl border border-edge bg-surface px-3 py-2 text-base";
 
 // 状態バッジ(未確定・精算済みなど)。色は使う側で足す
 export const badgeClass =
