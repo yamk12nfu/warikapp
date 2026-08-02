@@ -43,15 +43,15 @@ type Notice = { text: string; tone: "warn" | "info" };
 // つかず、「このレシートで今起きたこと」を伝える一言が常設の案内として
 // 読み飛ばされる(実機で確認した)
 const NOTICE_TONE_CLASS: Record<Notice["tone"], string> = {
-  warn: "border-amber-500 text-amber-700 dark:text-amber-400",
-  info: "border-black/20 bg-black/[0.06] text-gray-800 dark:border-white/30 dark:bg-white/10 dark:text-gray-200",
+  warn: "border-warn-strong/40 bg-warn-soft text-warn-strong",
+  info: "border-me/30 bg-me-soft text-foreground",
 };
 
 const buttonClass =
-  "w-full rounded-md border border-black/15 px-4 py-3 text-center text-sm font-medium disabled:opacity-50 dark:border-white/25";
+  "w-full rounded-full border border-line bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
 
 const primaryButtonClass =
-  "w-full rounded-md bg-foreground px-4 py-3 text-center text-sm font-medium text-background";
+  "w-full rounded-full bg-me px-4 py-3 text-center text-sm font-bold text-white";
 
 const ERR_UPLOAD = "アップロードに失敗しました";
 
@@ -343,13 +343,13 @@ export default function ReceiptExpenseClient() {
 
   // 未認証の判定を query の読み込み判定より先に行う(Phase 5と同じ)
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined || (member !== null && household === undefined)) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null || household === undefined) {
     return null; // 世帯未所属: /setupへ誘導中
@@ -359,7 +359,7 @@ export default function ReceiptExpenseClient() {
     <main className="mx-auto w-full max-w-md space-y-5 p-6">
       <div>
         <h1 className="text-xl font-bold">レシートから登録</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-muted">
           レシートを撮影すると、品目と金額をAIが読み取ります。
         </p>
       </div>
@@ -382,8 +382,8 @@ export default function ReceiptExpenseClient() {
           />
 
           {error !== null && (
-            <div className="space-y-3 rounded-lg border border-red-500 p-3">
-              <p role="alert" className="text-sm text-red-600">
+            <div className="space-y-3 rounded-xl border border-danger p-3">
+              <p role="alert" className="text-sm text-danger">
                 {error}
               </p>
               {failedStep === "upload" && file !== null && (
@@ -420,7 +420,7 @@ export default function ReceiptExpenseClient() {
 
           <Link
             href="/expenses/new/manual"
-            className="block text-sm text-blue-600 underline"
+            className="block text-sm font-medium text-me-strong underline underline-offset-4"
           >
             レシートを使わずに手入力する
           </Link>
@@ -429,13 +429,13 @@ export default function ReceiptExpenseClient() {
 
       {phase === "working" && (
         <div className="space-y-3" aria-live="polite">
-          <p className="text-sm text-gray-500">{progress}</p>
+          <p className="text-sm text-muted">{progress}</p>
           {/* 読み取りは通常15秒以内。待ち時間をスケルトンで示す */}
           <div className="space-y-2">
             {[0, 1, 2].map((row) => (
               <div
                 key={row}
-                className="h-14 animate-pulse rounded-lg bg-black/10 dark:bg-white/15"
+                className="h-14 animate-pulse rounded-2xl bg-line"
               />
             ))}
           </div>
@@ -446,7 +446,7 @@ export default function ReceiptExpenseClient() {
         <>
           {notice !== null && (
             <p
-              className={`rounded-lg border p-3 text-sm ${NOTICE_TONE_CLASS[notice.tone]}`}
+              className={`rounded-xl border p-3 text-sm ${NOTICE_TONE_CLASS[notice.tone]}`}
             >
               {notice.text}
             </p>
@@ -463,7 +463,7 @@ export default function ReceiptExpenseClient() {
         </>
       )}
 
-      <Link href="/" className="block text-sm text-blue-600 underline">
+      <Link href="/" className="block text-sm font-medium text-me-strong underline underline-offset-4">
         ホームへ戻る
       </Link>
     </main>

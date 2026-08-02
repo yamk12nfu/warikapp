@@ -55,13 +55,13 @@ export default function ManualExpenseClient() {
   // 未認証の判定を query の読み込み判定より先に行う(未認証では query が "skip" で
   // undefined のまま止まるため、順序を逆にすると「読み込み中…」から抜けられない)
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
   }
   if (member === undefined || (member !== null && household === undefined)) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (member === null || household === undefined) {
     return null; // 世帯未所属: /setupへ誘導中
@@ -71,7 +71,7 @@ export default function ManualExpenseClient() {
     <main className="mx-auto w-full max-w-md space-y-5 p-6">
       <div>
         <h1 className="text-xl font-bold">支出を手入力</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-muted">
           品目名と金額だけで登録できます。負担区分は初期値が「折半」です。
         </p>
       </div>
@@ -95,7 +95,7 @@ export default function ManualExpenseClient() {
         onSubmit={handleSubmit}
       />
 
-      <Link href="/" className="block text-sm text-blue-600 underline">
+      <Link href="/" className="block text-sm font-medium text-me-strong underline underline-offset-4">
         ホームへ戻る
       </Link>
     </main>

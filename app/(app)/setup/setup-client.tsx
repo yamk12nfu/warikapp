@@ -11,17 +11,15 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 type Tab = "create" | "join";
 
 const tabClass = (active: boolean) =>
-  `flex-1 rounded-md px-3 py-2 text-sm font-medium ${
-    active
-      ? "bg-foreground text-background"
-      : "border border-black/15 dark:border-white/25"
+  `flex-1 rounded-full px-3 py-2 text-sm font-bold ${
+    active ? "bg-me text-white" : "border border-line bg-surface text-muted"
   }`;
 
 const inputClass =
-  "w-full rounded border border-black/15 bg-transparent px-3 py-2 text-base dark:border-white/25";
+  "w-full rounded-xl border border-line bg-surface px-3 py-2 text-base";
 
 const submitClass =
-  "w-full rounded-md bg-foreground px-4 py-3 text-base font-medium text-background disabled:opacity-50";
+  "w-full rounded-full bg-me px-4 py-3 text-base font-bold text-white disabled:opacity-50";
 
 export default function SetupClient({ initialCode }: { initialCode: string }) {
   const router = useRouter();
@@ -97,7 +95,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
   }
 
   if (isLoading || (isAuthenticated && member === undefined)) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
@@ -116,7 +114,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
       <main className="mx-auto w-full max-w-md space-y-6 p-6">
         <div>
           <h1 className="text-xl font-bold">世帯を作成しました</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-muted">
             {partnerJoined
               ? `${household.partner?.displayName} さんが参加しました。`
               : "この招待コード(または招待URL)をパートナーに共有してください。コードは設定画面からいつでも確認・再発行できます。"}
@@ -140,7 +138,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
       <div>
         <h1 className="text-xl font-bold">世帯のセットアップ</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-muted">
           支出を共有する相手と「世帯」を組みます。どちらか一方が作成し、
           もう一方が招待コードで参加してください。
         </p>
@@ -184,7 +182,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
               placeholder="たろう"
               className={inputClass}
             />
-            <p className="text-xs text-gray-500">1〜20文字</p>
+            <p className="text-xs text-muted">1〜20文字</p>
           </div>
           <div className="space-y-1">
             <label htmlFor="couple-name" className="text-sm font-medium">
@@ -198,7 +196,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
               placeholder="わたしたち"
               className={inputClass}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted">
               未入力の場合は「わたしたち」になります
             </p>
           </div>
@@ -222,7 +220,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
               placeholder="ABCD2345"
               className={`${inputClass} font-mono tracking-[0.2em] uppercase`}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted">
               パートナーが発行した8文字のコード
             </p>
           </div>
@@ -239,7 +237,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
               placeholder="はなこ"
               className={inputClass}
             />
-            <p className="text-xs text-gray-500">1〜20文字</p>
+            <p className="text-xs text-muted">1〜20文字</p>
           </div>
           <button type="submit" disabled={submitting} className={submitClass}>
             {submitting ? "参加中…" : "この世帯に参加する"}
@@ -248,7 +246,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
       )}
 
       {error !== null && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}

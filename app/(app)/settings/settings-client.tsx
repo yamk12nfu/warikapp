@@ -10,10 +10,10 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 const inputClass =
-  "w-full rounded border border-black/15 bg-transparent px-3 py-2 text-base dark:border-white/25";
+  "w-full rounded-xl border border-line bg-surface px-3 py-2 text-base";
 
 const buttonClass =
-  "rounded-md border border-black/15 px-4 py-2 text-sm disabled:opacity-50 dark:border-white/25";
+  "rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium disabled:opacity-50";
 
 export default function SettingsClient() {
   const router = useRouter();
@@ -75,7 +75,7 @@ export default function SettingsClient() {
   }
 
   if (isLoading) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
   if (!isAuthenticated) {
     return null; // 未ログイン: proxyが/loginへ誘導する
@@ -84,7 +84,7 @@ export default function SettingsClient() {
     return null; // 世帯未所属: /setupへ誘導中
   }
   if (member === undefined || household === undefined) {
-    return <main className="p-8 text-gray-500">読み込み中…</main>;
+    return <main className="p-8 text-muted">読み込み中…</main>;
   }
 
   const displayNameValue = draftName ?? household.self.displayName;
@@ -93,18 +93,18 @@ export default function SettingsClient() {
     <main className="mx-auto w-full max-w-md space-y-8 p-6">
       <div>
         <h1 className="text-xl font-bold">設定</h1>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
           ← ホームへ
         </Link>
       </div>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-gray-500">世帯</h2>
+        <h2 className="text-sm font-semibold text-muted">世帯</h2>
         <p className="text-base">{household.coupleName}</p>
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-500">あなたの表示名</h2>
+        <h2 className="text-sm font-semibold text-muted">あなたの表示名</h2>
         <form onSubmit={handleRename} className="space-y-2">
           <label htmlFor="display-name" className="sr-only">
             表示名
@@ -132,21 +132,21 @@ export default function SettingsClient() {
             {savingName ? "保存中…" : "表示名を保存"}
           </button>
         </form>
-        {nameSaved && <p className="text-sm text-green-700">保存しました</p>}
+        {nameSaved && <p className="text-sm text-ok">保存しました</p>}
         {nameError !== null && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger">
             {nameError}
           </p>
         )}
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-500">パートナー</h2>
+        <h2 className="text-sm font-semibold text-muted">パートナー</h2>
         {household.partner !== null ? (
           <p className="text-base">{household.partner.displayName} さん</p>
         ) : (
           <>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted">
               まだ参加していません。招待コードを共有してください。
             </p>
             {household.invitation !== null ? (
@@ -158,7 +158,7 @@ export default function SettingsClient() {
                 expiresAt={household.invitation.expiresAt}
               />
             ) : (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted">
                 有効な招待コードがありません。発行してください。
               </p>
             )}
@@ -174,11 +174,11 @@ export default function SettingsClient() {
                   ? "招待コードを発行"
                   : "招待コードを再発行"}
             </button>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted">
               再発行すると、いま表示されているコードは使えなくなります。
             </p>
             {inviteError !== null && (
-              <p role="alert" className="text-sm text-red-600">
+              <p role="alert" className="text-sm text-danger">
                 {inviteError}
               </p>
             )}
@@ -187,9 +187,9 @@ export default function SettingsClient() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-500">アカウント</h2>
+        <h2 className="text-sm font-semibold text-muted">アカウント</h2>
         <SignOutButton redirectUrl="/login">
-          <button type="button" className={`${buttonClass} text-red-600`}>
+          <button type="button" className={`${buttonClass} text-danger`}>
             ログアウト
           </button>
         </SignOutButton>

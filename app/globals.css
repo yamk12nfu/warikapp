@@ -1,26 +1,69 @@
 @import "tailwindcss";
 
+/* デザイントークン(案「ふたり」)。
+   ふたりで使うアプリなので、メンバーごとの色(自分=青緑 / 相手=菫)を
+   情報設計の軸にする。色はここで一元管理し、画面側は bg-me / text-partner
+   などのユーティリティで参照する(ライト/ダークの切り替えもここで吸収)。 */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --background: #fbf8f4;
+  --surface: #ffffff;
+  --foreground: #33302c;
+  --muted: #8a8374;
+  --line: #ede7dc;
+  --me: #0e9384;
+  --me-strong: #0b6e63;
+  --me-soft: #e9f4f2;
+  --partner: #8460e0;
+  --partner-soft: #f0ebfa;
+  --warn-strong: #9a6a10;
+  --warn-soft: #fceed2;
+  --danger: #d14d41;
+  --ok: #2e7d4f;
+  --shadow-card-value: 0 2px 10px rgb(120 100 70 / 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1c1a17;
+    --surface: #262320;
+    --foreground: #f0ede8;
+    --muted: #a39b8b;
+    --line: #3a362f;
+    --me: #2db5a5;
+    --me-strong: #6fd3c6;
+    --me-soft: #1d3330;
+    --partner: #a18be8;
+    --partner-soft: #2e2741;
+    --warn-strong: #e8b45a;
+    --warn-soft: #3a2f1a;
+    --danger: #e8756a;
+    --ok: #6fbf8f;
+    --shadow-card-value: 0 2px 10px rgb(0 0 0 / 0.3);
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-me: var(--me);
+  --color-me-strong: var(--me-strong);
+  --color-me-soft: var(--me-soft);
+  --color-partner: var(--partner);
+  --color-partner-soft: var(--partner-soft);
+  --color-warn-strong: var(--warn-strong);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --shadow-card: var(--shadow-card-value);
+  --font-sans: var(--font-zen-maru), "Hiragino Maru Gothic ProN",
+    "Hiragino Sans", "Yu Gothic", sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
