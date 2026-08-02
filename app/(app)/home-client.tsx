@@ -121,17 +121,16 @@ export default function HomeClient() {
     if (balance === undefined || household === undefined) {
       return null;
     }
-    const total = balance.paidBySelf + balance.paidByPartner;
+    // ?? 0 はデプロイ順の防御。フロントが先に新しくなり、Convex側が
+    // まだ旧関数(このフィールドを返さない)の間でも落ちないようにする
+    const paidSelf = balance.paidBySelf ?? 0;
+    const paidPartner = balance.paidByPartner ?? 0;
+    const total = paidSelf + paidPartner;
     if (total === 0 || household.partner === null) {
       return null;
     }
-    const selfPct = Math.round((balance.paidBySelf / total) * 100);
-    const tilt =
-      balance.paidBySelf > balance.paidByPartner
-        ? -1.5
-        : balance.paidBySelf < balance.paidByPartner
-          ? 1.5
-          : 0;
+    const selfPct = Math.round((paidSelf / total) * 100);
+    const tilt = paidSelf > paidPartner ? -1.5 : paidSelf < paidPartner ? 1.5 : 0;
     return (
       <div className="mt-3">
         <div
@@ -148,14 +147,14 @@ export default function HomeClient() {
               aria-hidden
               className="mr-1 inline-block size-2 rounded-full bg-me align-[1px]"
             />
-            あなた {formatYen(balance.paidBySelf)}
+            あなた {formatYen(paidSelf)}
           </span>
           <span>
             <span
               aria-hidden
               className="mr-1 inline-block size-2 rounded-full bg-partner align-[1px]"
             />
-            {household.partner.displayName}さん {formatYen(balance.paidByPartner)}
+            {household.partner.displayName}さん {formatYen(paidPartner)}
           </span>
         </div>
       </div>
