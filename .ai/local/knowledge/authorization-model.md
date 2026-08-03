@@ -24,7 +24,10 @@
 - member と認証アカウントの紐付けは `members.tokenIdentifier`
   (認証プロバイダ発行の安定 ID、`by_tokenIdentifier` インデックスで検索)
 - `requireMember` は member が見つからなければ throw(「世帯に参加してください」)。
-  認可失敗はすべて例外で表現し、戻り値 null で流さない
+  認可失敗はすべて例外で表現し、戻り値 null で流さない(要件 5.2 にも明文化)
+- 認可ヘルパーの例外は素の `Error` ではなく **`ConvexError`(`convex/values`)で投げる**。
+  素の Error は本番デプロイではメッセージが「Server Error」に伏せられクライアントに届かない。
+  クライアント側は `lib/convex-error.ts` の `toUserMessage()` でメッセージを取り出す
 - **例外: 状態確認プローブ**(現時点では `couples.currentMember` のみ)は null 返却を許可する。
   条件: (1) null を認可成功と解釈せず、後続の世帯データアクセス判断に使わない
   (2) クライアントは `useConvexAuth()` で Convex 側の認証確立を待ってから実行する

@@ -9,7 +9,7 @@ entries:
       - path: convex/schema.ts
   - id: authorization-model
     document: authorization-model.md
-    verified_at_commit: ee9bc41bd97f7dd758bc8f56c7b6c015247e2de1
+    verified_at_commit: 1795ca29958f8aaa163c4ac2cad17bb0dce9dbba
     sources:
       - path: convex/lib/auth.ts
       - path: docs/requirements.md
