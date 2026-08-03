@@ -17,7 +17,9 @@
 ## 制約（厳守）
 
 以下はプロンプト上のお願いではなく、**`aro guard` と CI によって機械的に検証される**。
-違反した変更は PR の required check が落ちるため、merge に至らない。
+`severity: fail` の違反は PR の required check が落ちるため、merge に至らない。
+`severity: warn` の違反は exit 0 で報告のみだが、この改善ループでは中止条件として扱う
+（手順 3 参照）。
 
 1. 変更してよいのは `ai.allowed_paths` に一致する path のみ。
 2. `ai.forbidden_paths`（および適用 policy の `forbidden_paths`）に一致する path は決して変更しない。
@@ -39,8 +41,11 @@
 3. **自己検証を行う（両方とも通ること）**:
    - `git fetch origin <default branch>` してから
      `aro guard --repo . --base origin/<default branch>` — policies 違反の機械検証
-     （exit 0 であること。fetch 済みの `origin/<default branch>` を使うと、ローカルの
-     default branch が古くても CI に近い merge-base で検証できる）
+     （fetch 済みの `origin/<default branch>` を使うと、ローカルの default branch が
+     古くても CI に近い merge-base で検証できる）。
+     **`severity: warn` の違反も中止条件として扱う**（exit 0 でも警告が 1 件でもあれば
+     手順 4 に従い、変更を破棄して提案に留める）。warn は人間の PR を通すための緩和であって、
+     AI の行動半径を広げるものではない。
    - `quality_gates.required` に対応する `commands.*` のコマンド — すべて緑であること
 4. guard 違反・gates 失敗を解消できない、または `max_changed_files` を超える場合は
    変更を破棄し、提案だけを開発者に残す（無理に通そうとしない）。

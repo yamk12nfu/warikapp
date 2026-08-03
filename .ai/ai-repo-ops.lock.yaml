@@ -2,9 +2,9 @@ schema_version: 1
 source:
   repository: yamk12nfu/ai-repo-ops
   distribution: base
-  version: 0.1.5
+  version: 0.1.6
   commit: null
-  distribution_content_sha256: b89bd09f27531f15733d306adba73bc7918e6aea8b639058c10a9972c54db94e
+  distribution_content_sha256: ab253921f0f8b8be7ed58cb8f63c00ccab535d1369eeb6dfbb04afff7a541044
 checksum:
   algorithm: sha256
   mode: canonical_text_lf_utf8bom_strip_v1
@@ -15,7 +15,7 @@ managed_files:
     strategy: managed_overwrite
   - path: .ai/managed/prompts/improve.md
     source: distribution/base/files/.ai/managed/prompts/improve.md
-    installed_sha256: 65232e883805072d997e02fc8c9872d56c02c38575cce298a329ca0b48a48945
+    installed_sha256: d71fc87e901d7346b7529baa199ab6e06a625986f4fd419b5787d65381c0fd4b
     strategy: managed_overwrite
   - path: .ai/managed/prompts/issue-fix.md
     source: distribution/base/files/.ai/managed/prompts/issue-fix.md
@@ -31,15 +31,15 @@ managed_files:
     strategy: managed_overwrite
   - path: .ai/managed/policies/default.yaml
     source: distribution/base/files/.ai/managed/policies/default.yaml
-    installed_sha256: 2e49d418d6c6c32dd5e4308790278c143326d3156bcfdd24706634834d3a372d
+    installed_sha256: 240d41db5271896e4a466884da8271a8ec9a9c0122ef493c62edc8239f920c30
     strategy: managed_overwrite
   - path: .ai/managed/policies/low-risk.yaml
     source: distribution/base/files/.ai/managed/policies/low-risk.yaml
-    installed_sha256: 612e55e403e6a769c41993e99681ce7597892c39075177fd3f5885d55e64c379
+    installed_sha256: 7b52f98f9dafcab3ea7ff507120d44f976b4b78d2a8d4b601cd832e31adf3f0b
     strategy: managed_overwrite
   - path: .ai/managed/policies/security.yaml
     source: distribution/base/files/.ai/managed/policies/security.yaml
-    installed_sha256: 56925e9f7910e2029c44e5406390c121d67b77c58e476394a8316ef30a50a746
+    installed_sha256: 11d84b0780e85b51a2ceb38b8b18b62790ac183d02791f27788a915e57ffdf26
     strategy: managed_overwrite
   - path: .ai/managed/schemas/project.schema.json
     source: distribution/base/files/.ai/managed/schemas/project.schema.json
@@ -77,4 +77,4 @@ patches:
       - .ai/managed/
       - .ai/ai-repo-ops.lock.yaml
 created_at: 2026-07-21T14:31:58.122Z
-updated_at: 2026-07-21T14:31:58.122Z
+updated_at: 2026-08-02T18:19:30.523Z
