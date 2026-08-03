@@ -57,8 +57,17 @@ export default function AppHeader() {
     // ヘッダーが fixed 子要素(背面オーバーレイ)の containing block になり、
     // オーバーレイがヘッダーの箱内に閉じ込められて背面タップを拾えなくなる
     <header className="sticky top-0 z-40 border-b border-line bg-background">
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-6 py-3">
-        <Link href="/" className="text-lg font-bold" aria-label="ホームへ">
+      {/* z-10: メニュー展開時も背面オーバーレイ(z-0)より前に置き、
+          ロゴ(ホームへ)とボタンを操作可能なままにする */}
+      <div className="relative z-10 mx-auto flex w-full max-w-md items-center justify-between px-6 py-3">
+        <Link
+          href="/"
+          // ホーム表示中にタップすると pathname が変わらず遷移検知で閉じられないため、
+          // ロゴ自身でも明示的に閉じる
+          onClick={() => setOpen(false)}
+          className="text-lg font-bold"
+          aria-label="ホームへ"
+        >
           warik<span className="text-me">app</span>
         </Link>
         <button
@@ -99,14 +108,14 @@ export default function AppHeader() {
         <>
           {/* 背面タップで閉じる。ヘッダーより背面(z-40のheader内でnavより先)に置く */}
           <div
-            className="fixed inset-0 bg-foreground/20"
+            className="fixed inset-0 z-0 bg-foreground/20"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
           <nav
             id="app-nav"
             aria-label="メインメニュー"
-            className="absolute inset-x-0 top-full"
+            className="absolute inset-x-0 top-full z-10"
           >
             <ul className="mx-auto w-full max-w-md space-y-1 rounded-b-2xl bg-surface p-3 shadow-card">
               {NAV_ITEMS.map((item) => (
