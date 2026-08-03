@@ -5,7 +5,6 @@ import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { inputClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -101,12 +100,7 @@ export default function SettlementClient() {
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
-      <div>
-        <Link href="/" className="text-sm font-medium text-me-strong underline underline-offset-4">
-          ← ホーム
-        </Link>
-        <h1 className="mt-2 text-xl font-bold">精算</h1>
-      </div>
+      <h1 className="text-xl font-bold">精算</h1>
 
       <section className="rounded-2xl bg-surface p-4 shadow-card">
         <p className="text-sm text-muted">未精算差額</p>
