@@ -1,7 +1,9 @@
 ---
 schema_version: 1
 id: deploy-pipeline-vercel-convex-coupling
-status: open
+status: accepted
+decision:
+  by: yamk12nfu
 proposed_at_commit: 7706532ca85b4362d7d8861ae52cfb166dbd4bd6
 # 注: app/(app)/home-client.tsx も根拠だが、aro が source path の括弧を
 # glob メタ文字として拒否するため(route group パス非対応)、本文での言及に留める
