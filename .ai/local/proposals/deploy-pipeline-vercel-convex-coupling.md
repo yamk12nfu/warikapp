@@ -1,7 +1,7 @@
 ---
 schema_version: 1
 id: deploy-pipeline-vercel-convex-coupling
-status: accepted
+status: done
 decision:
   by: yamk12nfu
 proposed_at_commit: 7706532ca85b4362d7d8861ae52cfb166dbd4bd6

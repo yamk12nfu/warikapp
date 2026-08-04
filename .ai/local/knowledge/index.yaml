@@ -13,3 +13,9 @@ entries:
     sources:
       - path: convex/lib/auth.ts
       - path: docs/requirements.md
+  - id: deploy-pipeline
+    document: deploy-pipeline.md
+    verified_at_commit: 823b50027ab7046636de5d6f65f331a52c9984c2
+    sources:
+      - path: vercel.json
+      - path: "app/(app)/home-client.tsx"
