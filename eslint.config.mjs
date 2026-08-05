@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Convex CLI が生成するファイル。手で直しても再生成で戻るため lint 対象外にする。
+    "convex/_generated/**",
   ]),
 ]);
 
