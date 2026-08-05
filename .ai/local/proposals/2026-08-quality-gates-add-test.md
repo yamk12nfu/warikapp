@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=../../managed/schemas/proposal.schema.json
 schema_version: 1
 id: quality-gates-add-test
-status: open
+status: accepted
 proposed_at_commit: 625022d6cae33f50ec639a97b0360ee89a1c07b9
 # 注: 根拠の中心は .ai/project.yaml の commands.test が空であること
 # (aro doctor の WARN)だが、sources に .ai/** は使えないため本文での言及に留める
@@ -10,8 +10,7 @@ sources:
   - path: "package.json"
   - path: "vitest.config.ts"
 decision:
-  by: ""
-  reason: ""
+  by: yamk12nfu
 ---
 
 ## 課題
