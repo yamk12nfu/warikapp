@@ -1,10 +1,12 @@
 ---
 schema_version: 1
 id: ai-review-validates-merge-result
-status: open
+status: done
 proposed_at_commit: 5bceda961cc50ac0944c4684d79f0004dc9dbea0
 sources:
   - path: ".github/workflows/ai-review.yml"
+decision:
+  by: yamk12nfu
 ---
 
 ## 提案: ai-review CI は「main とのマージ結果」を検証する、という knowledge entry

@@ -19,3 +19,8 @@ entries:
     sources:
       - path: vercel.json
       - path: "app/(app)/home-client.tsx"
+  - id: ai-review-pipeline
+    document: ai-review-pipeline.md
+    verified_at_commit: 8a573a5473a611e13df59f5d292306c0e22076a4
+    sources:
+      - path: .github/workflows/ai-review.yml

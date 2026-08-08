@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=../../managed/schemas/proposal.schema.json
 schema_version: 1
 id: eslint-zero-warnings
-status: accepted
+status: done
 proposed_at_commit: 625022d6cae33f50ec639a97b0360ee89a1c07b9
 sources:
   - path: "eslint.config.mjs"
