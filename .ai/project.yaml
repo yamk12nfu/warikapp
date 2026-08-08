@@ -41,6 +41,7 @@ ai:
     - "package-lock.json"
     - "tsconfig.json"
     - "*.config.*" # next/eslint/postcss/vitest等のルート設定ファイル
+    - "README.md" # プロジェクト概要(提案 readme-project-overview の実装対象)
   forbidden_paths:
     - ".env"
     - "secrets/**"
