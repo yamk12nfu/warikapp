@@ -17,6 +17,7 @@
 ```bash
 npm ci
 npx convex dev   # 初回はログイン・プロジェクト選択。NEXT_PUBLIC_CONVEX_URL を .env.local に書き込む
+# 下表の Clerk キー 2 つを .env.local に設定してから:
 npm run dev      # 別ターミナルで。http://localhost:3000
 ```
 
