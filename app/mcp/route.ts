@@ -1,5 +1,5 @@
+import { createClerkClient } from "@clerk/backend";
 import { verifyClerkToken } from "@clerk/mcp-tools/next";
-import { auth } from "@clerk/nextjs/server";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
@@ -34,10 +34,17 @@ const mcpHandler = createMcpHandler((server: McpServer) => {
 
 // @clerk/mcp-tools@0.6.0 の verifyClerkToken は withMcpAuth が要求する
 // (req: Request, bearerToken?: string) => AuthInfo ではなく、
-// (auth: Clerkのauth({ acceptsToken: "oauth_token" })の戻り値, token) => AuthInfo
-// というシグネチャを持つ(node_modules/@clerk/mcp-tools/dist/server.d.mts で確認)。
-// Clerk公式ガイドの一部はverifyClerkTokenをそのままwithMcpAuthへ渡す例を示すが、
-// このバージョンではそれができないため、ここでauth()呼び出しを挟んで変換する。
+// (auth: Clerkの機械トークン検証結果, token) => AuthInfo というシグネチャを持つ
+// (node_modules/@clerk/mcp-tools/dist/server.d.mts で確認)。ここで検証を挟んで変換する。
+//
+// 検証には @clerk/nextjs の auth() ではなく @clerk/backend の authenticateRequest を
+// 直接使う。auth() 経由だと env CLERK_AUTHORIZED_PARTIES(セッションCookieの
+// azp検証。proxy.ts参照)が機械トークンの検証にも適用されるが、OAuthアクセストークンには
+// azpクレームが存在しないため、本番では全リクエストが
+// 「Invalid OAuth access token(azp undefined)」で401になる(2026-08-12の本番障害で
+// 実測・特定)。azpはブラウザセッション向けの防御であり、Bearer前提の本ルートでは
+// Origin検証(checkOrigin)とscope検証(requiredScopes)がその役割を担う。
+// このため authorizedParties は意図的に渡さない。
 //
 // resource/audience 拘束について(レビュー指摘・既知の制約 R7。docs/mcp-server-plan.md §10):
 // MCP認可仕様は、受理したトークンが「このリソースサーバー(本サーバー)向けに
@@ -61,11 +68,32 @@ const mcpHandler = createMcpHandler((server: McpServer) => {
 // Clerkが将来audience/resourceを露出するようになったら、env
 // `WARIKAPP_MCP_RESOURCE_URL`(例: https://warikapp.yamk12nfu.com/mcp)との
 // 完全一致検証をここに追加する。
+let cachedClerkClient: ReturnType<typeof createClerkClient> | null = null;
+function getClerkClient(): ReturnType<typeof createClerkClient> {
+  // モジュールロード時ではなくリクエスト時に生成する(ビルド時にenvを要求しないため)
+  if (cachedClerkClient === null) {
+    cachedClerkClient = createClerkClient({
+      secretKey: process.env.CLERK_SECRET_KEY,
+      publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    });
+  }
+  return cachedClerkClient;
+}
+
 async function verifyToken(
-  _req: Request,
+  req: Request,
   bearerToken?: string,
 ): Promise<AuthInfo | undefined> {
-  const clerkAuth = await auth({ acceptsToken: "oauth_token" });
+  if (bearerToken === undefined) {
+    return undefined;
+  }
+  const state = await getClerkClient().authenticateRequest(req, {
+    acceptsToken: "oauth_token",
+  });
+  if (state.status !== "signed-in") {
+    return undefined;
+  }
+  const clerkAuth = state.toAuth() as Parameters<typeof verifyClerkToken>[0];
   return verifyClerkToken(clerkAuth, bearerToken);
 }
 
