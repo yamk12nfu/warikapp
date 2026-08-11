@@ -378,6 +378,17 @@ lib/mcp/
 - 本番デプロイ後: claude.ai のカスタムコネクタ登録 → Google サインイン → 上記質問セットの主要3問が正答すること。
 - Claude Code: `claude mcp add --transport http --scope user warikapp https://warikapp.yamk12nfu.com/mcp` → `/mcp` で認証 → ツール実行。
 
+### dev E2E 実施記録(2026-08-11)
+
+Clerk dev インスタンスで DCR を有効化し、自作 OAuth クライアント(DCR 登録 + PKCE + `resource` パラメータ明示)で以下を確認済み:
+
+- OAuth フロー完走(authorize → Google サインイン → consent → code → トークン交換)
+- 実トークン: JWT(`typ: at+jwt`、RS256)、scope `profile offline_access`(`offline_access` は Clerk が自動付与)、**`aud` なし**(→ R7 の実測確定)
+- MCP `initialize`(protocolVersion 2025-06-18 でネゴシエート)・`tools/list`(4ツール)
+- 4ツールすべて実データで正常応答(差額の方向・品目按分の1円単位の値・ページング・月フィルタを目視確認)
+- ネガティブ: トークンなし → 401(`WWW-Authenticate` + `resource_metadata` 付き)、許可外 Origin → 403
+- 未実施(本番デプロイ後): claude.ai / Claude Code からの接続、ツール選択評価の質問セット
+
 ## 8. 実装フェーズと完了条件
 
 ブランチ: `feature/mcp-remote-server`(main へ直接コミットしない)。
@@ -421,7 +432,7 @@ lib/mcp/
 | R4 | `members.tokenIdentifier` の実形式が `issuer\|subject` の想定と異なる、または dev と production で issuer が異なることによる解決失敗 | member 解決が全滅(全リクエスト 403) | **Phase 0 で dev・production 両環境の実データと env を照合**してから結合ロジックを確定。テストにも実形式を反映 |
 | R5 | OAuth トークン検証が Clerk の従量枠(検証10万回/月)にカウントされる | 課金リスク | 個人利用(月数百回)では枠の 0.1% 未満。§9-6 で初月に実測確認 |
 | R6 | Vercel の関数実行時間・コールドスタート | 応答遅延 | 読み取り専用の軽い query のみで実測は短いはず。Inspector で計測し、問題があれば maxDuration 設定 |
-| R7 | OAuth トークンの resource/audience 拘束が実装できない(3巡目レビュー指摘 重大1) | 他リソースサーバー向けに発行されたトークンが本サーバーに流用される経路を、サーバー側の検証だけでは遮断できない(MCP 2025-06-18 仕様が要求する audience 検証の未実装) | `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)は `id / subject / scopes / tokenType / userId / clientId` のみで audience・resource・azp に相当するフィールドを持たず、`@clerk/mcp-tools@0.6.0` の `verifyClerkToken` もそれをそのまま素通しするだけ(`AuthInfo.resource` を設定しない)。オパークトークン・JWT形式トークンいずれの検証結果(`IdPOAuthAccessToken`)にも aud クレームは残らないことを `@clerk/backend` の実装で確認済み。`mcp-handler@1.1.0` の `withMcpAuth` 自体も resource 照合を行わない。**現実の緩和要因**: このClerkインスタンスのリソースサーバーは本 MCP サーバー1つのみで、他リソースサーバー向けに発行されたトークンが存在しない(構造的に流用元が無い)。**正確な帰結(4巡目レビューで訂正)**: 実装不能なのは「現経路(`auth()` → `verifyClerkToken`)では」であり、生の Bearer トークンは `verifyToken` に渡っているため、`@clerk/backend` の公開 `verifyToken` による JWT 手動検証で `aud` を読める可能性が残っている(Clerk の OAuth アクセストークンは既定で JWT)。**解消手順(Phase C)**: dev の実 OAuth フローで MCP クライアントが送る `resource` パラメータがトークンの `aud` に反映されるかを確認 →(a)反映される: JWT 発行を必須化し、署名・issuer・typ・期限の検証に加えて `aud` の存在と `WARIKAPP_MCP_RESOURCE_URL` との完全一致を検証(opaque トークンは拒否)、wrong/missing audience → 401 のテスト追加。(b)反映されない: 現構成は MCP 認可仕様と両立しないため、認可サーバー構成の見直しを検討 |
+| R7 | OAuth トークンの resource/audience 拘束が実装できない(3巡目レビュー指摘 重大1) | 他リソースサーバー向けに発行されたトークンが本サーバーに流用される経路を、サーバー側の検証だけでは遮断できない(MCP 2025-06-18 仕様が要求する audience 検証の未実装) | `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)は `id / subject / scopes / tokenType / userId / clientId` のみで audience・resource・azp に相当するフィールドを持たず、`@clerk/mcp-tools@0.6.0` の `verifyClerkToken` もそれをそのまま素通しするだけ(`AuthInfo.resource` を設定しない)。オパークトークン・JWT形式トークンいずれの検証結果(`IdPOAuthAccessToken`)にも aud クレームは残らないことを `@clerk/backend` の実装で確認済み。`mcp-handler@1.1.0` の `withMcpAuth` 自体も resource 照合を行わない。**現実の緩和要因**: このClerkインスタンスのリソースサーバーは本 MCP サーバー1つのみで、他リソースサーバー向けに発行されたトークンが存在しない(構造的に流用元が無い)。**正確な帰結(4巡目レビューで訂正)**: 実装不能なのは「現経路(`auth()` → `verifyClerkToken`)では」であり、生の Bearer トークンは `verifyToken` に渡っているため、`@clerk/backend` の公開 `verifyToken` による JWT 手動検証で `aud` を読める可能性が残っている(Clerk の OAuth アクセストークンは既定で JWT)。**実測結果(2026-08-11 Phase C dev E2E で確定)**: 認可リクエスト・トークン交換の両方に `resource=http://localhost:3000` を明示しても、Clerk 発行のアクセストークン(JWT、`typ: at+jwt`)に **`aud` クレームは含まれない = Clerk は RFC 8707 resource パラメータを反映しない**(シナリオ(b))。手動 JWT 検証でも検証対象の `aud` が存在しないため、**Clerk を認可サーバーとする限り audience 拘束は実装不能**。認可サーバーの変更やトークン交換層の追加は個人利用2名のアプリには過大と判断し、**本制約を受容して運用する**(受容の根拠: 単一RS・scope 強制・issuer 検証・consent 必須・24h失効・レートリミット)。Clerk が resource 対応した時点で JWT の `aud` 完全一致検証を追加する |
 
 ## 11. スコープ外(明示)
 
