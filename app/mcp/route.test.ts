@@ -10,8 +10,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 // 「Origin検証→認証の配線がこの順序・条件で機能するか」だけを検証する
 // (実ツール呼び出しの成功パスは lib/mcp/tools/*.test.ts が別途カバーする)。
 
-vi.mock("@clerk/nextjs/server", () => ({
-  auth: vi.fn(),
+// route.ts は @clerk/backend の authenticateRequest を直接使う(auth() 経由だと
+// CLERK_AUTHORIZED_PARTIES の azp 検証が OAuth トークンにも適用されてしまうため。
+// route.ts のコメント参照)。createClerkClient をモックして検証結果を制御する。
+const { authenticateRequestMock } = vi.hoisted(() => ({
+  authenticateRequestMock: vi.fn(),
+}));
+
+vi.mock("@clerk/backend", () => ({
+  createClerkClient: () => ({ authenticateRequest: authenticateRequestMock }),
 }));
 
 vi.mock("@clerk/mcp-tools/next", () => ({
@@ -39,9 +46,8 @@ function makeRequest(options: { origin?: string; authorization?: string } = {}):
 
 describe("app/mcp/route ハンドラの配線", () => {
   beforeEach(async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockReset();
+    authenticateRequestMock.mockReset();
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReset();
   });
 
@@ -50,9 +56,8 @@ describe("app/mcp/route ハンドラの配線", () => {
   });
 
   test("トークンなしは401", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: false });
+    authenticateRequestMock.mockResolvedValue({ status: "signed-out", toAuth: () => null });
     // Authorizationヘッダーが無いのでmcp-handlerはbearerToken=undefinedでverifyTokenを呼ぶ。
     // 実装のverifyClerkTokenもtoken未指定ならundefinedを返す挙動なので、それに揃える
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
@@ -62,10 +67,9 @@ describe("app/mcp/route ハンドラの配線", () => {
   });
 
   test("verifyTokenがundefinedを返す(非OAuthトークン相当)は401、WWW-Authenticateにresource_metadataを含む", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
     // Cookieセッション由来のClerk session token等、oauth_token以外を想定
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: false });
+    authenticateRequestMock.mockResolvedValue({ status: "signed-out", toAuth: () => null });
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
     const res = await POST(makeRequest({ authorization: "Bearer not-an-oauth-token" }));
@@ -77,7 +81,6 @@ describe("app/mcp/route ハンドラの配線", () => {
   });
 
   test("許可外Originは403(認証段階に到達しない)", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
     vi.stubEnv("WARIKAPP_MCP_ALLOWED_ORIGINS", "https://claude.ai");
 
@@ -87,36 +90,47 @@ describe("app/mcp/route ハンドラの配線", () => {
     expect(res.status).toBe(403);
     expect(body.error.code).toBe("forbidden");
     // Origin検証で落ちているので、認証段階(auth/verifyClerkToken)まで進んでいない
-    expect(auth).not.toHaveBeenCalled();
+    expect(authenticateRequestMock).not.toHaveBeenCalled();
     expect(verifyClerkToken).not.toHaveBeenCalled();
   });
 
   test("許可Originは401より先に落ちない(通過して認証段階へ進む)", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
     vi.stubEnv("WARIKAPP_MCP_ALLOWED_ORIGINS", "https://claude.ai");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: false });
+    authenticateRequestMock.mockResolvedValue({ status: "signed-out", toAuth: () => null });
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
-    const res = await POST(makeRequest({ origin: "https://claude.ai" }));
+    // Bearerを付けて認証段階まで通す(検証は失敗させて401)。
+    // 403(Origin拒否)ではなく401であること + authenticateRequestが呼ばれたことが
+    // 「Origin検証を通過して認証段階へ進んだ」ことの証拠になる
+    const res = await POST(
+      makeRequest({ origin: "https://claude.ai", authorization: "Bearer dummy-token" }),
+    );
 
-    // トークンを渡していないので最終的には401になるが、403(Origin拒否)ではない
-    // ことが「Origin検証を通過して認証段階へ進んだ」ことの証拠になる
     expect(res.status).toBe(401);
-    expect(auth).toHaveBeenCalledTimes(1);
+    expect(authenticateRequestMock).toHaveBeenCalledTimes(1);
   });
 
   test("Originなしは通過する(非ブラウザクライアント)", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
     vi.stubEnv("WARIKAPP_MCP_ALLOWED_ORIGINS", "https://claude.ai");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: false });
+    authenticateRequestMock.mockResolvedValue({ status: "signed-out", toAuth: () => null });
+    (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+    const res = await POST(makeRequest({ authorization: "Bearer dummy-token" }));
+
+    expect(res.status).toBe(401);
+    expect(authenticateRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("Bearerなしはauthenticate自体を呼ばず401(早期リターン)", async () => {
+    const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(401);
-    expect(auth).toHaveBeenCalledTimes(1);
+    expect(authenticateRequestMock).not.toHaveBeenCalled();
   });
 });
 
@@ -131,9 +145,8 @@ describe("app/mcp/route ハンドラの配線", () => {
 
 describe("app/mcp/route スコープ検証", () => {
   beforeEach(async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockReset();
+    authenticateRequestMock.mockReset();
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReset();
   });
 
@@ -142,9 +155,11 @@ describe("app/mcp/route スコープ検証", () => {
   });
 
   test("profileスコープを含まないトークンは403(insufficient_scope)", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: true });
+    authenticateRequestMock.mockResolvedValue({
+      status: "signed-in",
+      toAuth: () => ({ tokenType: "oauth_token" }),
+    });
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       token: "no-scope-token",
       scopes: [],
@@ -160,9 +175,11 @@ describe("app/mcp/route スコープ検証", () => {
   });
 
   test("profileスコープを含むトークンはスコープ検証を通過する(401/403にならない)", async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: true });
+    authenticateRequestMock.mockResolvedValue({
+      status: "signed-in",
+      toAuth: () => ({ tokenType: "oauth_token" }),
+    });
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       token: "profile-token",
       scopes: ["profile"],
@@ -198,11 +215,13 @@ describe("app/mcp/route スコープ検証", () => {
 
 describe("app/mcp/route MCP成功パスの統合テスト", () => {
   beforeEach(async () => {
-    const { auth } = await import("@clerk/nextjs/server");
     const { verifyClerkToken } = await import("@clerk/mcp-tools/next");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockReset();
+    authenticateRequestMock.mockReset();
     (verifyClerkToken as unknown as ReturnType<typeof vi.fn>).mockReset();
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isAuthenticated: true });
+    authenticateRequestMock.mockResolvedValue({
+      status: "signed-in",
+      toAuth: () => ({ tokenType: "oauth_token" }),
+    });
     // 実装(verifyClerkTokenの実物)はuserIdをauth側から取るが、ここではテストの
     // 都合上bearerToken(=各リクエストのAuthorizationヘッダーから
     // mcp-handlerが取り出す、リクエストごとに正しく別々の値)からuserIdを
