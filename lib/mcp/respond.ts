@@ -48,19 +48,26 @@ export function toolErrorFromApiError(error: McpApiError): CallToolResult {
   };
 }
 
+// 想定外例外(McpApiError以外)をクライアントへ返す際の固定文言(レビュー指摘 中7)。
+// URL・設定名・内部構造等が error.message に含まれうるため、詳細はクライアントに
+// 一切返さず、サーバーログにのみ記録する
+const UNEXPECTED_ERROR_TEXT = "エラー: 内部エラーが発生しました。時間をおいて再試行してください。";
+
 // McpApiError以外(想定外の例外)も含めて isError:true の結果に変換する。
 // 各ツールハンドラの catch はこれ1つを呼べばよい
 export function toolErrorFromUnknown(error: unknown): CallToolResult {
   if (error instanceof McpApiError) {
     return toolErrorFromApiError(error);
   }
-  const message = error instanceof Error ? error.message : String(error);
+  // 詳細(スタックトレース含む)はサーバーログにのみ出す。クライアントへは
+  // 固定文言だけを返す(URL・内部設定名等の意図しない漏えいを防ぐ)
+  console.error("MCPツールで想定外のエラーが発生しました:", error);
   return {
     isError: true,
     content: [
       {
         type: "text",
-        text: `エラー: 予期しないエラーが発生しました(${message})。時間をおいて再試行してください。`,
+        text: UNEXPECTED_ERROR_TEXT,
       },
     ],
   };

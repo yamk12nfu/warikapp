@@ -58,10 +58,16 @@ const dateStringSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, DATE_FORMAT_MESSAGE);
 
 export const listExpensesInputShape = {
+  // MCPツール層の既定は"all"(convex/http.ts側のConvex API既定"unsettled"とは
+  // 異なる。呼び出し側(lib/mcp/tools/list-expenses.ts)がfilter省略時に常に
+  // "all"を明示送信する。レビュー指摘 中6・計画書 §5.4)
   filter: z
     .enum(["unsettled", "all"])
     .optional()
-    .describe('省略時は"unsettled"(未精算のみ)。"all"で精算済みも含め全件'),
+    .describe(
+      '省略時は"all"(精算済みも含め全件)。一般的な購入履歴の質問はこちら。' +
+        '未精算の支出だけを見たいときのみ"unsettled"を指定する',
+    ),
   date_from: dateStringSchema
     .optional()
     .describe(

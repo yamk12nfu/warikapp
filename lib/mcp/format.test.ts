@@ -183,6 +183,16 @@ describe("buildMonthlySummaryText", () => {
     const text = buildMonthlySummaryText({ ...base, truncated: true });
     expect(text).toContain("⚠️");
   });
+
+  // レビュー指摘 軽微2: included_expense_count(確定のみ)とdraft_count(未確定)は
+  // 別集合の件数であり、「対象N件、うち未確定M件」のような包含表現だと
+  // 確定+未確定の合計がN件だと誤読されうる。並列表現になっていることを確認する
+  test("確定件数と未確定件数を並列表現で示し、包含を示唆する「対象」「うち」を使わない", () => {
+    const text = buildMonthlySummaryText(base);
+    expect(text).toContain("確定23件・未確定1件");
+    expect(text).not.toContain("対象23件");
+    expect(text).not.toContain("うち未確定");
+  });
 });
 
 describe("buildItemBreakdownSummaryText", () => {

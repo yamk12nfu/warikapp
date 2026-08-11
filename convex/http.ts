@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
-import { httpAction, ActionCtx } from "./_generated/server";
+import { httpAction, ActionCtx, env } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -66,8 +66,8 @@ type SecretCheck = "ok" | "invalid" | "not_configured";
 // (ローテーション中の旧値)の2値を受理する(計画書 §6.3)。両方未設定なら
 // fail closedで一律 not_configured(503)。どちらとも一致しなければ invalid(401)
 function verifySecret(authorizationHeader: string | null): SecretCheck {
-  const current = process.env.WARIKAPP_MCP_INTERNAL_SECRET;
-  const previous = process.env.WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS;
+  const current = env.WARIKAPP_MCP_INTERNAL_SECRET;
+  const previous = env.WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS;
   if (!current && !previous) {
     return "not_configured";
   }
@@ -137,6 +137,17 @@ async function withMcpAuth(
           { retry_after_seconds: retryAfterSeconds },
         );
       }
+      // convex/mcp.ts の listExpenses が .paginate() の InvalidCursor系エラーを
+      // 変換して投げるコード(レビュー指摘 中2)。cursorエンベロープの署名検証・
+      // 条件一致は通過したが、内部のconvex_cursor自体が無効だったケース。
+      // 既存のエンベロープ検証エラーと同じ文言・ステータスにする(500にしない)
+      if (data?.code === "invalid_cursor") {
+        return errorResponse(
+          400,
+          "invalid_request",
+          "cursor が無効です。cursor を捨てて最初から取得し直してください",
+        );
+      }
     }
     throw error;
   }
@@ -163,11 +174,27 @@ function parseFilter(raw: string | null): "unsettled" | "all" | null {
   return raw === "unsettled" || raw === "all" ? raw : null;
 }
 
+// 年の妥当範囲(レビュー指摘 軽微1)。convex/mcp.ts の monthDateRange は
+// `Date.UTC(year, monthIndex, 1)` を使うが、Date.UTC は年0〜99を1900〜1999年と
+// 特別扱いする仕様がある(例: Date.UTC(1, 0, 1) は西暦1年ではなく1901年になる)。
+// 正規表現 \d{4} は "0001" のような値も通してしまうため、ここで実用範囲
+// (2000〜2100年)に制限し、この罠を入力検証の時点で断つ
+const MIN_VALID_YEAR = 2000;
+const MAX_VALID_YEAR = 2100;
+
+function isValidYear(value: string): boolean {
+  const year = Number(value);
+  return year >= MIN_VALID_YEAR && year <= MAX_VALID_YEAR;
+}
+
 // YYYY-MM-DD形式 + 実在日(expenses.tsのassertPurchasedAtと同じ往復方式)。
 // ただし未来日は禁止しない: date_from/date_toは検索条件であって購入日の
 // 入力ではないので、未来日を指定しても単に0件になるだけで拒否する理由がない
 function isValidCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  if (!isValidYear(value.slice(0, 4))) {
     return false;
   }
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -178,18 +205,25 @@ function isValidCalendarDate(value: string): boolean {
 }
 
 function isValidMonth(value: string): boolean {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    return false;
+  }
+  return isValidYear(value.slice(0, 4));
 }
 
 // ---- cursorエンベロープ(計画書 D6・D13) ------------------------------------
 //
-// base64url(JSON { v: 1, filter, date_from, date_to, c, convex_cursor })。
-// サーバーは受信時にfilter/期間/coupleIdが現リクエストと一致するかを検証し、
-// 不一致・復号不能はすべて400にする(別条件で発行されたcursorの使い回しを防ぐ)。
+// base64url(JSON { v: 1, filter, date_from, date_to, c, convex_cursor }) に
+// HMAC-SHA256署名を付けた "<base64url(payload)>.<base64url(signature)>" 形式
+// (レビュー指摘 中2)。サーバーは受信時に (1) 署名の妥当性、(2)
+// filter/期間/coupleIdが現リクエストと一致するかを検証し、不一致・署名不正・
+// 復号不能はすべて400にする(別条件で発行されたcursorの使い回しと、クライアントに
+// よる中身の改ざんの両方を防ぐ)。
 // `c` は発行元のcoupleId(テナント分離レビューの多層防御対応): member解決自体が
 // 世帯をまたいだ読み取りを防いでいるが、万一の実装ミスに備えて「このcursorを
 // 発行した世帯と、いま使おうとしている世帯が一致するか」をcursor自体にも
-// 持たせて二重に検証する。
+// 持たせて二重に検証する。署名を付けたことで、この束縛自体もクライアント側で
+// 書き換え不能になった。
 
 type CursorEnvelope = {
   v: 1;
@@ -200,20 +234,104 @@ type CursorEnvelope = {
   convex_cursor: string;
 };
 
+// ---- cursor署名(HMAC-SHA256、Web Crypto) -----------------------------------
+//
+// ConvexのデフォルトランタイムはNode.jsのcrypto(timingSafeEqual等)を
+// 持たないが、Web Crypto API(crypto.subtle)は使える(このファイル冒頭の
+// constantTimeEqualのコメントと同じ制約)。鍵は内部シークレット
+// (WARIKAPP_MCP_INTERNAL_SECRET)を流用する。ローテーション中は現行・旧
+// (_PREVIOUS)の両方で検証を試みる(verifySecretの2値受理と同じ方針)。
+
+async function hmacSha256(secret: string, message: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return new Uint8Array(signature);
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function signPayload(payload: string, secret: string): Promise<string> {
+  return bytesToBase64Url(await hmacSha256(secret, payload));
+}
+
+// 現行・旧シークレットのどちらかで署名が一致すればtrue。両方未設定の場合は
+// ここに到達しない(withMcpAuthのverifySecretが手前でnot_configured/401を
+// 返しているため、run() の中である/mcp/expensesのこの関数は少なくとも
+// 片方が設定済みの状態でしか呼ばれない)
+async function verifyPayloadSignature(payload: string, signature: string): Promise<boolean> {
+  const current = env.WARIKAPP_MCP_INTERNAL_SECRET;
+  const previous = env.WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS;
+  if (
+    current !== undefined &&
+    constantTimeEqual(await signPayload(payload, current), signature)
+  ) {
+    return true;
+  }
+  if (
+    previous !== undefined &&
+    constantTimeEqual(await signPayload(payload, previous), signature)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // UTF-8安全なbase64url変換。中身は英数字のみの想定だが、念のため
 // encodeURIComponent/decodeURIComponent を経由しておく
-function encodeCursor(envelope: CursorEnvelope): string {
-  const json = JSON.stringify(envelope);
+function jsonToBase64Url(json: string): string {
   const base64 = btoa(unescape(encodeURIComponent(json)));
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function decodeCursor(raw: string): CursorEnvelope | null {
+function base64UrlToJson(base64url: string): string {
+  const restored = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padLength = (4 - (restored.length % 4)) % 4;
+  const padded = restored + "=".repeat(padLength);
+  return decodeURIComponent(escape(atob(padded)));
+}
+
+// mcp.test.ts が「正規に署名されたエンベロープの convex_cursor だけ不正な値に
+// 差し替える」テスト(.paginate()側のInvalidCursorを400に変換できているかの
+// 確認)を組み立てるために export する。実運用では本ファイル内の
+// /mcp/expenses ハンドラだけが呼ぶ
+export async function encodeCursor(envelope: CursorEnvelope): Promise<string> {
+  const payload = jsonToBase64Url(JSON.stringify(envelope));
+  // withMcpAuthのverifySecretが手前でnot_configuredを弾いているため、
+  // ここに到達する時点でどちらかは必ず設定済み(??は型を満たすための保険)
+  const secret = env.WARIKAPP_MCP_INTERNAL_SECRET ?? env.WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS;
+  if (secret === undefined) {
+    throw new Error("内部シークレットが設定されていません(cursor署名不可)");
+  }
+  const signature = await signPayload(payload, secret);
+  return `${payload}.${signature}`;
+}
+
+async function decodeCursor(raw: string): Promise<CursorEnvelope | null> {
+  const dotIndex = raw.indexOf(".");
+  if (dotIndex <= 0) {
+    // 署名部分が無い(旧形式・改ざんで"."が消えた等)は無条件に無効
+    return null;
+  }
+  const payload = raw.slice(0, dotIndex);
+  const signature = raw.slice(dotIndex + 1);
+  if (signature.length === 0 || !(await verifyPayloadSignature(payload, signature))) {
+    return null;
+  }
   try {
-    const restored = raw.replace(/-/g, "+").replace(/_/g, "/");
-    const padLength = (4 - (restored.length % 4)) % 4;
-    const padded = restored + "=".repeat(padLength);
-    const json = decodeURIComponent(escape(atob(padded)));
+    const json = base64UrlToJson(payload);
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== "object" || parsed === null) {
       return null;
@@ -339,7 +457,7 @@ http.route({
       const cursorParam = url.searchParams.get("cursor");
       let convexCursor: string | undefined;
       if (cursorParam !== null) {
-        const envelope = decodeCursor(cursorParam);
+        const envelope = await decodeCursor(cursorParam);
         if (
           envelope === null ||
           envelope.filter !== filter ||
@@ -361,14 +479,15 @@ http.route({
         filter,
         dateFrom: dateFromParam ?? undefined,
         dateTo: dateToParam ?? undefined,
-        cursor: convexCursor,
-        limit,
+        // numItemsの組み立て(limitのclamp)はここで行い、paginationOptsは
+        // convex/mcp.ts側で無変更のまま.paginate()へ渡す(レビュー指摘 中3)
+        paginationOpts: { numItems: limit, cursor: convexCursor ?? null },
       });
 
       // 最終ページは欠落ではなく明示的にnullを返す(outputSchemaでの統一。計画書L2)
       const nextCursor = result.isDone
         ? null
-        : encodeCursor({
+        : await encodeCursor({
             v: 1,
             filter,
             date_from: dateFromParam,

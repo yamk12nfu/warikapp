@@ -38,6 +38,29 @@ const mcpHandler = createMcpHandler((server: McpServer) => {
 // というシグネチャを持つ(node_modules/@clerk/mcp-tools/dist/server.d.mts で確認)。
 // Clerk公式ガイドの一部はverifyClerkTokenをそのままwithMcpAuthへ渡す例を示すが、
 // このバージョンではそれができないため、ここでauth()呼び出しを挟んで変換する。
+//
+// resource/audience 拘束について(レビュー指摘・既知の制約 R7。docs/mcp-server-plan.md §10):
+// MCP認可仕様は、受理したトークンが「このリソースサーバー(本サーバー)向けに
+// 発行されたものか」の検証(audience/resource一致)を求めるが、現状これを実装できない。
+// - `auth({ acceptsToken: "oauth_token" })` が返す MachineAuthObject
+//   (node_modules/@clerk/backend/dist/tokens/authObjects.d.ts の
+//   AuthenticatedMachineObject<"oauth_token">)には
+//   `id / subject / scopes / tokenType / userId / clientId` しかなく、
+//   audience・resource・azp に相当するフィールドが無い。
+// - verifyClerkToken(@clerk/mcp-tools)もそれをそのまま素通しするだけで、
+//   AuthInfo.resource は設定しない(node_modules/@clerk/mcp-tools/dist/server.mjs)。
+// - オパークトークン(`oat_...`)の検証結果(IdPOAuthAccessToken)も、JWT形式のトークンを
+//   デコードする経路(fromJwtPayload)も、audience/aud クレームを保持しない
+//   (node_modules/@clerk/backend の実装で確認済み。仮にJWTにaudクレームがあっても
+//   このライブラリの時点で捨てられる)。
+// - mcp-handler@1.1.0 の withMcpAuth 自体もresource照合を行わない
+//   (node_modules/mcp-handler/dist/index.mjs)。
+// 現実の緩和要因: このClerkインスタンスのリソースサーバーは本MCPサーバー1つのみで、
+// 他のリソースサーバー向けに発行されたトークンが本サーバーに流用される経路が
+// (Clerk側にresourceの概念を持つ別RSが存在しない以上)構造的に存在しない。
+// Clerkが将来audience/resourceを露出するようになったら、env
+// `WARIKAPP_MCP_RESOURCE_URL`(例: https://warikapp.yamk12nfu.com/mcp)との
+// 完全一致検証をここに追加する。
 async function verifyToken(
   _req: Request,
   bearerToken?: string,
@@ -46,9 +69,15 @@ async function verifyToken(
   return verifyClerkToken(clerkAuth, bearerToken);
 }
 
+// requiredScopes: ["profile"] は mcp-handler@1.1.0 の withMcpAuth がネイティブに
+// サポートする(node_modules/mcp-handler/dist/index.mjs の withMcpAuth 実装で確認済み。
+// authInfo.scopes に不足があれば InsufficientScopeError → 403 + WWW-Authenticate を
+// 自動で返す)。protected resource metadata が広告する scope(§6.1)と実際の検査を
+// 一致させ、scopes: [] の有効トークンを通さないようにする(レビュー指摘 中1)。
 const authedHandler = withMcpAuth(mcpHandler, verifyToken, {
   required: true,
   resourceMetadataPath: RESOURCE_METADATA_PATH,
+  requiredScopes: ["profile"],
 });
 
 // Origin検証(Streamable HTTPのMCP仕様が要求する必須項目)。

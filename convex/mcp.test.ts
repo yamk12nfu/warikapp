@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { encodeCursor } from "./http";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -100,6 +101,20 @@ async function fetchMcp(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     body: (text.length > 0 ? JSON.parse(text) : null) as any,
   };
+}
+
+// cursorエンベロープの署名検証テスト用。http.tsの内部base64url変換と同じ実装を
+// あえて独立に持つ(攻撃者視点のシミュレーションであって、実装の使い回しでは
+// 意味がないため)
+function base64UrlEncodeJson(value: unknown): string {
+  const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(value))));
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecodeJson(base64url: string): Record<string, unknown> {
+  const restored = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = restored + "=".repeat((4 - (restored.length % 4)) % 4);
+  return JSON.parse(decodeURIComponent(escape(atob(padded)))) as Record<string, unknown>;
 }
 
 type Members = {
@@ -687,6 +702,98 @@ describe("GET /mcp/expenses", () => {
 });
 
 // ==========================================================================
+// cursorエンベロープの署名検証(レビュー指摘 中2)
+// ==========================================================================
+
+describe("cursorエンベロープの署名検証", () => {
+  test("署名(.以降)が無いcursorは400", async () => {
+    const t = setup();
+    await setupCouple(t);
+
+    // "."区切りが無い、旧形式相当(base64urlペイロードのみ)のcursor
+    const unsignedPayload = base64UrlEncodeJson({
+      v: 1,
+      filter: "unsettled",
+      date_from: null,
+      date_to: null,
+      c: "dummy",
+      convex_cursor: "dummy",
+    });
+
+    const { status, body } = await fetchMcp(
+      t,
+      `/mcp/expenses?cursor=${encodeURIComponent(unsignedPayload)}`,
+      { clerkUserId: "alice" },
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe("invalid_request");
+  });
+
+  test("正規に発行されたcursorのconvex_cursorだけ書き換えると署名不一致で400", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    for (let i = 0; i < 3; i++) {
+      await addExpense(t, members, ALICE, { price: 1000, purchasedAt: jstDate(-i) });
+    }
+
+    const first = await fetchMcp(t, "/mcp/expenses?limit=1", { clerkUserId: "alice" });
+    expect(first.body.has_more).toBe(true);
+    const issued = first.body.next_cursor as string;
+    const dotIndex = issued.indexOf(".");
+    const [payloadB64, originalSignature] = [
+      issued.slice(0, dotIndex),
+      issued.slice(dotIndex + 1),
+    ];
+    const envelope = base64UrlDecodeJson(payloadB64);
+
+    // convex_cursorだけ書き換え、署名は元のまま使い回す
+    // (=秘密鍵を持たない攻撃者がやること)
+    const tamperedPayload = base64UrlEncodeJson({
+      ...envelope,
+      convex_cursor: "tampered-value",
+    });
+    const tampered = `${tamperedPayload}.${originalSignature}`;
+
+    const { status, body } = await fetchMcp(
+      t,
+      `/mcp/expenses?limit=1&cursor=${encodeURIComponent(tampered)}`,
+      { clerkUserId: "alice" },
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe("invalid_request");
+  });
+
+  test("正規に署名されたエンベロープでもconvex_cursor自体が無効なら400(500にならない)", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    const coupleId = await t.run(async (ctx) => {
+      const self = await ctx.db.get("members", members.self._id);
+      return self!.coupleId;
+    });
+
+    // encodeCursorは本物(http.ts)を直接呼ぶ。署名は正規(テスト環境の
+    // WARIKAPP_MCP_INTERNAL_SECRETと同じ鍵)だが、convex_cursorの中身だけ
+    // .paginate()が受け付けない値にしてある
+    const forged = await encodeCursor({
+      v: 1,
+      filter: "unsettled",
+      date_from: null,
+      date_to: null,
+      c: coupleId,
+      convex_cursor: "not-a-real-convex-cursor",
+    });
+
+    const { status, body } = await fetchMcp(
+      t,
+      `/mcp/expenses?cursor=${encodeURIComponent(forged)}`,
+      { clerkUserId: "alice" },
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe("invalid_request");
+  });
+});
+
+// ==========================================================================
 // GET /mcp/summary
 // ==========================================================================
 
@@ -708,6 +815,20 @@ describe("GET /mcp/summary", () => {
       clerkUserId: "alice",
     });
     expect(status).toBe(400);
+  });
+
+  // レビュー指摘 軽微1: 正規表現 \d{4} だけでは "0001-01" のような値も通り、
+  // convex/mcp.ts の monthDateRange が使う Date.UTC(year, monthIndex, 1) の
+  // 「年0〜99は1900〜1999として扱われる」仕様に引っかかって誤った月範囲になる。
+  // 2000〜2100年の範囲外は400にする
+  test("年が2000〜2100の範囲外のmonthは400(Date.UTCの2桁年問題の回避)", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const { status, body } = await fetchMcp(t, "/mcp/summary?month=0001-01", {
+      clerkUserId: "alice",
+    });
+    expect(status).toBe(400);
+    expect(body.error.code).toBe("invalid_request");
   });
 
   test("メンバー別のpaid/share/unsettled_paid、settled/unsettled内訳、draft_countを返す", async () => {

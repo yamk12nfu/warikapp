@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { McpApiError } from "./client";
 import { getClerkUserId, toolErrorFromApiError, toolErrorFromUnknown, toolSuccess } from "./respond";
 
@@ -46,12 +46,19 @@ describe("toolErrorFromUnknown", () => {
     expect(toolErrorFromUnknown(error)).toEqual(toolErrorFromApiError(error));
   });
 
-  test("それ以外の例外はisError:trueの汎用文言になる", () => {
+  test("それ以外の例外はisError:trueの汎用文言になり、詳細メッセージは露出しない", () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = toolErrorFromUnknown(new Error("boom"));
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("boom");
+    // レビュー指摘 中7: error.message(ここでは"boom")はクライアントに返さない。
+    // URL・設定名等の内部情報が漏れないよう固定文言のみを返す
+    expect(text).not.toContain("boom");
+    expect(text).toContain("内部エラーが発生しました");
     expect(text).toContain("時間をおいて再試行");
+    // 詳細はサーバーログにのみ出す
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(String), expect.any(Error));
+    consoleErrorSpy.mockRestore();
   });
 });
 

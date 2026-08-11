@@ -1,9 +1,11 @@
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
   QueryCtx,
   MutationCtx,
+  env,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import {
@@ -23,15 +25,38 @@ import { rateLimiter, MCP_READ_LIMIT_NAME } from "./rateLimits";
 // 唯一の mutation である checkRateLimit も、書き込み先はレートリミッターの
 // コンポーネント内部テーブルだけで、業務テーブルには触れない(計画書 D12)。
 
-// http.ts のエラー分岐(403 / 429)がこのコードだけを見て判定できるよう、
+// http.ts のエラー分岐(403 / 429 / 400)がこのコードだけを見て判定できるよう、
 // mcp.ts から投げるエラーは必ずこの形の ConvexError にする
-type McpErrorCode = "not_a_member" | "rate_limited";
+type McpErrorCode = "not_a_member" | "rate_limited" | "invalid_cursor";
 
 function mcpError(
   code: McpErrorCode,
   extra?: { retryAfterMs?: number },
 ): ConvexError<{ code: McpErrorCode; retryAfterMs?: number }> {
   return new ConvexError({ code, ...extra });
+}
+
+// .paginate() が無効なcursorに対して投げるエラーの判定(レビュー指摘 中2)。
+// http.ts側で署名検証・条件一致まで通ったcursorでも、内部のconvex_cursor自体が
+// .paginate()の契約に合わないことがありうる(想定外の値・将来の形式変更等)。
+// 本番のConvexランタイムはメッセージに"InvalidCursor"を含む形で投げる
+// (@modelcontextprotocol非依存、convexのreact hook実装(use_paginated_query.ts)
+// の判定ロジックと同じ基準)。convex-test(このテストで使うシミュレータ)は
+// 内部でcursor文字列をJSON.parseするため不正なcursorはSyntaxErrorになるが、
+// syscall境界を越える際に `throw new Error(e.message)` で再ラップされ
+// (node_modules/convex/src/server/impl/syscall.ts)name情報は失われ
+// メッセージだけが残る(実測: "Unexpected token ... is not valid JSON")。
+// nameとmessageの両方を見て判定し、どちらであっても500ではなく400にする
+// (fail closed)
+function isInvalidCursorError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return (
+    error.name === "SyntaxError" ||
+    error.message.includes("InvalidCursor") ||
+    error.message.includes("is not valid JSON")
+  );
 }
 
 // 検証済みClerk userId(clerkUserId)から自世帯のmemberを解決する。
@@ -43,7 +68,7 @@ async function requireMcpMember(
   ctx: QueryCtx | MutationCtx,
   clerkUserId: string,
 ): Promise<Doc<"members">> {
-  const issuerDomain = process.env.CLERK_JWT_ISSUER_DOMAIN;
+  const issuerDomain = env.CLERK_JWT_ISSUER_DOMAIN;
   if (issuerDomain === undefined || issuerDomain === "") {
     throw mcpError("not_a_member");
   }
@@ -151,18 +176,20 @@ export const balance = internalQuery({
 const LIST_FILTER = v.union(v.literal("unsettled"), v.literal("all"));
 
 // GET /mcp/expenses — 支出一覧。
-// cursorは http.ts でエンベロープから取り出した「生のconvexカーソル」を受け取る
-// (エンベロープ自体の組み立て・検証はhttp.ts側の責務。ここはConvexの
-// paginate()契約だけを見る)。日付範囲はfilterに応じて別々のインデックスの
-// purchasedAt段に適用する(§4.4: unsettledは既存インデックス、allは新設インデックス)
+// paginationOptsは http.ts でエンベロープから取り出した「生のconvexカーソル」+
+// limitのclamp結果をそのまま組み立てて渡す(エンベロープ自体の組み立て・検証は
+// http.ts側の責務。ここはConvexのpaginationOptsValidator契約だけを見る。
+// Convexガイドライン: paginationOptsValidatorで検証し、変更せず
+// .paginate(args.paginationOpts)へ渡す。レビュー指摘 中3)。日付範囲はfilterに
+// 応じて別々のインデックスのpurchasedAt段に適用する(§4.4: unsettledは既存
+// インデックス、allは新設インデックス)
 export const listExpenses = internalQuery({
   args: {
     clerkUserId: v.string(),
     filter: LIST_FILTER,
     dateFrom: v.optional(v.string()),
     dateTo: v.optional(v.string()),
-    cursor: v.optional(v.string()),
-    limit: v.number(),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const { member, membersById } = await loadCoupleContext(
@@ -215,12 +242,18 @@ export const listExpenses = internalQuery({
               return base;
             });
 
-    // limitは.paginate()のnumItemsにそのまま渡す。返却後に配列を切り詰めると
-    // continueCursorとの対応がずれ、切り詰めた支出が次ページにも出ず永久に
-    // 欠落する(計画書 D13)
-    const result = await scoped
-      .order("desc")
-      .paginate({ numItems: args.limit, cursor: args.cursor ?? null });
+    // paginationOptsは変更せずそのまま.paginate()へ渡す(計画書 D13・Convex
+    // ガイドライン)。返却後に配列を切り詰めるとcontinueCursorとの対応がずれ、
+    // 切り詰めた支出が次ページにも出ず永久に欠落する
+    let result;
+    try {
+      result = await scoped.order("desc").paginate(args.paginationOpts);
+    } catch (error) {
+      if (isInvalidCursorError(error)) {
+        throw mcpError("invalid_cursor");
+      }
+      throw error;
+    }
 
     return {
       expenses: result.page.map((expense) => ({

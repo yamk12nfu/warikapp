@@ -19,7 +19,7 @@ const DESCRIPTION = `世帯の未精算差額(現在の残高)を取得する。
   even のとき amount は0で精算不要。
 - self / partner: 呼び出しユーザーとパートナーの表示名。パートナーが世帯に未参加の場合は partner: null。
 - paid_by_self / paid_by_partner: それぞれの未精算分の支払合計。
-- included_expense_count: 集計に含めた支出件数(直近200件が上限)。
+- included_expense_count: 集計に含めた支出件数(購入日の古い順に最大200件が上限)。
 - draft_count: 未確定(draft)の支出件数。差額には含まれない。
 - truncated: true のとき amount 等は部分集計値(200件超のとき)。確定値として案内しないこと。
 

@@ -104,8 +104,11 @@ export function buildMonthlySummaryText(data: MonthlySummaryResponse): string {
   if (data.truncated) {
     lines.push(truncatedWarningText(`${data.month}の対象支出が200件を超えている`));
   }
+  // included_expense_count(確定のみ)とdraft_count(未確定)は別集合の件数であり、
+  // 「対象N件、うち未確定M件」のような包含表現にすると確定+未確定の合計がN件と
+  // 誤読されうる(実際はN+M件を走査している)。並列表現に直す(レビュー指摘 軽微2)
   lines.push(
-    `${data.month}の合計: ${formatYenText(data.total_amount)}(対象${data.included_expense_count}件、うち未確定${data.draft_count}件)`,
+    `${data.month}の合計: ${formatYenText(data.total_amount)}(確定${data.included_expense_count}件・未確定${data.draft_count}件)`,
   );
   lines.push(`精算済み ${formatYenText(data.settled_amount)} / 未精算 ${formatYenText(data.unsettled_amount)}`);
   const ub = data.unsettled_balance;

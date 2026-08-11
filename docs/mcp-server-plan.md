@@ -2,7 +2,7 @@
 
 claude.ai・スマホ・Claude Code から「今月の未精算いくら?」「先週何買った?」と聞けるようにする、読み取り専用のリモート MCP サーバーの実装計画。
 
-> **ステータス**: v3 — GPT(Codex)による2巡のレビューを反映済み(2026-08-11)。1巡目: 重大6・中12・軽微3 → 全件反映。2巡目(再レビュー): 解消16・不十分5・新規9 → 全件反映。反映内容は [§13](#13-レビュー反映記録) を参照。
+> **ステータス**: v4 — GPT(Codex)による3巡のレビューを反映済み(2026-08-11)。1巡目: 重大6・中12・軽微3 → 全件反映。2巡目(再レビュー): 解消16・不十分5・新規9 → 全件反映。3巡目(実装レビュー): 重大1・中8・軽微2 → 全件対応(重大1は既知の制約として R7 に記録。詳細後述)。反映内容は [§13](#13-レビュー反映記録) を参照。
 > **関連文書**: [requirements.md](./requirements.md)(アプリ本体の要件定義)/ [implementation-plan.md](./implementation-plan.md)(アプリ本体の実装計画。本書はその後続機能)
 > **本書の位置づけ**: 実装の正本。
 
@@ -276,13 +276,14 @@ lib/mcp/
 | ツール | 対応 API | 引数 | 説明文に書くこと |
 |---|---|---|---|
 | `get_unsettled_balance` | `/mcp/balance` | なし | 「未精算の差額と方向を知りたいとき最初に呼ぶ。内訳は `list_expenses` へ」 |
-| `list_expenses` | `/mcp/expenses` | `filter?` `date_from?` `date_to?` `cursor?` `limit?` | 「支出(レシート読み取り・手入力の両方)の一覧。期間指定可。品目まで見るには `get_item_breakdown`」 |
+| `list_expenses` | `/mcp/expenses` | `filter?`(省略時 `all`) `date_from?` `date_to?` `cursor?` `limit?` | 「支出(レシート読み取り・手入力の両方)の一覧。期間指定可。品目まで見るには `get_item_breakdown`」 |
 | `monthly_summary` | `/mcp/summary` | `month?`(省略時 = JST の今月) | 「月の合計・メンバー別の支払/負担・精算状況のサマリー」 |
 | `get_item_breakdown` | `/mcp/expense` | `expense_id` | 「1件の支出の品目・数量・金額・負担割合の内訳」 |
 
 - エラー文は次の一手を含める(例: 404 →「`list_expenses` で有効な ID を確認してください」、403 →「warikapp で世帯に参加してから再接続してください」、429 →「時間をおいて再試行してください」)。
 - **相対日付の責務分担**(Next.js 層は元の自然言語プロンプトを見られないため): 「先週」「今月」等から絶対日付への変換は**モデル(Claude)の責務**とし、各ツールの説明文に「日付は JST 基準の絶対値(`YYYY-MM-DD`)で渡すこと」を明記する。Next.js 層が補完するのは **`month` 省略時の「JST の今月」既定値のみ**(引数なし呼び出しを成立させるため)。Convex query は wall clock を読まない(既存規約)。
 - `get_unsettled_balance`(全期間の現在残高)と `monthly_summary` の `unsettled_balance`(月内純差額)の使い分けを両ツールの説明文に明記する(「今月の未精算」→ summary、「いま精算するといくら」→ balance)。
+- **`list_expenses` の `filter` 既定は MCP ツール層で `all`**(3巡目レビュー指摘 中6): Convex 側 API(`GET /mcp/expenses`、§4.3(2))の既定は既存 `expenses.list` を踏襲して `unsettled` のままだが、MCP ツール層は `filter` 省略時に常に明示で `all` を送る。「先週何買った?」のような一般的な購入履歴の質問でモデルが `filter` を省略すると、精算済みの購入が一覧から欠落してしまうため(C5 の再発防止)。ツール説明文には「一般的な購入履歴の質問は `all`(既定)。未精算だけを見たいときのみ `unsettled` を指定」と明記する。
 
 ### 5.5 依存パッケージ(Phase 0 で確定済み・2026-08-11)
 
@@ -370,7 +371,7 @@ lib/mcp/
   |---|---|---|
   | 「今月の未精算いくら?」 | `monthly_summary` | 今月(省略可)。`unsettled_balance` で回答 |
   | 「いま精算するとどっちがいくら払う?」 | `get_unsettled_balance` | なし |
-  | 「先週何買った?」 | `list_expenses` | `date_from`/`date_to` が JST の先週の月〜日 |
+  | 「先週何買った?」 | `list_expenses` | `date_from`/`date_to` が JST の先週の月〜日。`filter` は省略(既定 `all`)されること(精算済みの購入も含めて答える) |
   | 「このレシートの中身見せて」(一覧提示後) | `get_item_breakdown` | 直前に列挙した `expense_id` |
   | 「続きを見せて」(一覧の続き) | `list_expenses` | 前回の `next_cursor` |
   | 「8月の合計と内訳は?」 | `monthly_summary` | `month: "2026-08"` |
@@ -420,6 +421,7 @@ lib/mcp/
 | R4 | `members.tokenIdentifier` の実形式が `issuer\|subject` の想定と異なる、または dev と production で issuer が異なることによる解決失敗 | member 解決が全滅(全リクエスト 403) | **Phase 0 で dev・production 両環境の実データと env を照合**してから結合ロジックを確定。テストにも実形式を反映 |
 | R5 | OAuth トークン検証が Clerk の従量枠(検証10万回/月)にカウントされる | 課金リスク | 個人利用(月数百回)では枠の 0.1% 未満。§9-6 で初月に実測確認 |
 | R6 | Vercel の関数実行時間・コールドスタート | 応答遅延 | 読み取り専用の軽い query のみで実測は短いはず。Inspector で計測し、問題があれば maxDuration 設定 |
+| R7 | OAuth トークンの resource/audience 拘束が実装できない(3巡目レビュー指摘 重大1) | 他リソースサーバー向けに発行されたトークンが本サーバーに流用される経路を、サーバー側の検証だけでは遮断できない(MCP 2025-06-18 仕様が要求する audience 検証の未実装) | `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)は `id / subject / scopes / tokenType / userId / clientId` のみで audience・resource・azp に相当するフィールドを持たず、`@clerk/mcp-tools@0.6.0` の `verifyClerkToken` もそれをそのまま素通しするだけ(`AuthInfo.resource` を設定しない)。オパークトークン・JWT形式トークンいずれの検証結果(`IdPOAuthAccessToken`)にも aud クレームは残らないことを `@clerk/backend` の実装で確認済み。`mcp-handler@1.1.0` の `withMcpAuth` 自体も resource 照合を行わない。**現実の緩和要因**: このClerkインスタンスのリソースサーバーは本 MCP サーバー1つのみで、他リソースサーバー向けに発行されたトークンが存在しない(構造的に流用元が無い)。Clerk が将来 audience/resource を露出するようになったら、env `WARIKAPP_MCP_RESOURCE_URL` との完全一致検証を `app/mcp/route.ts` の `verifyToken` に追加する(実装コメント参照) |
 
 ## 11. スコープ外(明示)
 
@@ -486,3 +488,21 @@ lib/mcp/
 | 新規: TextContent 切り詰めで不正 JSON | 中 | **採用**: JSON を切らず有効な要約テキストへ置き換える方式に変更(§5.3、§7.2) |
 | 新規: ツール選択評価の不足 | 中 | **採用**: 6問の質問セット(期待ツール・期待引数付き)を E2E に追加(§7.3) |
 | 新規: annotations の完全化 | 軽微 | **採用**: title / destructiveHint / idempotentHint / openWorldHint を全ツールに付与(§5.3) |
+
+### 3巡目(実装レビュー)の反映
+
+判定: マージ前に対処すべき指摘は重大1・中8・軽微2。テナント分離そのもの(全クエリの `coupleId` 制約・詳細APIの所有権確認・4 API の分離テスト)には明確な漏えい経路なしと確認済み。以下は指摘11件(重大1・中1〜8・軽微1〜2)全件の対応。
+
+| 指摘 | 区分 | 対応 |
+|---|---|---|
+| 重大1 OAuthトークンのresource/audience拘束が未実装 | 重大 | **実装不可(既知の制約として記録)**: `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)・`verifyClerkToken`(`@clerk/mcp-tools@0.6.0`)のいずれもaudience/resourceに相当するフィールドを露出せず、`mcp-handler@1.1.0` の `withMcpAuth` もresource照合を行わないため、現状の依存関係では実装不可能と判断した。`app/mcp/route.ts` の `verifyToken` に調査結果・緩和要因(このClerkインスタンスのリソースサーバーは本サーバー1つのみ)・将来対応方針(`WARIKAPP_MCP_RESOURCE_URL` との完全一致検証)を明記するコメントを追加し、既知の制約として **R7**(§10)に記録した |
+| 中1 requiredScopesが指定されておらずscope:[]のトークンが通る | 中 | **採用**: `mcp-handler@1.1.0` の `withMcpAuth` が `requiredScopes` をネイティブサポートすることを実装(node_modules)で確認し、`requiredScopes: ["profile"]` を指定(§6.1)。テスト追加: scopeなし→403(`InsufficientScopeError`。`WWW-Authenticate`に`insufficient_scope`)、profileあり→スコープ検証を通過(app/mcp/route.test.ts) |
+| 中2 cursorエンベロープが署名されておらず改ざん可能・InvalidCursorが500になる | 中 | **採用**: cursorエンベロープにHMAC-SHA256署名(Web Crypto `crypto.subtle`、現行・旧内部シークレットの両方で検証)を追加(`base64url(payload) + "." + base64url(signature)`)。`convex/mcp.ts` の `.paginate()` をtry/catchで包み、InvalidCursor系エラー(名前・メッセージ判定)を400に変換。テスト追加: 署名なしcursor→400、convex_cursorだけ書き換え(署名不一致)→400、正規署名だがconvex_cursor自体が無効→400(500にならないことを確認) |
+| 中3 paginationOptsValidatorを使わずcursor/limitを個別再構築している | 中 | **採用**: `convex/mcp.ts` の `listExpenses` の引数を `paginationOpts: paginationOptsValidator` に変更し、`.paginate(args.paginationOpts)` へ無変更で渡す。numItemsの組み立て(limitのclamp)は `convex/http.ts` 側で `paginationOpts` オブジェクトとして構築 |
+| 中4 Convex側env変数がprocess.env直読み | 中 | **採用**: convex 1.42.3 の型定義(`node_modules/convex/dist/esm-types/server/components/index.d.ts`)で `defineApp({ env: {...} })` が利用可能と確認。`convex/convex.config.ts` に `WARIKAPP_MCP_INTERNAL_SECRET` / `_PREVIOUS` / `CLERK_JWT_ISSUER_DOMAIN`(すべて`v.optional(v.string())`)を宣言し、`npx convex codegen` で `_generated/server` に型付き `env` を生成。`convex/http.ts`・`convex/mcp.ts` の `process.env` 直読みを `env` 経由に置換(`convex/auth.config.ts` は生成コードの外で評価される設定ファイルのため対象外・現状維持)。convex-testでの全44テストが引き続き成功することを確認済み(`env` は `process.env` への参照そのものなので `vi.stubEnv` の挙動に影響しない) |
+| 中5 MCP成功パスの統合テストが無く、認証コンテキスト混線の回帰を検出できない | 中 | **採用**: `app/mcp/route.test.ts` にmcp-handler本体・SDK実物を使った統合テストを追加。Clerk(auth/verifyClerkToken)とlib/mcp/clientのfetchをモックし、実際のJSON-RPC(initialize→tools/call)をPOST /mcp相当のRequestで通してstructuredContentが返ることを検証。異なるBearerトークンでのPromise.all並行呼び出しでもX-Warikapp-Clerk-User-Idヘッダーが混線しないことも検証。mcp-handler@1.1.0は既定でステートレスモード(セッションID不要)かつSSE形式で応答するため、その実挙動に合わせてパースした |
+| 中6 list_expensesのfilter既定がunsettledで一般的な購入履歴の質問に答えられない | 中 | **採用**: MCPツール層(`lib/mcp/tools/list-expenses.ts`)でfilter省略時に常に`"all"`を明示送信するよう変更。Convex側API(`convex/http.ts`)の既定は`unsettled`のまま変更なし。説明文を「一般的な購入履歴の質問はall(既定)。未精算だけを見たいときのみunsettled」に更新(`lib/mcp/schemas.ts`も同様)。`docs/mcp-server-plan.md` §5.4・§7.3も追随修正。テスト追加 |
+| 中7 想定外例外のerror.messageがそのままクライアントに露出する | 中 | **採用**: `lib/mcp/respond.ts` の `toolErrorFromUnknown` を、McpApiError以外の例外では固定文言(「内部エラーが発生しました。時間をおいて再試行してください。」)のみ返し、詳細は`console.error`でサーバーログにのみ記録するよう変更。`respond.test.ts` の"boom"露出期待を修正 |
+| 中8 balanceツール説明の「直近200件」が実装(購入日の古い順)と不一致 | 中 | **採用**: `lib/mcp/tools/get-unsettled-balance.ts` の説明文を「購入日の古い順に最大200件」に修正(`convex/settlements.ts` の `collectUnsettled` の実装と一致)。`lib/mcp/format.ts` のtruncated警告文は元々「直近」を含まない表現だったため変更不要と確認 |
+| 軽微1 月・日付検証に年範囲チェックが無くDate.UTCの2桁年問題を回避できない | 軽微 | **採用**: `convex/http.ts` の日付・月検証(`isValidCalendarDate`・`isValidMonth`)に年範囲チェック(2000〜2100)を追加。テスト追加: `month=0001-01`→400 |
+| 軽微2 summaryテキストの「対象N件、うち未確定M件」が包含表現に見える | 軽微 | **採用**: `lib/mcp/format.ts` の `buildMonthlySummaryText` を「確定N件・未確定M件」の並列表現に修正。文字列を検証するテストを追加(`lib/mcp/format.test.ts`) |

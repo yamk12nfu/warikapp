@@ -11,7 +11,9 @@ const DESCRIPTION = `支出(レシート読み取り・手入力の両方)の一
 - 一覧の続きを見るときは、直前の応答が返した next_cursor をそのまま cursor に渡す。
 
 引数:
-- filter?: "unsettled"(省略時の既定。未精算のみ) | "all"(精算済みも含め全件)。
+- filter?: "all"(省略時の既定。精算済みも含め全件) | "unsettled"(未精算のみ)。
+  一般的な購入履歴の質問(「先週何買った?」等)には filter を指定せず既定の
+  all を使うこと。未精算の支出だけを見たいときのみ unsettled を指定する。
 - date_from? / date_to?: 購入日の範囲(両端を含む)。"YYYY-MM-DD" 形式の
   JST基準の絶対日付で渡すこと。「先週」「今月」のような相対表現は、このツールを呼ぶ前に
   呼び出し側(モデル)でJST基準の絶対日付に変換すること(Next.js側では変換しない)。
@@ -46,7 +48,11 @@ export function registerListExpensesTool(server: McpServer): void {
     async (args, extra) => {
       try {
         const clerkUserId = getClerkUserId(extra);
-        const data = await fetchExpenseList(args, clerkUserId);
+        // Convex側API(convex/http.ts)の既定はunsettledのまま変更しない。
+        // MCPツール層はfilter省略時に常に"all"を明示送信する(レビュー指摘 中6)。
+        // モデルがfilterを省略した場合に精算済みの購入が一覧から欠落するのを防ぐ
+        const params = { ...args, filter: args.filter ?? ("all" as const) };
+        const data = await fetchExpenseList(params, clerkUserId);
         return toolSuccess(buildExpenseListSummaryText(data), data);
       } catch (error) {
         return toolErrorFromUnknown(error);

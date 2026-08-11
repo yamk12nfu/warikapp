@@ -84,6 +84,22 @@ describe("registerListExpensesTool", () => {
     expect(mock).toHaveBeenCalledWith(args, "user_1");
   });
 
+  // レビュー指摘 中6: モデルがfilterを省略した場合、Convex側APIの既定
+  // (unsettled)ではなく"all"を明示送信する(精算済みの購入が一覧から
+  // 欠落するのを防ぐ)
+  test("filter省略時はfetchExpenseListにfilter: \"all\"を明示送信する", async () => {
+    const { fetchExpenseList } = await import("../client");
+    const mock = fetchExpenseList as unknown as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValueOnce(VALID_LIST);
+
+    const { server, getCaptured } = createFakeServer();
+    registerListExpensesTool(server);
+    const captured = getCaptured();
+    await captured.handler({ date_from: "2026-08-01" }, FAKE_EXTRA);
+
+    expect(mock).toHaveBeenCalledWith({ date_from: "2026-08-01", filter: "all" }, "user_1");
+  });
+
   test("APIエラー時: isError:trueで返る", async () => {
     const { fetchExpenseList, McpApiError } = await import("../client");
     (fetchExpenseList as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
