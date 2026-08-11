@@ -23,7 +23,9 @@ const MAX_MEMO_LENGTH = 100;
 // トランザクション読み取り上限(16MiB)に収まる。件数だけ見て500件などにすると、
 // 最大サイズの支出が並んだ最悪ケースで上限を超えて query ごと落ちる。
 // 2人世帯なら200件は2ヶ月以上ぶんの支出に相当し、実運用では到達しない。
-const MAX_UNSETTLED_EXPENSES = 200;
+// MCP(convex/mcp.ts)の月次サマリーでも同じ上限を再利用するため export する
+// (計画書 L3。上限定数を2箇所で再定義してずれるのを防ぐ)。
+export const MAX_UNSETTLED_EXPENSES = 200;
 
 const ERR_NO_PARTNER = "パートナーが参加してから精算してください";
 const ERR_DRAFT_REMAINS = "未確定のレシートがあります"; // V-701
@@ -39,7 +41,8 @@ const ERR_AMOUNT_CHANGED =
   "精算対象が変わりました。内容を確認して、もう一度お試しください";
 
 // 自分以外の世帯メンバー。招待前(1名)の世帯では null
-async function findPartner(
+// MCP(convex/mcp.ts)からも呼ぶため export する(ロジックはここに集約したまま)
+export async function findPartner(
   ctx: QueryCtx | MutationCtx,
   member: Doc<"members">,
 ): Promise<Doc<"members"> | null> {
@@ -55,7 +58,8 @@ async function findPartner(
 // execute が同じ集合を見るよう、取得条件と並び順はこの関数に集約する。
 // 論理削除の除外は .filter() ではなくインデックス範囲で行う(.filter() だと
 // 走査した行は読み取りに数えられるため、削除済みが溜まるほど走査量が増える)。
-async function collectUnsettled(
+// MCP(convex/mcp.ts)の /mcp/balance からも呼ぶため export する
+export async function collectUnsettled(
   ctx: QueryCtx | MutationCtx,
   coupleId: Id<"couples">,
 ): Promise<{ expenses: Doc<"expenses">[]; truncated: boolean }> {
@@ -95,7 +99,8 @@ type Summary = {
 // 未精算支出から差額サマリーを組み立てる。
 // ドラフト(未確定)は金額が変わりうるので差額には含めず、件数だけ返して
 // 画面の警告と V-701 のガードに使う(一覧に出す判断は expenses.list 側)。
-function summarize(
+// MCP(convex/mcp.ts)の /mcp/balance からも呼ぶため export する
+export function summarize(
   selfId: Id<"members">,
   partnerId: Id<"members"> | null,
   expenses: Doc<"expenses">[],

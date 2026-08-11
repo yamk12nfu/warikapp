@@ -65,6 +65,16 @@ export default defineSchema({
       "settlementId",
       "deletedAt",
       "purchasedAt",
+    ])
+    // MCP(convex/mcp.ts)の "all" 一覧・月次サマリー用。
+    // 論理削除の除外 + 購入日範囲の両方をインデックス範囲で表現するために追加した。
+    // 上の by_coupleId_and_purchasedAt だけだと deletedAt を .filter() で
+    // 落とすしかなく、削除が積み上がるほど走査行数が増えていく(取得件数は
+    // 有界でも走査は有界でない)。理屈は settlementId 版のインデックスと同じ
+    .index("by_coupleId_and_deletedAt_and_purchasedAt", [
+      "coupleId",
+      "deletedAt",
+      "purchasedAt",
     ]),
 
   settlements: defineTable({

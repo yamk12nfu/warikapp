@@ -23,7 +23,20 @@ export const RECEIPT_PARSE_LIMIT_NAME = "receiptParse";
 // 圧縮のやり直しや再試行があるので、読み取りの上限より緩め(2倍)にしてある。
 export const RECEIPT_UPLOAD_LIMIT_NAME = "receiptUpload";
 
+// リモートMCPサーバー(convex/mcp.ts)の読み取り用。member単位(世帯単位ではない)で
+// token bucket方式にしてある。fixed windowだと窓の切り替わり直後に2倍のリクエストが
+// 通ってしまうが、token bucketならcapacityで瞬間バーストを明示的に抑えられる。
+// capacityを指定しないと満タン時にrate(120)回を連続実行できてしまうため、
+// 20回に制限する(計画書 D12)。member単位なので世帯全体では最大240回/時になる。
+export const MCP_READ_LIMIT_NAME = "mcpRead";
+
 export const rateLimiter = new RateLimiter(components.rateLimiter, {
   [RECEIPT_PARSE_LIMIT_NAME]: { kind: "fixed window", rate: 30, period: HOUR },
   [RECEIPT_UPLOAD_LIMIT_NAME]: { kind: "fixed window", rate: 60, period: HOUR },
+  [MCP_READ_LIMIT_NAME]: {
+    kind: "token bucket",
+    rate: 120,
+    period: HOUR,
+    capacity: 20,
+  },
 });

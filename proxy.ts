@@ -2,8 +2,21 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 
 // Next.js 16 の Proxy(旧 middleware)。/login 以外は未ログインなら /login へ。
 // createRouteMatcher は Clerk v7 で非推奨のため pathname 判定を使う。
+//
+// 以下の3パスはMCP(リモートMCPサーバー)向けに完全一致でのみ公開する
+// (プレフィックス丸ごと公開にはしない。"/mcpfoo" や将来の別 ".well-known" ルートを
+// 巻き込まないため)。MCPクライアントはClerkのcookieセッションを持たないため、
+// ここで弾くとOAuthフロー以前に3xxでプロトコルが壊れる。/mcp 自体の認証は
+// app/mcp/route.ts の withMcpAuth(Bearer検証)が担うので、Proxyは素通しでよい
+// (docs/mcp-server-plan.md §5.2)。
+const MCP_PUBLIC_PATHS = new Set([
+  "/mcp",
+  "/.well-known/oauth-protected-resource/mcp",
+  "/.well-known/oauth-authorization-server",
+]);
+
 const isPublicPath = (pathname: string) =>
-  pathname === "/login" || pathname.startsWith("/login/");
+  pathname === "/login" || pathname.startsWith("/login/") || MCP_PUBLIC_PATHS.has(pathname);
 
 // 本番では「このアプリのオリジンから来たトークンだけを受け付ける」ことを
 // Clerkが推奨している。指定しないと、同じルートドメイン配下の別サブドメインに
