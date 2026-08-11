@@ -48,9 +48,20 @@ function mcpError(
 // メッセージだけが残る(実測: "Unexpected token ... is not valid JSON")。
 // nameとmessageの両方を見て判定し、どちらであっても500ではなく400にする
 // (fail closed)
-function isInvalidCursorError(error: unknown): boolean {
+export function isInvalidCursorError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
+  }
+  // 本番ランタイムはメッセージではなく構造化データだけを持つ ConvexError で
+  // 投げることがある(convex公式の use_paginated_query.ts と同じ判定基準)。
+  if (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    (error.data as Record<string, unknown>).isConvexSystemError === true &&
+    (error.data as Record<string, unknown>).paginationError === "InvalidCursor"
+  ) {
+    return true;
   }
   return (
     error.name === "SyntaxError" ||

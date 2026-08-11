@@ -6,6 +6,8 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { encodeCursor } from "./http";
+import { isInvalidCursorError } from "./mcp";
+import { ConvexError } from "convex/values";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -1077,5 +1079,28 @@ describe("レートリミット", () => {
     });
     expect(status).toBe(200);
     expect(members.partner).toBeDefined();
+  });
+});
+
+// 本番ランタイムはメッセージに "InvalidCursor" を含まない、構造化データのみの
+// ConvexError で投げることがある(convex公式 use_paginated_query.ts と同じ形)。
+// 4巡目レビュー指摘: この形を取りこぼすと 400 ではなく 500 に抜ける。
+describe("isInvalidCursorError", () => {
+  test("構造化ConvexError(isConvexSystemError + paginationError)を判定できる", () => {
+    const error = new ConvexError({
+      isConvexSystemError: true,
+      paginationError: "InvalidCursor",
+    });
+    expect(isInvalidCursorError(error)).toBe(true);
+  });
+
+  test("無関係な構造化ConvexErrorは判定しない", () => {
+    expect(isInvalidCursorError(new ConvexError({ foo: "bar" }))).toBe(false);
+    expect(isInvalidCursorError(new Error("なにか別のエラー"))).toBe(false);
+    expect(isInvalidCursorError("string error")).toBe(false);
+  });
+
+  test("メッセージベースの従来判定も維持される", () => {
+    expect(isInvalidCursorError(new Error("InvalidCursor: bad"))).toBe(true);
   });
 });

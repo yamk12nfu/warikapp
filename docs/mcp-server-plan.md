@@ -2,7 +2,7 @@
 
 claude.ai・スマホ・Claude Code から「今月の未精算いくら?」「先週何買った?」と聞けるようにする、読み取り専用のリモート MCP サーバーの実装計画。
 
-> **ステータス**: v4 — GPT(Codex)による3巡のレビューを反映済み(2026-08-11)。1巡目: 重大6・中12・軽微3 → 全件反映。2巡目(再レビュー): 解消16・不十分5・新規9 → 全件反映。3巡目(実装レビュー): 重大1・中8・軽微2 → 全件対応(重大1は既知の制約として R7 に記録。詳細後述)。反映内容は [§13](#13-レビュー反映記録) を参照。
+> **ステータス**: v5 — GPT(Codex)による4巡のレビューを反映済み(2026-08-11)。1巡目: 重大6・中12・軽微3 → 全件反映。2巡目(計画再レビュー): 解消16・不十分5・新規9 → 全件反映。3巡目(実装レビュー): 重大1・中8・軽微2 → 全件対応。4巡目(修正再レビュー): 解消8・不十分3・新規2 → コード側は反映済み、**audience 拘束(R7)と実 OAuth E2E は Phase C(手動セットアップ前提)に持ち越し**。反映内容は [§13](#13-レビュー反映記録) を参照。
 > **関連文書**: [requirements.md](./requirements.md)(アプリ本体の要件定義)/ [implementation-plan.md](./implementation-plan.md)(アプリ本体の実装計画。本書はその後続機能)
 > **本書の位置づけ**: 実装の正本。
 
@@ -43,7 +43,7 @@ claude.ai・スマホ・Claude Code から「今月の未精算いくら?」「�
 | D6 | ページネーションは **opaque cursor 方式**(`cursor` / `next_cursor` / `has_more`)、期間指定は **`date_from` / `date_to`** | Convex の `.paginate()` がカーソルベース。offset 方式は有界読み取り方針に反する。「先週何買った?」に answering できるよう任意の日付範囲を受ける(レビュー指摘 C5) |
 | D7 | HTTP レスポンスは **snake_case**。Convex 側のレスポンス組み立て関数で一度だけ変換 | MCP ツールの outputSchema と HTTP API を同形にし、Next.js 層をほぼパススルーにする |
 | D8 | Clerk 課金は発生しない見込み(調査済み) | Hobby プラン 50,000 MRU に対し利用者2名。OAuth applications 機能にプラン制限・課金の記載なし |
-| D9 | MCP セキュリティベストプラクティス照合済み | token passthrough 回避 / RS 分類 + audience 検証 / confused deputy 非該当 / セッション非依存認証 / スコープ最小化 |
+| D9 | MCP セキュリティベストプラクティス照合済み | token passthrough 回避 / RS 分類(metadata 公開)/ confused deputy 非該当 / セッション非依存認証 / スコープ最小化。**トークンの audience 拘束のみ R7 の既知の制約**(Phase C で実クレーム確認後に実装判断) |
 | D10 | **採用バージョンは Phase 0 で確定・固定**する(`mcp-handler` の対応 MCP revision・SDK 世代・zod 要件・Claude 各クライアントの対応 revision) | `mcp-handler` 2.x は MCP 2026-07-28 世代 + SDK v2 + zod ≥4.2 前提で、1.x とは構成が異なる。過去版に認証コンテキスト混線の修正履歴もあり、セキュアな最小バージョン固定が必要(レビュー指摘 C1) |
 | D11 | ツール名は `list_expenses` / 引数は `expense_id`(旧案 `list_receipts` / `receipt_id` を改名) | 手入力支出も含むため「レシート」は不正確。一覧にも `source` を返す(レビュー指摘 M12) |
 | D12 | **レートリミットを初期リリースから導入**(既存 `@convex-dev/rate-limiter`、member 単位、**rate 120/時 + capacity 20** の token bucket) | トークン漏えい・暴走クライアントによる読み取りコストの抑止。capacity を明示して瞬間バーストを20回に制限。member 単位のため**世帯全体では最大 240回/時**。rate limiter の書き込みはコンポーネント内部テーブルのみで、**業務データ(expenses 等)は読み取り専用のまま**(レビュー指摘 C3・再レビュー指摘 N4) |
@@ -73,7 +73,7 @@ sequenceDiagram
 ```
 
 - 認証境界は2つ:
-  1. **Claude ↔ Next.js**: MCP 仕様の OAuth(Clerk が認可サーバー、`/mcp` がリソースサーバー)。毎リクエスト Bearer 検証。**OAuth トークン限定で受け付け**(Cookie セッション・通常の Clerk session token・期限切れ・別 issuer/audience はすべて拒否。§6.1)。
+  1. **Claude ↔ Next.js**: MCP 仕様の OAuth(Clerk が認可サーバー、`/mcp` がリソースサーバー)。毎リクエスト Bearer 検証。**OAuth トークン限定で受け付け**(Cookie セッション・通常の Clerk session token・期限切れ・別 issuer は拒否。§6.1。audience(resource)拘束のみ R7 の既知の制約)。
   2. **Next.js ↔ Convex**: 内部シークレット(`WARIKAPP_MCP_INTERNAL_SECRET`、環境ごとに別値。§6.3)。Clerk OAuth トークンはこの境界を越えない。
 - Convex への転送リクエストは**受信ヘッダーを転送せず、新しい `Headers` をゼロから構築**する(クライアント由来の `X-Warikapp-Clerk-User-Id` が紛れ込む余地を構造的に断つ)。
 - 「誰か」の解決は毎リクエスト: 検証済み userId → `${CLERK_JWT_ISSUER_DOMAIN}|${userId}` で tokenIdentifier を組み立て(Convex 側の env を使用)→ 既存インデックス `members.by_tokenIdentifier` + **`.unique()`**(重複時は throw = fail closed)で member → coupleId。
@@ -145,12 +145,12 @@ sequenceDiagram
 | `filter` | `unsettled \| all` | `unsettled` | 既存 `expenses.list` と同じ使い分け |
 | `date_from` | `YYYY-MM-DD` | なし | 購入日の下限(含む)。`purchasedAt` のインデックス範囲条件 |
 | `date_to` | `YYYY-MM-DD` | なし | 購入日の上限(含む) |
-| `cursor` | opaque 文字列 | なし | 前ページの `next_cursor`。**エンベロープ方式**: `base64url(JSON { v: 1, filter, date_from, date_to, convex_cursor })`。サーバーは受信時に filter/期間が現リクエストと一致することを検証し、不一致・復号不能は 400 |
+| `cursor` | opaque 文字列 | なし | 前ページの `next_cursor`。**HMAC 署名付きエンベロープ方式**: `base64url(JSON { v: 1, filter, date_from, date_to, c: coupleId, convex_cursor }) + "." + base64url(HMAC-SHA256 署名)`。鍵は内部シークレット(現行・旧の両方で検証 = ローテーション耐性)。署名不一致・復号不能・条件不一致・coupleId 不一致・内部 cursor 不正(InvalidCursor)はすべて 400 |
 | `limit` | 1〜50 | 20 | `.paginate()` の `numItems` としてそのまま渡す。**返却後の切り詰めはしない**(切り詰めると continueCursor との不整合で支出が永久に欠落する。D13)。`returned_count` は通常 `limit` 件だがページ分割時は前後しうる契約 |
 
 購入日の降順。論理削除済み(`deletedAt` 設定済み)は除外。
 
-日付パラメータの検証(400 契約): `YYYY-MM-DD` 形式・**実在日**(既存 `assertPurchasedAt` と同じ往復方式で 2026-02-31 等を弾く)・`date_from <= date_to`。summary の `month` も同様に形式・実在月を検証。エラー文は正しい形式の例を含める。
+日付パラメータの検証(400 契約): `YYYY-MM-DD` 形式・**実在日**(既存 `assertPurchasedAt` と同じ往復方式で 2026-02-31 等を弾く)・`date_from <= date_to`・**年は 2000〜2100 を正式な業務制約とする**(`Date.UTC` の2桁年解釈の回避を兼ねる。`expenses.save` は過去日を広く受理するが、MCP 照会 API の範囲指定はこの制約内とする)。summary の `month` も同様に形式・実在月・年範囲を検証。エラー文は正しい形式の例を含める。
 
 ```json
 {
@@ -222,7 +222,7 @@ sequenceDiagram
 
 - **schema 変更**: expenses に `by_coupleId_and_deletedAt_and_purchasedAt` を追加する。`filter=all` の一覧と月次サマリーで「論理削除の範囲除外 + 購入日範囲」を同一インデックスで実現するため(既存の `by_coupleId_and_purchasedAt` では deletedAt を `.filter()` で落とすしかなく、削除が積み上がるほど走査が増える — 既存 schema コメントと同じ理屈)。個人規模のテーブルなので非 staged の直接追加を既定とするが、デプロイがブロックされる場合は**3段階に分ける**(staged index は解除まで query から使えないため): (1) schema のみ `staged: true` でデプロイ → (2) バックフィル完了をダッシュボードで確認 → (3) staged 解除 + 利用コードを同時デプロイ。この条件分岐は Phase A の手順に含める。
 - `filter=unsettled` は既存の `by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt` を使用(month 範囲も同インデックスの `purchasedAt` 段で適用)。
-- 一覧: `.paginate()`(カーソル、返却は `limit` 件に切り詰め)。
+- 一覧: `.paginate()`(カーソル)。返却後の切り詰めはしない(D13)。
 - バランス・サマリー: 上限 +1 件を `take` して `truncated` 判定(既存 `collectUnsettled` と同じパターン)。
 - `.collect()` は使わない。
 
@@ -306,7 +306,7 @@ lib/mcp/
 - `verifyClerkToken` では **OAuth アクセストークンのみを受理**する(`auth({ acceptsToken: "oauth_token" })` 相当の限定)。以下はすべて 401 で拒否し、テストで保証する(§7.2):
   - Cookie セッション/通常の Clerk session token
   - 期限切れトークン
-  - 別 issuer・別 audience(resource)のトークン
+  - 別 issuer のトークン(**audience(resource)拘束は未実装 — R7 の既知の制約**。Phase C で実トークンの `aud` クレームを確認し、resource が反映されるなら JWT 必須化 + `WARIKAPP_MCP_RESOURCE_URL` との完全一致検証を追加する)
 - **Origin 検証**(Streamable HTTP の必須要件): `mcp-handler` 採用バージョンの Origin 検証実装を Phase 0 で確認し、不足していれば `/mcp` route で自前検証を足す。`proxy.ts` の `authorizedParties` は Clerk トークンに対する検査であり、この代替にならない。契約は次のとおり:
   - **Origin ヘッダーなし → 受理**(Claude Code 等の非ブラウザクライアント)。
   - **Origin ヘッダーあり → 環境別 allowlist との完全一致以外は 403**。allowlist は env `WARIKAPP_MCP_ALLOWED_ORIGINS`(カンマ区切り)で管理:
@@ -320,7 +320,7 @@ lib/mcp/
 | 仕様の要求 | 本設計の対応 |
 |---|---|
 | Token passthrough 禁止 | Clerk OAuth トークンは `/mcp` で検証・消費し、Convex には渡さない(内部シークレット + userId に交換) |
-| RS 分類・audience 検証(RFC 9728 / 8707) | `mcp-handler` の `withMcpAuth` + protected resource metadata で実装 |
+| RS 分類・audience 検証(RFC 9728 / 8707) | protected resource metadata は実装済み。**トークンの audience 拘束は R7 の既知の制約**(現経路の Clerk ヘルパーが audience を露出しないため。Phase C で実クレーム確認後に実装判断) |
 | Origin 検証(Streamable HTTP) | §6.1(Phase 0 で実装位置を確定、テストで保証) |
 | Confused deputy | 非該当構成(Clerk 自身が AS。per-client consent を Clerk が強制) |
 | セッションを認証に使わない | 毎リクエスト Bearer 検証。ステートレス運用 |
@@ -357,7 +357,7 @@ lib/mcp/
 
 ### 7.2 Next.js 側(vitest)
 
-- **`/mcp` ルートの認証**: OAuth トークン以外(セッション token・期限切れ・別 issuer/audience・トークンなし)→ 401。**許可外 Origin → 403 / 許可 Origin → 通過 / Origin なし → 通過**。
+- **`/mcp` ルートの認証**: OAuth トークン以外(セッション token・期限切れ・別 issuer・トークンなし)→ 401、scope なし → 403(audience 検証テストは R7 解消時に追加)。**許可外 Origin → 403 / 許可 Origin → 通過 / Origin なし → 通過**。
 - **OAuth discovery の内容検証**: protected resource metadata の `resource`・`authorization_servers`・`scopes_supported` の値、401 応答の `WWW-Authenticate` ヘッダー(`resource_metadata` と scope)、metadata ルートの `OPTIONS` が返す CORS ヘッダー。
 - `lib/mcp/client.ts`: fetch モックで 401/403/404/429/503 → エラーマッピング、タイムアウト、`cache: "no-store"` の付与、Headers が毎回新規構築されること。
 - `lib/mcp/format.ts`: 円表記・テキスト要約・truncated 時の警告文・**25,000 字超過時の置き換え(不正 JSON を出さない)**。
@@ -384,7 +384,7 @@ lib/mcp/
 
 | Phase | 内容 | 完了条件 |
 |---|---|---|
-| **0** | **バージョン・互換性の確定**: `mcp-handler` + SDK + `@clerk/mcp-tools` の組み合わせ(§5.5 の (a)/(b))を決定し、Next.js 16.2.10 上で **Clerk dev インスタンスの OAuth 認証を通した実ツール1本の呼び出し(userId 取得まで)** を成立させる。Origin 検証の実装位置(mcp-handler 委譲 or 自前)を確定。claude.ai / Claude Code の対応 revision との交差を確認し、旧トランスポートのフォールバック要否を決定。`members.tokenIdentifier` の実形式を dev / **production 両方**の実データで確認 | 採用バージョン・SDK 世代・対応 revision を §5.5 に追記。**OAuth 認証済みツール呼び出しで userId が取れる**ことを確認 |
+| **0** | **バージョン・互換性の確定**: `mcp-handler` + SDK + `@clerk/mcp-tools` の組み合わせ(§5.5 の (a)/(b))を決定。Origin 検証の実装位置(mcp-handler 委譲 or 自前)を確定。claude.ai / Claude Code の対応 revision との交差を確認し、旧トランスポートのフォールバック要否を決定。`members.tokenIdentifier` の実形式を dev / **production 両方**の実データで確認。認証配線の検証はモック(vi.mock)による route 統合テストまで(**実 Clerk OAuth の完走・実トークンのクレーム確認は Phase C** — Clerk ダッシュボードの手動設定が前提のため。§5.5 の注記と整合) | 採用バージョン・SDK 世代・対応 revision を §5.5 に追記。モック統合テストで JSON-RPC 成功パスが通る |
 | **A** | Convex 側(schema インデックス追加 / `http.ts` / `mcp.ts` / settlements export 化 / rateLimits / テスト) | `npm test` 緑。`npx convex dev` でデプロイが通る |
 | **B** | Next.js 側(依存追加 → `lib/mcp/` → ルート3本 → `proxy.ts` 公開パス → テスト)。ツール実装は mcp-builder スキルの指針に従う | `npm test` + `npm run lint` + `npm run build` 緑 |
 | **C** | dev 環境 E2E(Clerk dev インスタンスに CIMD/DCR 設定 → dev 用シークレット設定 → ローカルで Inspector から OAuth 完走 → 4ツール動作) | §7.3 の dev 項目すべて ✅ |
@@ -421,7 +421,7 @@ lib/mcp/
 | R4 | `members.tokenIdentifier` の実形式が `issuer\|subject` の想定と異なる、または dev と production で issuer が異なることによる解決失敗 | member 解決が全滅(全リクエスト 403) | **Phase 0 で dev・production 両環境の実データと env を照合**してから結合ロジックを確定。テストにも実形式を反映 |
 | R5 | OAuth トークン検証が Clerk の従量枠(検証10万回/月)にカウントされる | 課金リスク | 個人利用(月数百回)では枠の 0.1% 未満。§9-6 で初月に実測確認 |
 | R6 | Vercel の関数実行時間・コールドスタート | 応答遅延 | 読み取り専用の軽い query のみで実測は短いはず。Inspector で計測し、問題があれば maxDuration 設定 |
-| R7 | OAuth トークンの resource/audience 拘束が実装できない(3巡目レビュー指摘 重大1) | 他リソースサーバー向けに発行されたトークンが本サーバーに流用される経路を、サーバー側の検証だけでは遮断できない(MCP 2025-06-18 仕様が要求する audience 検証の未実装) | `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)は `id / subject / scopes / tokenType / userId / clientId` のみで audience・resource・azp に相当するフィールドを持たず、`@clerk/mcp-tools@0.6.0` の `verifyClerkToken` もそれをそのまま素通しするだけ(`AuthInfo.resource` を設定しない)。オパークトークン・JWT形式トークンいずれの検証結果(`IdPOAuthAccessToken`)にも aud クレームは残らないことを `@clerk/backend` の実装で確認済み。`mcp-handler@1.1.0` の `withMcpAuth` 自体も resource 照合を行わない。**現実の緩和要因**: このClerkインスタンスのリソースサーバーは本 MCP サーバー1つのみで、他リソースサーバー向けに発行されたトークンが存在しない(構造的に流用元が無い)。Clerk が将来 audience/resource を露出するようになったら、env `WARIKAPP_MCP_RESOURCE_URL` との完全一致検証を `app/mcp/route.ts` の `verifyToken` に追加する(実装コメント参照) |
+| R7 | OAuth トークンの resource/audience 拘束が実装できない(3巡目レビュー指摘 重大1) | 他リソースサーバー向けに発行されたトークンが本サーバーに流用される経路を、サーバー側の検証だけでは遮断できない(MCP 2025-06-18 仕様が要求する audience 検証の未実装) | `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)は `id / subject / scopes / tokenType / userId / clientId` のみで audience・resource・azp に相当するフィールドを持たず、`@clerk/mcp-tools@0.6.0` の `verifyClerkToken` もそれをそのまま素通しするだけ(`AuthInfo.resource` を設定しない)。オパークトークン・JWT形式トークンいずれの検証結果(`IdPOAuthAccessToken`)にも aud クレームは残らないことを `@clerk/backend` の実装で確認済み。`mcp-handler@1.1.0` の `withMcpAuth` 自体も resource 照合を行わない。**現実の緩和要因**: このClerkインスタンスのリソースサーバーは本 MCP サーバー1つのみで、他リソースサーバー向けに発行されたトークンが存在しない(構造的に流用元が無い)。**正確な帰結(4巡目レビューで訂正)**: 実装不能なのは「現経路(`auth()` → `verifyClerkToken`)では」であり、生の Bearer トークンは `verifyToken` に渡っているため、`@clerk/backend` の公開 `verifyToken` による JWT 手動検証で `aud` を読める可能性が残っている(Clerk の OAuth アクセストークンは既定で JWT)。**解消手順(Phase C)**: dev の実 OAuth フローで MCP クライアントが送る `resource` パラメータがトークンの `aud` に反映されるかを確認 →(a)反映される: JWT 発行を必須化し、署名・issuer・typ・期限の検証に加えて `aud` の存在と `WARIKAPP_MCP_RESOURCE_URL` との完全一致を検証(opaque トークンは拒否)、wrong/missing audience → 401 のテスト追加。(b)反映されない: 現構成は MCP 認可仕様と両立しないため、認可サーバー構成の見直しを検討 |
 
 ## 11. スコープ外(明示)
 
@@ -495,7 +495,7 @@ lib/mcp/
 
 | 指摘 | 区分 | 対応 |
 |---|---|---|
-| 重大1 OAuthトークンのresource/audience拘束が未実装 | 重大 | **実装不可(既知の制約として記録)**: `auth({ acceptsToken: "oauth_token" })` が返す `AuthenticatedMachineObject<"oauth_token">`(`@clerk/backend` の型定義)・`verifyClerkToken`(`@clerk/mcp-tools@0.6.0`)のいずれもaudience/resourceに相当するフィールドを露出せず、`mcp-handler@1.1.0` の `withMcpAuth` もresource照合を行わないため、現状の依存関係では実装不可能と判断した。`app/mcp/route.ts` の `verifyToken` に調査結果・緩和要因(このClerkインスタンスのリソースサーバーは本サーバー1つのみ)・将来対応方針(`WARIKAPP_MCP_RESOURCE_URL` との完全一致検証)を明記するコメントを追加し、既知の制約として **R7**(§10)に記録した |
+| 重大1 OAuthトークンのresource/audience拘束が未実装 | 重大 | **一部対応(R7 に記録、Phase C で解消判断)**: 現経路(`auth()` → `verifyClerkToken`)では audience を取得できないことを型・実装で確認し、`requiredScopes` 強制 + 実装コメント + **R7** に記録。4巡目レビューで「生 Bearer の JWT 手動検証(`@clerk/backend` の `verifyToken`)で `aud` を読める可能性が残る」と訂正を受け、R7 に Phase C での解消手順(実トークンの `aud` に resource が反映されるかの確認 → JWT 必須化 + 完全一致検証 or 構成見直し)を明記した |
 | 中1 requiredScopesが指定されておらずscope:[]のトークンが通る | 中 | **採用**: `mcp-handler@1.1.0` の `withMcpAuth` が `requiredScopes` をネイティブサポートすることを実装(node_modules)で確認し、`requiredScopes: ["profile"]` を指定(§6.1)。テスト追加: scopeなし→403(`InsufficientScopeError`。`WWW-Authenticate`に`insufficient_scope`)、profileあり→スコープ検証を通過(app/mcp/route.test.ts) |
 | 中2 cursorエンベロープが署名されておらず改ざん可能・InvalidCursorが500になる | 中 | **採用**: cursorエンベロープにHMAC-SHA256署名(Web Crypto `crypto.subtle`、現行・旧内部シークレットの両方で検証)を追加(`base64url(payload) + "." + base64url(signature)`)。`convex/mcp.ts` の `.paginate()` をtry/catchで包み、InvalidCursor系エラー(名前・メッセージ判定)を400に変換。テスト追加: 署名なしcursor→400、convex_cursorだけ書き換え(署名不一致)→400、正規署名だがconvex_cursor自体が無効→400(500にならないことを確認) |
 | 中3 paginationOptsValidatorを使わずcursor/limitを個別再構築している | 中 | **採用**: `convex/mcp.ts` の `listExpenses` の引数を `paginationOpts: paginationOptsValidator` に変更し、`.paginate(args.paginationOpts)` へ無変更で渡す。numItemsの組み立て(limitのclamp)は `convex/http.ts` 側で `paginationOpts` オブジェクトとして構築 |
@@ -506,3 +506,15 @@ lib/mcp/
 | 中8 balanceツール説明の「直近200件」が実装(購入日の古い順)と不一致 | 中 | **採用**: `lib/mcp/tools/get-unsettled-balance.ts` の説明文を「購入日の古い順に最大200件」に修正(`convex/settlements.ts` の `collectUnsettled` の実装と一致)。`lib/mcp/format.ts` のtruncated警告文は元々「直近」を含まない表現だったため変更不要と確認 |
 | 軽微1 月・日付検証に年範囲チェックが無くDate.UTCの2桁年問題を回避できない | 軽微 | **採用**: `convex/http.ts` の日付・月検証(`isValidCalendarDate`・`isValidMonth`)に年範囲チェック(2000〜2100)を追加。テスト追加: `month=0001-01`→400 |
 | 軽微2 summaryテキストの「対象N件、うち未確定M件」が包含表現に見える | 軽微 | **採用**: `lib/mcp/format.ts` の `buildMonthlySummaryText` を「確定N件・未確定M件」の並列表現に修正。文字列を検証するテストを追加(`lib/mcp/format.test.ts`) |
+
+### 4巡目(修正の再レビュー)の反映(v5)
+
+判定: 3巡目11件のうち解消8・不十分3・未対応0、新規2。
+
+| 指摘 | 区分 | 対応 |
+|---|---|---|
+| 重大1 不十分: 「実装不能」は言い過ぎ(生 Bearer の JWT 手動検証で `aud` を読める可能性が残る)。計画書の audience 記載とも矛盾 | 重大 | **反映**: R7 に正確な帰結と Phase C での解消手順((a) `aud` に resource が反映されるなら JWT 必須化 + 完全一致検証 /(b)されないなら構成見直し)を明記。D9・§3・§6.1・§6.2・§7.2 の「audience 拒否」記載を「R7 の既知の制約」に統一し矛盾を解消 |
+| 中2 不十分: InvalidCursor 判定が name・メッセージ文字列のみ(構造化 ConvexError で 500 に抜ける) | 中 | **採用**: convex 公式実装(use_paginated_query.ts)と同じ `ConvexError.data.isConvexSystemError === true && paginationError === "InvalidCursor"` の構造化判定を `isInvalidCursorError` に追加し、その形のエラーの単体テストを追加 |
+| 中5 不十分: 実 Clerk OAuth のトークン形式・クレームは未検証(モック統合テストの限界)。Phase 0 と §5.5 の記載矛盾 | 中 | **反映**: Phase 0 の完了条件を「モック統合テストまで」に修正し、実 OAuth 完走(Inspector でのトークン実クレーム確認を含む)を Phase C の必須項目として整理(§8)。実施時に R7 の解消判断も行う |
+| 新規: 計画書 §4.3/§4.4 の cursor・pagination 契約が旧実装(未署名・切り詰め)のまま | 中 | **採用**: §4.3(2) を HMAC 署名付きエンベロープ(coupleId 束縛・2値検証)に、§4.4 を「切り詰めなし」に更新 |
+| 新規: 年範囲 2000〜2100 が `expenses.save` の受理範囲より狭いのに契約として明記されていない | 軽微 | **採用**: §4.3 の日付検証に「2000〜2100 を正式な業務制約とする」と明記(保存側は変更しない。照会 API の範囲指定のみの制約) |
