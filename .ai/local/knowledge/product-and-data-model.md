@@ -33,7 +33,7 @@
 | `couples` | 世帯(name のみ) | — |
 | `members` | 世帯メンバー。`tokenIdentifier` で認証 ID と紐付け | `by_tokenIdentifier`, `by_coupleId` |
 | `invitations` | 招待コード(code, expiresAt, usedAt) | `by_code`, `by_coupleId` |
-| `expenses` | 支出。品目 `items[]` をドキュメントに内包 | `by_coupleId_and_purchasedAt`, `by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt` |
+| `expenses` | 支出。品目 `items[]` をドキュメントに内包 | `by_coupleId_and_purchasedAt`, `by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt`, `by_coupleId_and_deletedAt_and_purchasedAt` |
 | `settlements` | 精算(from/to member, amount, memo, settledBy, expenseCount) | `by_coupleId` |
 | `uploads` | アップロード画像の世帯帰属台帳(storageId, uploadedBy, usedByExpenseId) | `by_storageId` |
 
@@ -43,6 +43,9 @@
   レシート 1 枚ぶんの有界な配列で 1MB 上限に収まる)
 - `expenses.settlementId` 未設定 = 未精算。「未精算のみ」表示はインデックス範囲で絞り込む
   (`deletedAt` もインデックスに含め、論理削除済み支出の走査蓄積を避ける)
+- MCP の「すべて」一覧・月次サマリーは
+  `by_coupleId_and_deletedAt_and_purchasedAt` で論理削除の除外と購入日範囲を同時に絞り込み、
+  削除済み支出の蓄積による走査量の増加を避ける
 - 削除は論理削除(`deletedAt`)。`purchasedAt` は `"YYYY-MM-DD"` 文字列
 - `uploads` は storageId の世帯帰属を記録する台帳。`receipts.parse` / `expenses.save` で
   自世帯のアップロードかを検証する。`usedByExpenseId` 未設定なら未参照で破棄可
