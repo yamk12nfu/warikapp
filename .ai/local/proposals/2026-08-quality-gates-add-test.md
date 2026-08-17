@@ -3,7 +3,7 @@
 schema_version: 1
 id: quality-gates-add-test
 status: accepted
-proposed_at_commit: 625022d6cae33f50ec639a97b0360ee89a1c07b9
+proposed_at_commit: fffddaa08019f84a04972041c0f2836c7579e763
 # 注: 根拠の中心は .ai/project.yaml の commands.test が空であること
 # (aro doctor の WARN)だが、sources に .ai/** は使えないため本文での言及に留める
 sources:
@@ -20,8 +20,7 @@ decision:
 
 - `package.json` に `"test": "vitest run"` が定義済み
 - `vitest.config.ts` で convex-test + edge-runtime のテスト環境が整備済み
-- テストファイルは 10 件(convex/*.test.ts、lib/*.test.ts、convex/ai/*.test.ts)、
-  217 テストが全て通過し、実行時間は約 0.5 秒
+- テストファイルは 23 件、362 テストが全て通過し、実行時間は約 1.9 秒
 
 つまり「テストがないから空」ではなく、「テストはあるのに quality gate に
 組み込まれていない」状態である。`.ai/project.yaml` の `quality_gates.required` は
@@ -48,6 +47,6 @@ doctor の WARN も解消される。
   採用されても improve プロンプトでは実装できず、人間が直接編集する必要がある。
   提案としては「人間への依頼」に近い。
 - required gate が 1 つ増えるため、将来テストが不安定化(flaky 化)すると
-  全ての AI ループ・CI のブロッカーになる。現状 217 件 / 0.5 秒で安定しているが、
+  全ての AI ループ・CI のブロッカーになる。現状 362 件 / 約 1.9 秒で安定しているが、
   外部 API(Convex / Clerk / AI)へ依存するテストが増えた場合は注意が必要。
-- CI 実行時間は増えるが、現状の実測では 1 秒未満のため実害はほぼない。
+- CI 実行時間は増えるが、現状の実測では約 1.9 秒のため実害は小さい。
