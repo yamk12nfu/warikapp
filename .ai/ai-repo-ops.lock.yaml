@@ -2,9 +2,9 @@ schema_version: 1
 source:
   repository: yamk12nfu/ai-repo-ops
   distribution: base
-  version: 0.1.8
+  version: 0.1.10
   commit: null
-  distribution_content_sha256: 24df3daa68a2d76226ec58a8634479867bd2e3aa41caa2bb138abf15bd40e75a
+  distribution_content_sha256: 6082171a8ba08c7329c520a07e4bda173a5f5c62bfee1c2342dd274bf576e83a
 checksum:
   algorithm: sha256
   mode: canonical_text_lf_utf8bom_strip_v1
@@ -15,7 +15,7 @@ managed_files:
     strategy: managed_overwrite
   - path: .ai/managed/prompts/improve.md
     source: distribution/base/files/.ai/managed/prompts/improve.md
-    installed_sha256: 5c540992363ea2a13718099f0ded6fcf61789cbdbd93fc364c300a9003ebe228
+    installed_sha256: 8e1e728db92c6fba800ae35224e3e4b90aaada279d917642515f6b9ac140419a
     strategy: managed_overwrite
   - path: .ai/managed/prompts/issue-fix.md
     source: distribution/base/files/.ai/managed/prompts/issue-fix.md
@@ -31,7 +31,7 @@ managed_files:
     strategy: managed_overwrite
   - path: .ai/managed/prompts/propose.md
     source: distribution/base/files/.ai/managed/prompts/propose.md
-    installed_sha256: 0f55d7759136b02a2a759790fc9cb9dde6bb05765efdc576adb7a652a6e0c3b6
+    installed_sha256: e67442a0fecdc26c376640619a7feb73ddfc9b47638d45479027a5d7be74c8c6
     strategy: managed_overwrite
   - path: .ai/managed/policies/default.yaml
     source: distribution/base/files/.ai/managed/policies/default.yaml
@@ -86,4 +86,4 @@ patches:
       - .ai/managed/
       - .ai/ai-repo-ops.lock.yaml
 created_at: 2026-07-21T14:31:58.122Z
-updated_at: 2026-08-04T16:49:31.315Z
+updated_at: 2026-08-17T01:01:36.521Z
