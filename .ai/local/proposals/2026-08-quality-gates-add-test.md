@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=../../managed/schemas/proposal.schema.json
 schema_version: 1
 id: quality-gates-add-test
-status: accepted
+status: done
 proposed_at_commit: fffddaa08019f84a04972041c0f2836c7579e763
 # 注: 根拠の中心は .ai/project.yaml の commands.test が空であること
 # (aro doctor の WARN)だが、sources に .ai/** は使えないため本文での言及に留める
