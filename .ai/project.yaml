@@ -13,13 +13,14 @@ commands:
   setup: "npm ci"
   lint: "npm run lint"
   typecheck: "npx tsc --noEmit"
-  test: ""
+  test: "npm test"
   build: "npm run build"
 
 quality_gates:
   required:
     - lint
     - typecheck
+    - test
     - build
 
 ai:
