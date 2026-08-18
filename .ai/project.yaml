@@ -38,6 +38,7 @@ ai:
     - ".mcp.json" # プロジェクトMCP設定
     - ".ai/local/knowledge/**" # Repo Knowledgeのみ(project.yaml/managed/lockはAIの書き込み対象外)
     - ".ai/local/proposals/**" # knowledge-harvest のproposal(採否は人間がstatusで管理)
+    - ".ai/local/execution-plans/**" # repo-ownedな実行状態。promotionは人間reviewで管理
     - "package.json"
     - "package-lock.json"
     - "tsconfig.json"
