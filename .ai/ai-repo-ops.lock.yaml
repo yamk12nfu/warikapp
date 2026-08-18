@@ -2,9 +2,9 @@ schema_version: 1
 source:
   repository: yamk12nfu/ai-repo-ops
   distribution: base
-  version: 0.1.10
+  version: 0.1.11
   commit: null
-  distribution_content_sha256: 6082171a8ba08c7329c520a07e4bda173a5f5c62bfee1c2342dd274bf576e83a
+  distribution_content_sha256: 9ef9c33a4fc84a700822dca8b023079dd9bc413d0ba6f8d2fcfd148070ab35be
 checksum:
   algorithm: sha256
   mode: canonical_text_lf_utf8bom_strip_v1
@@ -57,6 +57,10 @@ managed_files:
     source: distribution/base/files/.ai/managed/schemas/proposal.schema.json
     installed_sha256: 3e5b30176edab78f867fff2553b890f6481ee207e24036dd4bce400b3e724c0c
     strategy: managed_overwrite
+  - path: .ai/managed/schemas/execution-plan.schema.json
+    source: distribution/base/files/.ai/managed/schemas/execution-plan.schema.json
+    installed_sha256: ab361226c22bf9c131d0280df34a2cb322edc57bbc60727196b5334fa163ed45
+    strategy: managed_overwrite
 seed_files:
   - path: .ai/project.yaml
     strategy: create_only
@@ -78,6 +82,7 @@ patches:
       - .ai/ai-repo-ops.lock.yaml text eol=lf
       - .ai/local/knowledge/** text eol=lf
       - .ai/local/proposals/** text eol=lf
+      - .ai/local/execution-plans/** text eol=lf
       - .github/workflows/ai-*.yml text eol=lf
   - type: append_unique_lines
     path: .prettierignore
@@ -86,4 +91,4 @@ patches:
       - .ai/managed/
       - .ai/ai-repo-ops.lock.yaml
 created_at: 2026-07-21T14:31:58.122Z
-updated_at: 2026-08-17T01:01:36.521Z
+updated_at: 2026-08-18T13:51:26.846Z
