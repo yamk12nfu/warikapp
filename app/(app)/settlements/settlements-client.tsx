@@ -10,6 +10,7 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -125,26 +126,34 @@ export default function SettlementsClient() {
               key={settlement._id}
               className="space-y-2 rounded-2xl bg-surface p-3 shadow-card"
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-xs text-muted">
-                  {formatSettledAt(settlement.settledAt)}
+              <Link
+                href={`/settlements/${settlement._id}`}
+                className="block space-y-2"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-muted">
+                    {formatSettledAt(settlement.settledAt)}
+                  </span>
+                  <span className="whitespace-nowrap font-bold tabular-nums">
+                    {formatYen(settlement.amount)}
+                  </span>
+                </div>
+                <p className="text-sm">
+                  {settlement.amount === 0
+                    ? "貸し借りなしで精算"
+                    : `${memberName(settlement.fromMemberId)} → ${memberName(
+                        settlement.toMemberId,
+                      )}`}
+                </p>
+                <p className="text-xs text-muted">
+                  対象 {settlement.expenseCount}件
+                  {settlement.memo !== undefined && ` ・ ${settlement.memo}`}
+                </p>
+                <span className="text-sm font-medium text-me-strong">
+                  内訳を見る →
                 </span>
-                <span className="whitespace-nowrap font-bold tabular-nums">
-                  {formatYen(settlement.amount)}
-                </span>
-              </div>
-              <p className="text-sm">
-                {settlement.amount === 0
-                  ? "貸し借りなしで精算"
-                  : `${memberName(settlement.fromMemberId)} → ${memberName(
-                      settlement.toMemberId,
-                    )}`}
-              </p>
-              <p className="text-xs text-muted">
-                対象 {settlement.expenseCount}件
-                {settlement.memo !== undefined && ` ・ ${settlement.memo}`}
-              </p>
-              {/* 取り消せるのは直近1件のみ(要件 F-007) */}
+              </Link>
+              {/* 取り消せるのは直近1件のみ(要件 F-007)。button を a の中に入れない */}
               {index === 0 && (
                 <button
                   type="button"
