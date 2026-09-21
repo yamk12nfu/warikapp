@@ -36,11 +36,16 @@ export type ItemAdvance<TMemberId extends string = string> =
       amount: number;
     };
 
+type SettlementItemInput<TMemberId extends string> = Omit<
+  ExpenseItemInput,
+  "shares"
+> & {
+  shares: Array<{ memberId: TMemberId; ratioPercent: number }>;
+};
+
 export function calcItemAdvance<TMemberId extends string>(
   paidBy: TMemberId,
-  item: ExpenseItemInput & {
-    shares: Array<{ memberId: TMemberId; ratioPercent: number }>;
-  },
+  item: SettlementItemInput<TMemberId>,
 ): ItemAdvance<TMemberId> {
   const others = item.shares.filter(
     (share) => share.memberId !== paidBy && share.ratioPercent > 0,
@@ -51,17 +56,18 @@ export function calcItemAdvance<TMemberId extends string>(
       "calcItemAdvance: more than one other member with a positive share",
     );
   }
-  if (others.length === 0) {
+  const other = others[0];
+  if (other === undefined) {
     return { kind: "none", amount: 0 };
   }
-  const amount = shareAmount(item, others[0].ratioPercent);
+  const amount = shareAmount(item, other.ratioPercent);
   if (amount === 0) {
     return { kind: "none", amount: 0 };
   }
   return {
     kind: "advanced",
     advancedByMemberId: paidBy,
-    forMemberId: others[0].memberId,
+    forMemberId: other.memberId,
     amount,
   };
 }

@@ -3,7 +3,13 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
-import { calcAdvanceAmount, calcNetBalance } from "../lib/settlement";
+import {
+  calcAdvanceAmount,
+  calcItemAdvance,
+  calcItemShareAmount,
+  calcNetBalance,
+  type ItemAdvance,
+} from "../lib/settlement";
 
 // 精算(F-007)。未精算支出から世帯全体の差額を出し、精算実行で区切る。
 // 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
@@ -80,6 +86,146 @@ export async function collectUnsettled(
   return {
     expenses: truncated ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows,
     truncated,
+  };
+}
+
+async function collectSettled(
+  ctx: QueryCtx | MutationCtx,
+  coupleId: Id<"couples">,
+  settlementId: Id<"settlements">,
+): Promise<{ expenses: Doc<"expenses">[]; overflow: boolean }> {
+  const rows = await ctx.db
+    .query("expenses")
+    .withIndex(
+      "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+      (q) =>
+        q
+          .eq("coupleId", coupleId)
+          .eq("settlementId", settlementId)
+          .eq("deletedAt", undefined),
+    )
+    .take(MAX_UNSETTLED_EXPENSES + 1);
+
+  const overflow = rows.length > MAX_UNSETTLED_EXPENSES;
+  return {
+    expenses: overflow ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows,
+    overflow,
+  };
+}
+
+export type SettlementParticipant = {
+  memberId: Id<"members">;
+  displayName: string;
+  isViewer: boolean;
+};
+
+export type ItemShareBreakdown = {
+  memberId: Id<"members">;
+  ratioPercent: number;
+  amount: number;
+};
+
+export type SettlementItemDetail = {
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  shares: ItemShareBreakdown[];
+  advance: ItemAdvance<Id<"members">>;
+};
+
+export type SettlementExpenseDetail = {
+  expenseId: Id<"expenses">;
+  title: string;
+  purchasedAt: string;
+  paidByMemberId: Id<"members">;
+  totalAmount: number;
+  advanceAmount: number;
+  items: SettlementItemDetail[];
+};
+
+export type SettlementDetail = {
+  participants: SettlementParticipant[];
+  settlement: {
+    settlementId: Id<"settlements">;
+    settledAt: number;
+    fromMemberId: Id<"members">;
+    toMemberId: Id<"members">;
+    amount: number;
+    memo?: string;
+    expenseCount: number;
+    countMismatch?: boolean;
+  };
+  expenses: SettlementExpenseDetail[];
+};
+
+export type SettlementDetailResult =
+  | { kind: "found"; detail: SettlementDetail }
+  | { kind: "notFound" };
+
+function projectSettlementExpense(
+  expense: Doc<"expenses">,
+): SettlementExpenseDetail {
+  const items: SettlementItemDetail[] = expense.items.map((item) => {
+    const advance = calcItemAdvance(expense.paidBy, item);
+    return {
+      name: item.name,
+      unitPrice: item.price,
+      quantity: item.quantity,
+      lineTotal: item.price * item.quantity,
+      shares: item.shares.map((share) => ({
+        memberId: share.memberId,
+        ratioPercent: share.ratioPercent,
+        amount: calcItemShareAmount(item, share.memberId),
+      })),
+      advance,
+    };
+  });
+  return {
+    expenseId: expense._id,
+    title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+    purchasedAt: expense.purchasedAt,
+    paidByMemberId: expense.paidBy,
+    totalAmount: expense.totalAmount,
+    advanceAmount: items.reduce((sum, item) => sum + item.advance.amount, 0),
+    items,
+  };
+}
+
+function projectSettlementDetail(input: {
+  viewer: Doc<"members">;
+  partner: Doc<"members"> | null;
+  settlement: Doc<"settlements">;
+  expenses: Doc<"expenses">[];
+  countMismatch: boolean;
+}): SettlementDetail {
+  const participants: SettlementParticipant[] = [
+    {
+      memberId: input.viewer._id,
+      displayName: input.viewer.displayName,
+      isViewer: true,
+    },
+  ];
+  if (input.partner !== null) {
+    participants.push({
+      memberId: input.partner._id,
+      displayName: input.partner.displayName,
+      isViewer: false,
+    });
+  }
+  return {
+    participants,
+    settlement: {
+      settlementId: input.settlement._id,
+      settledAt: input.settlement._creationTime,
+      fromMemberId: input.settlement.fromMemberId,
+      toMemberId: input.settlement.toMemberId,
+      amount: input.settlement.amount,
+      memo: input.settlement.memo,
+      expenseCount: input.settlement.expenseCount,
+      ...(input.countMismatch ? { countMismatch: true } : {}),
+    },
+    expenses: input.expenses.map(projectSettlementExpense),
   };
 }
 
@@ -285,6 +431,42 @@ export const list = query({
   },
 });
 
+export const detail = query({
+  args: { settlementId: v.string() },
+  handler: async (ctx, args): Promise<SettlementDetailResult> => {
+    const viewer = await requireMember(ctx);
+    const settlementId = ctx.db.normalizeId("settlements", args.settlementId);
+    if (settlementId === null) {
+      return { kind: "notFound" };
+    }
+
+    const settlement = await ctx.db.get("settlements", settlementId);
+    if (settlement === null || settlement.coupleId !== viewer.coupleId) {
+      return { kind: "notFound" };
+    }
+
+    const [partner, collected] = await Promise.all([
+      findPartner(ctx, viewer),
+      collectSettled(ctx, viewer.coupleId, settlement._id),
+    ]);
+
+    const expenses = collected.expenses;
+    const countMismatch =
+      collected.overflow || expenses.length !== settlement.expenseCount;
+
+    return {
+      kind: "found",
+      detail: projectSettlementDetail({
+        viewer,
+        partner,
+        settlement,
+        expenses: expenses.slice().reverse(),
+        countMismatch,
+      }),
+    };
+  },
+});
+
 // 精算の取り消し(S-008)。直近1件のみ。対象支出の settlementId を外してから
 // 精算レコードを消す。取り消すと未精算に戻るので、差額表示も自動で復活する。
 export const cancel = mutation({
@@ -305,27 +487,17 @@ export const cancel = mutation({
       throw new ConvexError(ERR_NOT_LATEST);
     }
 
-    // 1回の精算が抱える件数は execute 側の上限と同じなので、同じ値で有界に読む
-    const settled = await ctx.db
-      .query("expenses")
-      .withIndex(
-        "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
-        (q) =>
-          q
-            .eq("coupleId", member.coupleId)
-            .eq("settlementId", settlement._id)
-            .eq("deletedAt", undefined),
-      )
-      // 上限+1件読む。ちょうど上限件数だけ読めたときに「本当に上限件数なのか、
-      // それ以上あって切れたのか」を区別できないと、下の件数一致の検査が
-      // すり抜けてしまう
-      .take(MAX_UNSETTLED_EXPENSES + 1);
+    const { expenses: settled, overflow } = await collectSettled(
+      ctx,
+      member.coupleId,
+      settlement._id,
+    );
 
     // 精算時に数えた件数と一致しなければ、この取り消しでは戻しきれない支出が
     // ある(= settlementId だけが残った孤児レコードを作る)。精算済み支出は
     // 編集も削除もできないので通常は起こりえないが、取りこぼすくらいなら
     // 取り消し全体を失敗させる
-    if (settled.length !== settlement.expenseCount) {
+    if (overflow || settled.length !== settlement.expenseCount) {
       throw new ConvexError(ERR_CANCEL_MISMATCH);
     }
 
