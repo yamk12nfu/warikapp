@@ -153,7 +153,6 @@ export default function SettlementsClient() {
                   内訳を見る →
                 </span>
               </Link>
-              {/* 取り消せるのは直近1件のみ(要件 F-007)。button を a の中に入れない */}
               {index === 0 && (
                 <button
                   type="button"

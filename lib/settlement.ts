@@ -25,8 +25,6 @@ export function calcItemShareAmount(
   return shareAmount(item, ratio);
 }
 
-// 1品目の立て替え関係。精算の from/to(送金方向)と語を分け、支払者が
-// 相手の負担分を先払いしたことだけを表す。
 export type ItemAdvance<TMemberId extends string = string> =
   | { kind: "none"; amount: 0 }
   | {
@@ -50,7 +48,6 @@ export function calcItemAdvance<TMemberId extends string>(
   const others = item.shares.filter(
     (share) => share.memberId !== paidBy && share.ratioPercent > 0,
   );
-  // 2名世帯では相手は高々1人。3名以上で ratio>0 が複数あるのは到達しない。
   if (others.length > 1) {
     throw new Error(
       "calcItemAdvance: more than one other member with a positive share",
@@ -74,8 +71,7 @@ export function calcItemAdvance<TMemberId extends string>(
 
 // 1つの支出について「支払者が相手の分を立て替えた金額」を返す。
 // 品目単位で 品目金額 × 相手の負担割合% を計算し、品目ごとに四捨五入(要件 F-007)。
-// calcItemShareAmount の相手分合計で代用しない。3名以上では立て替え(支払者→相手1人)
-// と負担額の合算が一致しなくなる。
+// calcItemShareAmount の相手分合計で代用しない。3名以上では丸め単位がずれる。
 export function calcAdvanceAmount(
   paidBy: string,
   items: ExpenseItemInput[],
