@@ -7,6 +7,7 @@ import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
+import { suggestReceiptItemSharesFromHistory } from "../lib/share-memory";
 
 // 支出の保存。クライアント由来の member ID(paidBy / shares[].memberId)は
 // 必ず assertCoupleMemberIds を通してから保存する(他世帯IDの混入=テナント境界破りを防ぐ)。
@@ -17,6 +18,7 @@ const MAX_ITEM_NAME_LENGTH = 50;
 const MAX_PRICE = 9_999_999; // 要件 V-403
 const MAX_QUANTITY = 999; // 総額が非現実的な桁にならないための上限
 const MAX_ITEMS = 100; // レシート1枚の想定(数十品目)に対する安全弁
+const SHARE_SUGGEST_UNDELETED_TAKE = 100;
 
 // 他世帯の支出を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "支出が見つかりません";
@@ -361,5 +363,39 @@ export const remove = mutation({
     }
     await ctx.db.patch("expenses", expense._id, { deletedAt: Date.now() });
     return null;
+  },
+});
+
+export const suggestReceiptItemShares = query({
+  args: { itemNames: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    if (args.itemNames.length > MAX_ITEMS) {
+      throw new ConvexError(`品目は${MAX_ITEMS}件までです`);
+    }
+
+    const householdMembers = await ctx.db
+      .query("members")
+      .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+      .take(2);
+    const partner =
+      householdMembers.find((entry) => entry._id !== member._id) ?? null;
+
+    const history = await ctx.db
+      .query("expenses")
+      .withIndex("by_coupleId_and_deletedAt_and_purchasedAt", (q) =>
+        q.eq("coupleId", member.coupleId).eq("deletedAt", undefined),
+      )
+      .order("desc")
+      .take(SHARE_SUGGEST_UNDELETED_TAKE);
+
+    return suggestReceiptItemSharesFromHistory({
+      itemNames: args.itemNames,
+      history,
+      household: {
+        selfId: member._id,
+        partnerId: partner?._id ?? null,
+      },
+    });
   },
 });

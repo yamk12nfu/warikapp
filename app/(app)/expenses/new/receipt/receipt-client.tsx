@@ -11,8 +11,14 @@ import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
-import type { ExpenseItemInput } from "@/lib/types";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
+import {
+  useAction,
+  useConvex,
+  useConvexAuth,
+  useMutation,
+  useQuery,
+} from "convex/react";
 import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -60,18 +66,18 @@ const ERR_UPLOAD = "アップロードに失敗しました";
 // 圧縮後の画像は数百KBなので、モバイル回線でも60秒あれば十分。
 const UPLOAD_TIMEOUT_MS = 60_000;
 
-// ExpenseEditor / expenses.save に渡す形へ。負担区分の初期値は「折半」
-// (createInitialItem がその既定値を持っている)
 function toEditorItems(
   items: { name: string; price: number; quantity: number }[],
   selfId: string,
   partnerId: string | null,
+  sharesByItem?: readonly (readonly ShareRatio[])[],
 ): ExpenseItemInput[] {
-  return items.map((item) => ({
+  return items.map((item, index) => ({
     ...createInitialItem(selfId, partnerId),
-    name: item.name,
-    price: item.price,
-    quantity: item.quantity,
+    ...item,
+    ...(sharesByItem?.[index] === undefined
+      ? {}
+      : { shares: [...sharesByItem[index]] }),
   }));
 }
 
@@ -100,6 +106,7 @@ export default function ReceiptExpenseClient() {
   const discardUpload = useMutation(api.uploads.discard);
   const parseReceipt = useAction(api.receipts.parse);
   const saveExpense = useMutation(api.expenses.save);
+  const convex = useConvex();
 
   const [phase, setPhase] = useState<Phase>("select");
   const [progress, setProgress] = useState("");
@@ -165,6 +172,20 @@ export default function ReceiptExpenseClient() {
     setPhase("select");
   }
 
+  async function suggestSharesOrNull(
+    itemNames: string[],
+  ): Promise<ShareRatio[][] | undefined> {
+    try {
+      const suggested = await convex.query(
+        api.expenses.suggestReceiptItemShares,
+        { itemNames },
+      );
+      return suggested.sharesByItem;
+    } catch {
+      return undefined;
+    }
+  }
+
   // 読み取り → ドラフト保存 → 確認画面へ
   async function parseAndDraft(
     uploaded: Id<"_storage">,
@@ -173,8 +194,15 @@ export default function ReceiptExpenseClient() {
   ) {
     setProgress("レシートを読み取っています…");
     const parsed = await parseReceipt({ storageId: uploaded });
-
-    const items = toEditorItems(parsed.items, self._id, partnerId);
+    const sharesByItem = await suggestSharesOrNull(
+      parsed.items.map((item) => item.name),
+    );
+    const items = toEditorItems(
+      parsed.items,
+      self._id,
+      partnerId,
+      sharesByItem,
+    );
     const value: ExpenseFormValue = {
       paidBy: self._id,
       storeName: parsed.storeName ?? "",

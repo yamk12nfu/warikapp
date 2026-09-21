@@ -1105,3 +1105,132 @@ describe("expenses.remove", () => {
     ).rejects.toThrow("世帯に参加してください");
   });
 });
+
+describe("expenses.suggestReceiptItemShares", () => {
+  test("履歴の日本語品目名に数量サフィックスつきで一致し、未一致は折半になる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        items: [
+          {
+            name: "牛乳",
+            price: 200,
+            quantity: 1,
+            shares: [{ memberId: members.partner._id, ratioPercent: 100 }],
+          },
+        ],
+      }),
+    );
+
+    const result = await t.withIdentity(ALICE).query(
+      api.expenses.suggestReceiptItemShares,
+      { itemNames: ["牛乳 ×3", "パン"] },
+    );
+
+    expect(result.sharesByItem).toEqual([
+      [
+        { memberId: members.self._id, ratioPercent: 0 },
+        { memberId: members.partner._id, ratioPercent: 100 },
+      ],
+      split(members),
+    ]);
+  });
+
+  test("返却配列の長さは入力の品目数と一致する", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+
+    const result = await t.withIdentity(ALICE).query(
+      api.expenses.suggestReceiptItemShares,
+      { itemNames: ["牛乳", "パン", "卵"] },
+    );
+
+    expect(result.sharesByItem).toHaveLength(3);
+    expect(result.sharesByItem.every((shares) => shares.length === 2)).toBe(
+      true,
+    );
+  });
+
+  test("ドラフトは使わず確定済みだけを見る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        purchasedAt: jstDate(-1),
+        items: [
+          {
+            name: "牛乳",
+            price: 200,
+            quantity: 1,
+            shares: split(members),
+          },
+        ],
+      }),
+    );
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        purchasedAt: jstDate(),
+        status: "draft",
+        items: [
+          {
+            name: "牛乳",
+            price: 200,
+            quantity: 1,
+            shares: [{ memberId: members.partner._id, ratioPercent: 100 }],
+          },
+        ],
+      }),
+    );
+
+    const result = await t.withIdentity(ALICE).query(
+      api.expenses.suggestReceiptItemShares,
+      { itemNames: ["牛乳"] },
+    );
+
+    expect(result.sharesByItem).toEqual([split(members)]);
+  });
+
+  test("他世帯の履歴は見えない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const other = await setupCouple(t, CAROL, identity("dave"));
+    await t.withIdentity(CAROL).mutation(
+      api.expenses.save,
+      manualArgs(other, {
+        items: [
+          {
+            name: "牛乳",
+            price: 200,
+            quantity: 1,
+            shares: [{ memberId: other.self._id, ratioPercent: 100 }],
+          },
+        ],
+      }),
+    );
+
+    const result = await t.withIdentity(ALICE).query(
+      api.expenses.suggestReceiptItemShares,
+      { itemNames: ["牛乳"] },
+    );
+
+    expect(result.sharesByItem).toEqual([split(members)]);
+  });
+
+  test("未ログイン・世帯未所属では読めない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    await expect(
+      t.query(api.expenses.suggestReceiptItemShares, { itemNames: ["牛乳"] }),
+    ).rejects.toThrow("ログインしてください");
+    await expect(
+      t
+        .withIdentity(CAROL)
+        .query(api.expenses.suggestReceiptItemShares, { itemNames: ["牛乳"] }),
+    ).rejects.toThrow("世帯に参加してください");
+  });
+});
+
