@@ -3,7 +3,9 @@ import {
   distributeDifference,
   normalizeParsedReceipt,
   normalizePurchasedAt,
+  stripAnyQuantitySuffix,
   sumItems,
+  toReceiptItemMatchKey,
   type RawParsedReceipt,
 } from "./receipt";
 
@@ -448,5 +450,25 @@ describe("normalizeParsedReceipt", () => {
     );
     expect(result.storeName).toBeNull();
     expect(result.purchasedAt).toBeNull();
+  });
+});
+
+describe("stripAnyQuantitySuffix / toReceiptItemMatchKey", () => {
+  test("末尾の数量だけを外す", () => {
+    expect(stripAnyQuantitySuffix("牛乳 ×3")).toBe("牛乳");
+    expect(stripAnyQuantitySuffix("牛乳 x2")).toBe("牛乳");
+    expect(stripAnyQuantitySuffix("牛乳 *12")).toBe("牛乳");
+    expect(stripAnyQuantitySuffix("牛乳")).toBe("牛乳");
+  });
+
+  test("数量つきと数量なしは同じ照合キーになる", () => {
+    expect(toReceiptItemMatchKey("牛乳 ×3")).toBe("牛乳");
+    expect(toReceiptItemMatchKey("牛乳")).toBe("牛乳");
+    expect(toReceiptItemMatchKey("  牛乳 ×3  ")).toBe("牛乳");
+  });
+
+  test("数量だけなら剥がした空文字を照合キーにしない", () => {
+    expect(stripAnyQuantitySuffix("×3")).toBe("");
+    expect(toReceiptItemMatchKey("×3")).toBe("×3");
   });
 });

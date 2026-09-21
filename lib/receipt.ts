@@ -161,12 +161,23 @@ function toLineTotals(
   return multiplied.some((item) => item.price > MAX_PRICE) ? items : multiplied;
 }
 
+const QUANTITY_SUFFIX_MARK = String.raw`\s*[×xX*]\s*`;
+
 // 品目名の末尾に書かれた数量(「牛乳 x2」「牛乳 ×2」など)を外す。
 // AIは数量を name に含めたり含めなかったりするので、いったん外して
 // 付け直す形にする。「入っていれば足さない」だと、長い名前を50文字に
 // 切り詰めるときに末尾の数量だけが落ち、数量の情報が消えてしまう
 function stripQuantitySuffix(name: string, quantity: number): string {
-  return name.replace(new RegExp(`\\s*[×xX*]\\s*${quantity}\\s*$`), "");
+  return name.replace(new RegExp(`${QUANTITY_SUFFIX_MARK}${quantity}\\s*$`), "");
+}
+
+export function stripAnyQuantitySuffix(name: string): string {
+  return name.replace(new RegExp(`${QUANTITY_SUFFIX_MARK}\\d+\\s*$`), "");
+}
+
+export function toReceiptItemMatchKey(name: string): string {
+  const stripped = stripAnyQuantitySuffix(name).trim();
+  return stripped === "" ? name.trim() : stripped;
 }
 
 // 数量を品目名に畳み込んで quantity を1にする
