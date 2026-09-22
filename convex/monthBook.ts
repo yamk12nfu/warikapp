@@ -2,7 +2,8 @@ import { ConvexError, v } from "convex/values";
 import { query } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
-import { findPartner, MAX_UNSETTLED_EXPENSES } from "./settlements";
+import { listActiveMembers, listAllMembers } from "./lib/members";
+import { MAX_UNSETTLED_EXPENSES } from "./settlements";
 import type { SettlementBalance } from "../lib/settlement";
 import {
   foldMonth,
@@ -78,7 +79,14 @@ export const month = query({
     if (monthValue === null) {
       throw new ConvexError(ERR_MONTH);
     }
-    const partner = await findPartner(ctx, member);
+    const [activeMembers, allMembers] = await Promise.all([
+      listActiveMembers(ctx, member.coupleId),
+      listAllMembers(ctx, member.coupleId),
+    ]);
+    const partner =
+      activeMembers.find((row) => row._id !== member._id) ??
+      allMembers.find((row) => row._id !== member._id) ??
+      null;
     const { from, to } = monthDateRange(monthValue);
 
     const rows = await ctx.db

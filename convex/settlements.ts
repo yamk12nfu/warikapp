@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
+import { listActiveMembers, listAllMembers } from "./lib/members";
 import {
   calcAdvanceAmount,
   calcItemAdvance,
@@ -15,7 +16,6 @@ import {
 // 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
 // クライアントに届かず「Server Error」に伏せられるため)。
 
-const MAX_MEMBERS = 2; // 世帯の上限2名(V-203)
 const MAX_MEMO_LENGTH = 100;
 
 // 1回の精算が対象にする未精算支出の上限。
@@ -40,6 +40,7 @@ const ERR_MEMO_TOO_LONG = "メモは100文字以内で入力してください";
 // 他世帯の精算を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "精算が見つかりません";
 const ERR_NOT_LATEST = "直近の精算のみ取り消せます";
+const ERR_COUNTERPART_LEFT = "退出したメンバーとの精算は取り消せません";
 const ERR_CANCEL_MISMATCH =
   "精算の対象が変わっているため取り消せません。時間をおいて再度お試しください";
 // V-702: 確認画面に出ていた差額と、実行時にサーバーが計算した差額が違う場合
@@ -52,10 +53,7 @@ export async function findPartner(
   ctx: QueryCtx | MutationCtx,
   member: Doc<"members">,
 ): Promise<Doc<"members"> | null> {
-  const members = await ctx.db
-    .query("members")
-    .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
-    .take(MAX_MEMBERS);
+  const members = await listActiveMembers(ctx, member.coupleId);
   return members.find((m) => m._id !== member._id) ?? null;
 }
 
@@ -194,25 +192,35 @@ function projectSettlementExpense(
 
 function projectSettlementDetail(input: {
   viewer: Doc<"members">;
-  partner: Doc<"members"> | null;
+  members: Doc<"members">[];
   settlement: Doc<"settlements">;
   expenses: Doc<"expenses">[];
   countMismatch: boolean;
 }): SettlementDetail {
-  const participants: SettlementParticipant[] = [
-    {
-      memberId: input.viewer._id,
-      displayName: input.viewer.displayName,
-      isViewer: true,
-    },
-  ];
-  if (input.partner !== null) {
-    participants.push({
-      memberId: input.partner._id,
-      displayName: input.partner.displayName,
-      isViewer: false,
-    });
+  const participantIds = new Set<Id<"members">>([
+    input.viewer._id,
+    input.settlement.fromMemberId,
+    input.settlement.toMemberId,
+    input.settlement.settledBy,
+  ]);
+  for (const expense of input.expenses) {
+    participantIds.add(expense.paidBy);
+    for (const item of expense.items) {
+      for (const share of item.shares) {
+        participantIds.add(share.memberId);
+      }
+    }
   }
+  const participants: SettlementParticipant[] = [
+    input.viewer,
+    ...input.members.filter(
+      (member) => member._id !== input.viewer._id && participantIds.has(member._id),
+    ),
+  ].map((member) => ({
+    memberId: member._id,
+    displayName: member.displayName,
+    isViewer: member._id === input.viewer._id,
+  }));
   return {
     participants,
     settlement: {
@@ -410,11 +418,17 @@ export const list = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
-    const result = await ctx.db
-      .query("settlements")
-      .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
-      .order("desc")
-      .paginate(args.paginationOpts);
+    const [result, members] = await Promise.all([
+      ctx.db
+        .query("settlements")
+        .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+        .order("desc")
+        .paginate(args.paginationOpts),
+      listAllMembers(ctx, member.coupleId),
+    ]);
+    const membersById = new Map(members.map((row) => [row._id, row]));
+    const displayNameOf = (memberId: Id<"members">) =>
+      membersById.get(memberId)?.displayName ?? "メンバー";
 
     return {
       ...result,
@@ -423,6 +437,8 @@ export const list = query({
         settledAt: settlement._creationTime,
         fromMemberId: settlement.fromMemberId,
         toMemberId: settlement.toMemberId,
+        fromMemberName: displayNameOf(settlement.fromMemberId),
+        toMemberName: displayNameOf(settlement.toMemberId),
         amount: settlement.amount,
         memo: settlement.memo,
         expenseCount: settlement.expenseCount,
@@ -445,8 +461,8 @@ export const detail = query({
       return { kind: "notFound" };
     }
 
-    const [partner, collected] = await Promise.all([
-      findPartner(ctx, viewer),
+    const [members, collected] = await Promise.all([
+      listAllMembers(ctx, viewer.coupleId),
       collectSettled(ctx, viewer.coupleId, settlement._id),
     ]);
 
@@ -458,7 +474,7 @@ export const detail = query({
       kind: "found",
       detail: projectSettlementDetail({
         viewer,
-        partner,
+        members,
         settlement,
         expenses: expenses.slice().reverse(),
         countMismatch,
@@ -485,6 +501,15 @@ export const cancel = mutation({
       .first();
     if (latest === null || latest._id !== settlement._id) {
       throw new ConvexError(ERR_NOT_LATEST);
+    }
+
+    const counterpartId =
+      settlement.fromMemberId === member._id
+        ? settlement.toMemberId
+        : settlement.fromMemberId;
+    const counterpart = await ctx.db.get("members", counterpartId);
+    if (counterpart === null || counterpart.leftAt !== undefined) {
+      throw new ConvexError(ERR_COUNTERPART_LEFT);
     }
 
     const { expenses: settled, overflow } = await collectSettled(

@@ -95,14 +95,11 @@ export default function SettlementsClient() {
     return <main className="p-8 text-muted">読み込み中…</main>;
   }
 
-  const memberName = (memberId: string) => {
+  const memberName = (memberId: string, displayName: string) => {
     if (memberId === household.self._id) {
       return "あなた";
     }
-    if (memberId === household.partner?._id) {
-      return household.partner.displayName;
-    }
-    return "メンバー";
+    return displayName;
   };
 
   return (
@@ -141,8 +138,12 @@ export default function SettlementsClient() {
                 <p className="text-sm">
                   {settlement.amount === 0
                     ? "貸し借りなしで精算"
-                    : `${memberName(settlement.fromMemberId)} → ${memberName(
+                    : `${memberName(
+                        settlement.fromMemberId,
+                        settlement.fromMemberName,
+                      )} → ${memberName(
                         settlement.toMemberId,
+                        settlement.toMemberName,
                       )}`}
                 </p>
                 <p className="text-xs text-muted">

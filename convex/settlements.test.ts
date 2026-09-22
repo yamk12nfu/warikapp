@@ -933,6 +933,18 @@ describe("settlements.detail", () => {
 });
 
 describe("settlements.cancel", () => {
+  test("相手が退出した後の精算は取り消せない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+    await t.withIdentity(ALICE).mutation(api.couples.leaveCouple, {});
+
+    await expect(
+      t.withIdentity(BOB).mutation(api.settlements.cancel, { settlementId }),
+    ).rejects.toThrow("退出したメンバーとの精算は取り消せません");
+  });
+
   test("直近の精算を取り消すと支出が未精算に戻り、差額が復活する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

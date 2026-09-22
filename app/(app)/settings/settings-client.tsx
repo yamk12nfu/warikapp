@@ -1,10 +1,13 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import DangerActionConfirm from "@/components/DangerActionConfirm";
 import InviteCodeCard from "@/components/InviteCodeCard";
+import { LEAVE_BLOCKER_MESSAGE } from "@/convex/lib/leave";
 import { toUserMessage } from "@/lib/convex-error";
 import { inputClass } from "@/lib/ui";
-import { SignOutButton } from "@clerk/nextjs";
+import { deleteAccount } from "./actions";
+import { SignOutButton, useClerk } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -25,6 +28,8 @@ export default function SettingsClient() {
 
   const updateDisplayName = useMutation(api.couples.updateDisplayName);
   const reissueInvitation = useMutation(api.couples.reissueInvitation);
+  const leaveCouple = useMutation(api.couples.leaveCouple);
+  const { signOut } = useClerk();
 
   // null = 未編集(サーバーの値をそのまま表示する)
   const [draftName, setDraftName] = useState<string | null>(null);
@@ -33,6 +38,8 @@ export default function SettingsClient() {
   const [savingName, setSavingName] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [reissuing, setReissuing] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated && member === null) {
@@ -68,6 +75,30 @@ export default function SettingsClient() {
       setInviteError(toUserMessage(caught));
     } finally {
       setReissuing(false);
+    }
+  }
+
+  async function handleLeave() {
+    setLeaveError(null);
+    try {
+      await leaveCouple({});
+      router.replace("/setup");
+    } catch (caught) {
+      setLeaveError(toUserMessage(caught));
+    }
+  }
+
+  async function handleDelete() {
+    setDeleteError(null);
+    try {
+      const result = await deleteAccount();
+      if (!result.ok) {
+        setDeleteError(result.message);
+        return;
+      }
+      await signOut({ redirectUrl: "/login" });
+    } catch (caught) {
+      setDeleteError(toUserMessage(caught));
     }
   }
 
@@ -180,6 +211,32 @@ export default function SettingsClient() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted">アカウント</h2>
+        <DangerActionConfirm
+          label="世帯から退出"
+          description="精算済みの支出と精算履歴はパートナーの世帯に残ります。退出後は新しい世帯を作るか、招待コードで参加できます。"
+          confirmLabel="退出する"
+          pendingLabel="退出中…"
+          blockerMessage={
+            household.leaveBlocker === null
+              ? null
+              : LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
+          }
+          error={leaveError}
+          onConfirm={handleLeave}
+        />
+        <DangerActionConfirm
+          label="アカウントを削除"
+          description="世帯から退出したうえで、Googleアカウントとの連携を解除し、このアプリのアカウントを削除します。パートナーがいない場合は、レシート画像を含む世帯のデータもすべて削除されます。この操作は取り消せません。"
+          confirmLabel="削除する"
+          pendingLabel="削除中…"
+          blockerMessage={
+            household.leaveBlocker === null
+              ? null
+              : LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
+          }
+          error={deleteError}
+          onConfirm={handleDelete}
+        />
         <SignOutButton redirectUrl="/login">
           <button type="button" className={`${buttonClass} text-danger`}>
             ログアウト

@@ -48,7 +48,11 @@ export async function assertCoupleMemberIds(
 ) {
   for (const memberId of new Set(memberIds)) {
     const member = await ctx.db.get("members", memberId);
-    if (member === null || member.coupleId !== coupleId) {
+    if (
+      member === null ||
+      member.coupleId !== coupleId ||
+      member.leftAt !== undefined
+    ) {
       throw new ConvexError("権限がありません");
     }
   }
