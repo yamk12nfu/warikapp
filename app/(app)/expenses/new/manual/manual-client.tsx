@@ -6,6 +6,7 @@ import ExpenseEditor, {
 } from "@/components/ExpenseEditor";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { toStoredCategory } from "@/lib/category";
 import { todayLocalDate } from "@/lib/date";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
@@ -48,6 +49,7 @@ export default function ManualExpenseClient() {
       })),
       source: "manual",
       status: "confirmed",
+      category: toStoredCategory(value.category) ?? null,
     });
     router.replace("/");
   }
@@ -83,6 +85,7 @@ export default function ManualExpenseClient() {
           paidBy: household.self._id,
           storeName: "",
           purchasedAt: todayLocalDate(),
+          category: "uncategorized",
           items: [
             createInitialItem(
               household.self._id,

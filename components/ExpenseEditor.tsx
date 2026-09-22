@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  CATEGORIES,
+  UNCATEGORIZED_LABEL,
+  isStoredCategoryId,
+  type CategoryId,
+} from "@/lib/category";
 import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
@@ -21,6 +27,7 @@ export type ExpenseFormValue = {
   paidBy: string;
   storeName: string;
   purchasedAt: string;
+  category: CategoryId;
   items: ExpenseItemInput[];
 };
 
@@ -181,6 +188,7 @@ export default function ExpenseEditor({
   const [paidBy, setPaidBy] = useState(initialValue.paidBy);
   const [storeName, setStoreName] = useState(initialValue.storeName);
   const [purchasedAt, setPurchasedAt] = useState(initialValue.purchasedAt);
+  const [category, setCategory] = useState<CategoryId>(initialValue.category);
   const [rows, setRows] = useState<ItemRow[]>(() =>
     initialValue.items.map((item, index) => {
       const shares = normalizeShares(item.shares, self._id, partnerId);
@@ -326,6 +334,7 @@ export default function ExpenseEditor({
         paidBy,
         storeName,
         purchasedAt,
+        category,
         items: checked.map((item) => ({
           name: item.row.name.trim(),
           price: item.price as number,
@@ -393,6 +402,30 @@ export default function ExpenseEditor({
               <option value={partner._id}>{partner.displayName}</option>
             </select>
           )}
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="expense-category" className="text-sm font-medium">
+            分類
+          </label>
+          <select
+            id="expense-category"
+            value={category}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (next === "uncategorized" || isStoredCategoryId(next)) {
+                setCategory(next);
+              }
+            }}
+            className={inputClass}
+          >
+            <option value="uncategorized">{UNCATEGORIZED_LABEL}</option>
+            {CATEGORIES.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

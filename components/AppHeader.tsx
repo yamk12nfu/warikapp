@@ -4,12 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-// 全画面共通の上部固定ヘッダー(案「ふたり」)。左にロゴ(ホームへ)、右に
-// ハンバーガーメニュー。メニューは開閉式で、ホーム・精算・精算履歴・設定へ
-// どの画面からも1タップ+1選択で移動できる(従来はホーム経由の2タップが必要だった)。
-
 const NAV_ITEMS = [
   { href: "/", label: "ホーム" },
+  { href: "/months", label: "月次" },
   { href: "/settlement", label: "精算" },
   { href: "/settlements", label: "精算履歴" },
   { href: "/settings", label: "設定" },
