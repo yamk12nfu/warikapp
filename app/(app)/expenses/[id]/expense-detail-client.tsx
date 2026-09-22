@@ -148,14 +148,19 @@ export default function ExpenseDetailClient({
     );
   }
 
+  const memberNames = new Map<string, string>();
+  for (const item of expense.items) {
+    for (const share of item.shares) {
+      memberNames.set(share.memberId, share.displayName);
+    }
+  }
+  memberNames.set(expense.paidBy, expense.paidByName);
+
   const memberName = (memberId: string) => {
     if (memberId === household.self._id) {
       return "あなた";
     }
-    if (memberId === household.partner?._id) {
-      return household.partner.displayName;
-    }
-    return "メンバー";
+    return memberNames.get(memberId) ?? "メンバー";
   };
 
   const advanceAmount = calcAdvanceAmount(expense.paidBy, expense.items);

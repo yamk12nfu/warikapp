@@ -1,10 +1,13 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import DangerActionConfirm from "@/components/DangerActionConfirm";
 import InviteCodeCard from "@/components/InviteCodeCard";
 import { toUserMessage } from "@/lib/convex-error";
 import { inputClass } from "@/lib/ui";
+import { useClerk } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { deleteAccount } from "../settings/actions";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -31,6 +34,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
   );
   const createCouple = useMutation(api.couples.createCouple);
   const joinCouple = useMutation(api.couples.joinCouple);
+  const { signOut } = useClerk();
 
   const [tab, setTab] = useState<Tab>(initialCode === "" ? "create" : "join");
   const [displayName, setDisplayName] = useState("");
@@ -42,6 +46,7 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
     code: string;
     expiresAt: number;
   } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // 作成直後の画面を開いたままでも、パートナーの参加や別タブでの再発行に
   // 追従できるよう household を購読する(mutationの戻り値は初期表示用)。
@@ -91,6 +96,20 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
     } catch (caught) {
       setError(toUserMessage(caught));
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleteError(null);
+    try {
+      const result = await deleteAccount();
+      if (!result.ok) {
+        setDeleteError(result.message);
+        return;
+      }
+      await signOut({ redirectUrl: "/login" });
+    } catch (caught) {
+      setDeleteError(toUserMessage(caught));
     }
   }
 
@@ -250,6 +269,16 @@ export default function SetupClient({ initialCode }: { initialCode: string }) {
           {error}
         </p>
       )}
+
+      <DangerActionConfirm
+        label="アカウントを削除"
+        description="世帯から退出したうえで、Googleアカウントとの連携を解除し、このアプリのアカウントを削除します。パートナーがいない場合は、レシート画像を含む世帯のデータもすべて削除されます。この操作は取り消せません。"
+        confirmLabel="削除する"
+        pendingLabel="削除中…"
+        blockerMessage={null}
+        error={deleteError}
+        onConfirm={handleDelete}
+      />
     </main>
   );
 }
