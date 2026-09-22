@@ -242,7 +242,6 @@ describe("foldMonth", () => {
   });
 
   test("負担額は品目ごとの四捨五入を足す", () => {
-    // 333円の折半は品目ごとに167。2品目で334。合計666円を一度に割ると333になる。
     const folded = foldMonth(
       month,
       [

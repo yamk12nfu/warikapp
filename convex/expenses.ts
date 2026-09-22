@@ -145,7 +145,6 @@ function categoryFieldPatch(category: StoredCategoryId | null) {
 // source は新規作成時のみ使う(既存支出の由来は変えない)。
 // imageStorageId は省略時「変更しない」。編集画面は画像を扱わないため、
 // undefined を「画像を消す」と解釈するとレシートの画像が編集のたびに消えてしまう。
-// category も省略時は変えない。null だけ未分類に戻す。
 export const save = mutation({
   args: {
     expenseId: v.optional(v.id("expenses")),
@@ -248,7 +247,6 @@ export const save = mutation({
   },
 });
 
-// 精算済みでも分類だけは直せる。金額・品目・削除は save と remove が拒む。
 export const setCategory = mutation({
   args: {
     expenseId: v.id("expenses"),

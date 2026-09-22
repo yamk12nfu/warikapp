@@ -21,7 +21,6 @@ import { useEffect, useState } from "react";
 
 // 支出詳細(S-005 / F-006)。品目・仕分け内訳・立て替え額・レシート画像を表示し、
 // 編集(/expenses/[id]/edit)と削除の導線を置く。
-// 精算済みは save / remove が金額と削除を拒む。分類だけ setCategory で直せる。
 
 const badgeClass =
   "rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap";

@@ -53,7 +53,6 @@ export function useMonthBook(
   enabled: boolean,
 ): MonthBookView {
   const months = trailingYearMonths(anchor);
-  // 1本の range にすると 16MiB を超えうる。useQueries はこの版では skip できない。
   const slot0 = useQuery(
     api.monthBook.month,
     enabled ? { month: months[0] } : "skip",

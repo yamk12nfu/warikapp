@@ -819,10 +819,6 @@ describe("GET /mcp/summary", () => {
     expect(status).toBe(400);
   });
 
-  // レビュー指摘 軽微1: 正規表現 \d{4} だけでは "0001-01" のような値も通り、
-  // lib/month-book.ts の monthDateRange が使う Date.UTC(year, monthIndex, 1) の
-  // 「年0〜99は1900〜1999として扱われる」仕様に引っかかって誤った月範囲になる。
-  // 2000〜2100年の範囲外は400にする
   test("年が2000〜2100の範囲外のmonthは400(Date.UTCの2桁年問題の回避)", async () => {
     const t = setup();
     await setupCouple(t);

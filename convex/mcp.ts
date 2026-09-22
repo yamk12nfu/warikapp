@@ -295,7 +295,6 @@ export const listExpenses = internalQuery({
   },
 });
 
-// foldMonth の差額は string の memberId で返る。http.ts は Id として比較する。
 function mcpUnsettledBalance(
   viewerId: Id<"members">,
   partnerId: Id<"members"> | null,
@@ -329,7 +328,6 @@ function mcpUnsettledBalance(
 // 金額集計はconfirmedのみ(draftは件数だけ。Webの差額計算と同じ扱い)。
 // unsettled_balanceはその月のconfirmed×未精算だけを見た
 // 「月内の誰が誰にいくら」で、get_unsettled_balance(全期間の現在残高)とは別物。
-// カテゴリは返さない。上限超過は従来どおり部分合計 + truncated:true。
 export const monthlySummary = internalQuery({
   args: { clerkUserId: v.string(), month: v.string() },
   handler: async (ctx, args) => {

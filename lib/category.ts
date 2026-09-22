@@ -1,4 +1,3 @@
-// expenses.category に保存する語彙。未分類はフィールドの欠落で、リテラルは保存しない。
 export const CATEGORIES = [
   { id: "food", label: "食費" },
   { id: "daily", label: "日用品" },
@@ -15,7 +14,6 @@ export type CategoryId = StoredCategoryId | "uncategorized";
 
 export const UNCATEGORIZED_LABEL = "未分類";
 
-// スキーマの v.union はこの並びから組む。id を別の配列に書き写さない。
 export const STORED_CATEGORY_IDS: readonly StoredCategoryId[] = CATEGORIES.map(
   (category) => category.id,
 );
@@ -35,7 +33,6 @@ export function categoryLabel(id: CategoryId): string {
   return category.label;
 }
 
-// undefined はフィールドを書かない（未分類）。
 export function toStoredCategory(id: CategoryId): StoredCategoryId | undefined {
   if (id === "uncategorized") {
     return undefined;

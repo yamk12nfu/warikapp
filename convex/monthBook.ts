@@ -81,7 +81,6 @@ export const month = query({
     const partner = await findPartner(ctx, member);
     const { from, to } = monthDateRange(monthValue);
 
-    // take は精算と同じ上限。返す limit は月次の名前。片方だけ変えると satisfies が落ちる。
     const rows = await ctx.db
       .query("expenses")
       .withIndex("by_coupleId_and_deletedAt_and_purchasedAt", (q) =>

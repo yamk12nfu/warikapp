@@ -16,8 +16,6 @@ declare const yearMonthBrand: unique symbol;
 
 export type YearMonth = string & { readonly [yearMonthBrand]: "YearMonth" };
 
-// convex/settlements.ts の MAX_UNSETTLED_EXPENSES と同じ 200 に保つ。
-// lib から settlements を import するとサーバーモジュールが付くので、ここでは数値を置く。
 export const MAX_MONTH_EXPENSES = 200;
 
 export type MonthWindow = readonly [
@@ -113,7 +111,6 @@ export function nextBookMonth(
   return shiftYearMonth(anchor, 1);
 }
 
-// こちらで作った文字列用。壊れていたらバグなので null にはしない。
 export function requireYearMonth(raw: string): YearMonth {
   const month = parseYearMonth(raw);
   if (month === null) {
@@ -144,7 +141,6 @@ export function trailingYearMonths(anchor: YearMonth): MonthWindow {
 }
 
 // 月末は UTC の翌月1日の前日。ローカルタイムゾーンだとうるう日がずれる。
-// 現在時刻は読まない。
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function monthDateRange(month: YearMonth): { from: string; to: string } {
@@ -167,7 +163,6 @@ export function formatYearMonthLabel(month: YearMonth): string {
   return `${year}年${mon}月`;
 }
 
-// calcItemShareAmount は品目名を含む型を受け取る。負担額は価格・数量・割合だけで決まる。
 function toShareItem(item: MonthItemFact): ExpenseItemInput {
   return {
     name: "",
