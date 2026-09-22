@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { StoredCategoryId } from "../lib/category";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -76,6 +77,7 @@ function manualArgs(
     source: "receipt" | "manual";
     status: "draft" | "confirmed";
     imageStorageId: Id<"_storage">;
+    category: StoredCategoryId | null;
   }> = {},
 ) {
   return {
@@ -169,6 +171,44 @@ describe("expenses.save(新規作成)", () => {
       );
     const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
     expect(expense!.paidBy).toBe(members.partner._id);
+  });
+
+  test("分類を渡すと保存し、省略や null は未分類のまま", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { category: "food" }));
+    const stored = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(stored!.category).toBe("food");
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(detail!.category).toBe("food");
+    const listed = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("unsettled"));
+    expect(listed.page.find((row) => row._id === expenseId)!.category).toBe(
+      "food",
+    );
+
+    const omittedId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    const omitted = await t.run(async (ctx) => ctx.db.get("expenses", omittedId));
+    expect(omitted!.category).toBeUndefined();
+    expect(
+      (
+        await t.withIdentity(ALICE).query(api.expenses.get, { expenseId: omittedId })
+      )!.category,
+    ).toBe("uncategorized");
+
+    const clearedId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { category: null }));
+    const cleared = await t.run(async (ctx) => ctx.db.get("expenses", clearedId));
+    expect(cleared!.category).toBeUndefined();
   });
 
   test("パートナーも同じ世帯の支出を登録できる", async () => {
@@ -547,10 +587,13 @@ describe("expenses.save(更新)", () => {
     });
 
     await expect(
-      t
-        .withIdentity(ALICE)
-        .mutation(api.expenses.save, manualArgs(members, { expenseId })),
+      t.withIdentity(ALICE).mutation(
+        api.expenses.save,
+        manualArgs(members, { expenseId, category: "food" }),
+      ),
     ).rejects.toThrow("精算済みの支出は変更できません");
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBeUndefined();
   });
 
   test("削除済みの支出は更新できない", async () => {
@@ -601,6 +644,55 @@ describe("expenses.save(更新)", () => {
       );
     const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
     expect(expense!.source).toBe("receipt");
+  });
+
+  test("category を省略すると既存の分類を残す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { category: "food", storeName: "居酒屋" }),
+    );
+
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { expenseId, storeName: "焼肉" }),
+    );
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBe("food");
+    expect(expense!.storeName).toBe("焼肉");
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(detail!.category).toBe("food");
+  });
+
+  test("category に null を渡すと未分類に戻す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { category: "leisure" }));
+
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { expenseId, category: null }),
+    );
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBeUndefined();
+    expect(expense!.totalAmount).toBe(5000);
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(detail!.category).toBe("uncategorized");
+    const listed = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("all"));
+    expect(listed.page.find((row) => row._id === expenseId)!.category).toBe(
+      "uncategorized",
+    );
   });
 });
 
@@ -805,6 +897,7 @@ describe("expenses.list", () => {
       paidBy: members.self._id,
       status: "confirmed",
       settled: false,
+      category: "uncategorized",
     });
   });
 
@@ -947,6 +1040,7 @@ describe("expenses.get", () => {
       source: "manual",
       settled: false,
       hasImage: false,
+      category: "uncategorized",
     });
     expect(expense!.items[0].shares).toHaveLength(2);
   });
@@ -1231,6 +1325,99 @@ describe("expenses.suggestReceiptItemShares", () => {
         .withIdentity(CAROL)
         .query(api.expenses.suggestReceiptItemShares, { itemNames: ["牛乳"] }),
     ).rejects.toThrow("世帯に参加してください");
+  });
+});
+
+describe("expenses.setCategory", () => {
+  test("未精算の支出は分類だけ変わる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.setCategory, { expenseId, category: "food" });
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBe("food");
+    expect(expense!.totalAmount).toBe(5000);
+    expect(expense!.settlementId).toBeUndefined();
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(detail!.category).toBe("food");
+    expect(detail!.totalAmount).toBe(5000);
+    expect(detail!.items[0].name).toBe("焼肉");
+  });
+
+  test("精算済みでも分類だけ変えられ、null で未分類に戻せる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { category: "food" }));
+    await markSettled(t, members, expenseId);
+    const before = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+
+    await t
+      .withIdentity(BOB)
+      .mutation(api.expenses.setCategory, { expenseId, category: "daily" });
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBe("daily");
+    expect(expense!.settlementId).toBe(before!.settlementId);
+    expect(expense!.totalAmount).toBe(5000);
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+    expect(detail!.category).toBe("daily");
+    expect(detail!.settled).toBe(true);
+
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.setCategory, { expenseId, category: null });
+    const cleared = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(cleared!.category).toBeUndefined();
+    expect(cleared!.settlementId).toBe(before!.settlementId);
+    expect(
+      (await t.withIdentity(ALICE).query(api.expenses.get, { expenseId }))!
+        .category,
+    ).toBe("uncategorized");
+  });
+
+  test("他世帯の支出は分類を変えられない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members, { category: "food" }));
+
+    await setupCouple(t, CAROL, identity("dave"));
+    await expect(
+      t
+        .withIdentity(CAROL)
+        .mutation(api.expenses.setCategory, { expenseId, category: "daily" }),
+    ).rejects.toThrow("支出が見つかりません");
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBe("food");
+  });
+
+  test("削除済みの支出は分類を変えられない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId });
+
+    await expect(
+      t
+        .withIdentity(ALICE)
+        .mutation(api.expenses.setCategory, { expenseId, category: "food" }),
+    ).rejects.toThrow("支出が見つかりません");
   });
 });
 

@@ -4,9 +4,10 @@ import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
 import { attachUpload, releaseUpload } from "./uploads";
-import { itemValidator } from "./schema";
+import { itemValidator, storedCategoryValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
+import { normalizeCategory, type StoredCategoryId } from "../lib/category";
 import { suggestReceiptItemSharesFromHistory } from "../lib/share-memory";
 
 // 支出の保存。クライアント由来の member ID(paidBy / shares[].memberId)は
@@ -135,10 +136,16 @@ async function findOwnExpense(
   return expense;
 }
 
+// null は未分類。Convex の patch は undefined でフィールドを消す。
+function categoryFieldPatch(category: StoredCategoryId | null) {
+  return { category: category === null ? undefined : category };
+}
+
 // 支出の新規作成と更新を兼ねる。expenseId を渡すと更新。
 // source は新規作成時のみ使う(既存支出の由来は変えない)。
 // imageStorageId は省略時「変更しない」。編集画面は画像を扱わないため、
 // undefined を「画像を消す」と解釈するとレシートの画像が編集のたびに消えてしまう。
+// category も省略時は変えない。null だけ未分類に戻す。
 export const save = mutation({
   args: {
     expenseId: v.optional(v.id("expenses")),
@@ -149,6 +156,7 @@ export const save = mutation({
     source: v.optional(v.union(v.literal("receipt"), v.literal("manual"))),
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     imageStorageId: v.optional(v.id("_storage")),
+    category: v.optional(v.union(storedCategoryValidator, v.null())),
   },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
@@ -190,6 +198,7 @@ export const save = mutation({
         imageStorageId: args.imageStorageId,
         source: args.source ?? "manual",
         status: args.status,
+        ...(args.category === undefined ? {} : categoryFieldPatch(args.category)),
       });
       // クライアント由来の storageId も member ID と同じく帰属を検証する
       // (他世帯がアップロードした画像を自分の支出に紐付けられないようにする)。
@@ -211,6 +220,7 @@ export const save = mutation({
       ...(args.imageStorageId === undefined
         ? {}
         : { imageStorageId: args.imageStorageId }),
+      ...(args.category === undefined ? {} : categoryFieldPatch(args.category)),
     });
 
     if (args.imageStorageId !== undefined) {
@@ -238,6 +248,23 @@ export const save = mutation({
   },
 });
 
+// 精算済みでも分類だけは直せる。金額・品目・削除は save と remove が拒む。
+export const setCategory = mutation({
+  args: {
+    expenseId: v.id("expenses"),
+    category: v.union(storedCategoryValidator, v.null()),
+  },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const expense = await findOwnExpense(ctx, member.coupleId, args.expenseId);
+    if (expense === null) {
+      throw new ConvexError(ERR_NOT_FOUND);
+    }
+    await ctx.db.patch("expenses", expense._id, categoryFieldPatch(args.category));
+    return null;
+  },
+});
+
 // 一覧の1行分。items をそのまま返すと転送量が無駄なので、行の表示に必要な
 // フィールドだけに射影する(詳細は expenses.get で読む)。
 function toListRow(expense: Doc<"expenses">) {
@@ -251,6 +278,7 @@ function toListRow(expense: Doc<"expenses">) {
     paidBy: expense.paidBy,
     status: expense.status,
     settled: expense.settlementId !== undefined,
+    category: normalizeCategory(expense.category),
   };
 }
 
@@ -326,6 +354,7 @@ export const get = query({
       status: expense.status,
       settled: expense.settlementId !== undefined,
       hasImage: expense.imageStorageId !== undefined,
+      category: normalizeCategory(expense.category),
     };
   },
 });
