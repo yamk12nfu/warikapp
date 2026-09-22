@@ -45,3 +45,8 @@ next-env.d.ts
 .ai/runs/
 .ai/tmp/
 .ai/logs/
+
+# verification harness (.claude/skills/verify-warikapp)
+.verify-evidence/
+.verify-run/
+.playwright-cli/
