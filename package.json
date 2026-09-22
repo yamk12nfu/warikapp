@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "icons": "node --no-warnings scripts/make-icons.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
@@ -32,6 +33,7 @@
     "convex-test": "^0.0.54",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
