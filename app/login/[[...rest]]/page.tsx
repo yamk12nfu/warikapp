@@ -11,7 +11,11 @@ export default function LoginPage() {
           ふたりの立て替えを、レシートから精算
         </p>
       </div>
-      <SignIn path="/login" fallbackRedirectUrl="/" />
+      <SignIn
+        path="/login"
+        fallbackRedirectUrl="/"
+        oauthFlow="redirect"
+      />
     </main>
   );
 }
