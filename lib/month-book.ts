@@ -87,6 +87,32 @@ export function parseYearMonth(raw: string): YearMonth | null {
   return raw as YearMonth;
 }
 
+// Date.UTC は年 0〜99 を 1900〜1999 と読む。monthDateRange に渡す前にここで切る。
+export const BOOK_YEAR_MIN = 2000;
+export const BOOK_YEAR_MAX = 2100;
+
+export function parseBookMonth(raw: string): YearMonth | null {
+  const month = parseYearMonth(raw);
+  if (month === null) {
+    return null;
+  }
+  const year = Number(month.slice(0, 4));
+  if (year < BOOK_YEAR_MIN || year > BOOK_YEAR_MAX) {
+    return null;
+  }
+  return month;
+}
+
+export function nextBookMonth(
+  anchor: YearMonth,
+  todayMonth: YearMonth,
+): YearMonth | null {
+  if (anchor >= todayMonth) {
+    return null;
+  }
+  return shiftYearMonth(anchor, 1);
+}
+
 // こちらで作った文字列用。壊れていたらバグなので null にはしない。
 export function requireYearMonth(raw: string): YearMonth {
   const month = parseYearMonth(raw);

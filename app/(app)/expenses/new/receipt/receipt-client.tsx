@@ -6,6 +6,7 @@ import ExpenseEditor, {
 } from "@/components/ExpenseEditor";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { toStoredCategory } from "@/lib/category";
 import { toUserMessage } from "@/lib/convex-error";
 import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
@@ -208,6 +209,7 @@ export default function ReceiptExpenseClient() {
       storeName: parsed.storeName ?? "",
       // 購入日が読めなければ当日を既定にする
       purchasedAt: parsed.purchasedAt ?? todayLocalDate(),
+      category: "uncategorized",
       items,
     };
 
@@ -349,6 +351,7 @@ export default function ReceiptExpenseClient() {
       paidBy: household.self._id,
       storeName: "",
       purchasedAt: todayLocalDate(),
+      category: "uncategorized",
       items: [createInitialItem(household.self._id, partnerId)],
     });
     setEditorKey((key) => key + 1);
@@ -365,6 +368,7 @@ export default function ReceiptExpenseClient() {
       source: "receipt",
       status: "confirmed",
       imageStorageId: storageId ?? undefined,
+      category: toStoredCategory(value.category) ?? null,
     });
     router.replace("/");
   }

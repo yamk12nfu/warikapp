@@ -2,10 +2,18 @@
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  CATEGORIES,
+  UNCATEGORIZED_LABEL,
+  categoryLabel,
+  isStoredCategoryId,
+  toStoredCategory,
+  type CategoryId,
+} from "@/lib/category";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcItemShareAmount } from "@/lib/settlement";
-import { memberColorClass } from "@/lib/ui";
+import { inputClass, memberColorClass, secondaryButtonClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,7 +21,7 @@ import { useEffect, useState } from "react";
 
 // 支出詳細(S-005 / F-006)。品目・仕分け内訳・立て替え額・レシート画像を表示し、
 // 編集(/expenses/[id]/edit)と削除の導線を置く。
-// 精算済みの支出は閲覧のみ(サーバー側でも expenses.save / remove が拒否する)。
+// 精算済みは save / remove が金額と削除を拒む。分類だけ setCategory で直せる。
 
 const badgeClass =
   "rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap";
@@ -42,8 +50,31 @@ export default function ExpenseDetailClient({
     expense?.hasImage ? { expenseId } : "skip",
   );
   const removeExpense = useMutation(api.expenses.remove);
+  const setCategory = useMutation(api.expenses.setCategory);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const loadedExpenseId =
+    expense !== undefined && expense !== null ? expense._id : null;
+  const [categoryExpenseId, setCategoryExpenseId] = useState<string | null>(
+    null,
+  );
+  const [categoryDraft, setCategoryDraft] = useState<CategoryId | null>(null);
+  if (loadedExpenseId !== categoryExpenseId) {
+    setCategoryExpenseId(loadedExpenseId);
+    setCategoryDraft(null);
+  } else if (
+    expense !== undefined &&
+    expense !== null &&
+    categoryDraft === expense.category
+  ) {
+    setCategoryDraft(null);
+  }
+  const category: CategoryId =
+    categoryDraft ??
+    (expense !== undefined && expense !== null
+      ? expense.category
+      : "uncategorized");
 
   useEffect(() => {
     // 認証確立後にnull = 本当に世帯未所属
@@ -51,6 +82,24 @@ export default function ExpenseDetailClient({
       router.replace("/setup");
     }
   }, [isAuthenticated, member, router]);
+
+  async function handleCategorySave() {
+    if (expense === undefined || expense === null || category === expense.category) {
+      return;
+    }
+    setError(null);
+    setSavingCategory(true);
+    try {
+      await setCategory({
+        expenseId: expense._id,
+        category: toStoredCategory(category) ?? null,
+      });
+    } catch (caught) {
+      setError(toUserMessage(caught));
+    } finally {
+      setSavingCategory(false);
+    }
+  }
 
   async function handleRemove() {
     if (expense === undefined || expense === null) {
@@ -209,6 +258,42 @@ export default function ExpenseDetailClient({
         </ul>
       </section>
 
+      <section className="space-y-3 rounded-2xl bg-surface p-4 shadow-card">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">分類</h2>
+          <span className="text-sm">{categoryLabel(expense.category)}</span>
+        </div>
+        <label htmlFor="detail-category" className="block space-y-1">
+          <span className="text-sm text-muted">変更</span>
+          <select
+            id="detail-category"
+            value={category}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (next === "uncategorized" || isStoredCategoryId(next)) {
+                setCategoryDraft(next);
+              }
+            }}
+            className={inputClass}
+          >
+            <option value="uncategorized">{UNCATEGORIZED_LABEL}</option>
+            {CATEGORIES.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={handleCategorySave}
+          disabled={savingCategory || category === expense.category}
+          className={`${secondaryButtonClass} w-full`}
+        >
+          {savingCategory ? "保存中…" : "分類を保存"}
+        </button>
+      </section>
+
       <section className="space-y-2 rounded-2xl bg-surface p-4 shadow-card">
         <div className="flex items-baseline justify-between">
           <span className="text-sm text-muted">合計</span>
@@ -228,7 +313,7 @@ export default function ExpenseDetailClient({
 
       {expense.settled && (
         <p className="text-sm text-muted">
-          精算済みの記録は変更できません
+          金額と品目は精算済みのため変更できません。分類だけ直せます。
         </p>
       )}
       {error !== null && (

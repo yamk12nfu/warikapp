@@ -8,7 +8,7 @@ import {
   foldMonth,
   MAX_MONTH_EXPENSES,
   monthDateRange,
-  parseYearMonth,
+  parseBookMonth,
   toMonthExpenseFact,
   visibleCategories,
   type CategorySlice,
@@ -17,11 +17,6 @@ import {
 } from "../lib/month-book";
 
 const ERR_MONTH = "月の指定が正しくありません";
-
-// monthDateRange は Date.UTC を使う。年 0〜99 は 1900〜1999 になる。
-// http.ts の isValidYear と同じ 2000〜2100 だけを月として受ける。
-const MIN_YEAR = 2000;
-const MAX_YEAR = 2100;
 
 export type SliceMember = {
   memberId: string;
@@ -79,9 +74,8 @@ export const month = query({
   args: { month: v.string() },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
-    const monthValue = parseYearMonth(args.month);
-    const year = monthValue === null ? NaN : Number(monthValue.slice(0, 4));
-    if (monthValue === null || year < MIN_YEAR || year > MAX_YEAR) {
+    const monthValue = parseBookMonth(args.month);
+    if (monthValue === null) {
       throw new ConvexError(ERR_MONTH);
     }
     const partner = await findPartner(ctx, member);

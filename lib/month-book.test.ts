@@ -5,6 +5,8 @@ import {
   formatYearMonthLabel,
   monthDateRange,
   monthHref,
+  nextBookMonth,
+  parseBookMonth,
   parseYearMonth,
   requireYearMonth,
   shiftYearMonth,
@@ -69,6 +71,23 @@ describe("parseYearMonth", () => {
 
   test("壊れた文字列は requireYearMonth が投げる", () => {
     expect(() => requireYearMonth("2026-13")).toThrow(/invalid year-month/);
+  });
+});
+
+describe("parseBookMonth / nextBookMonth", () => {
+  test("2000〜2100 の外は月次の月にしない", () => {
+    expect(parseBookMonth("2000-01")).toBe("2000-01");
+    expect(parseBookMonth("2100-12")).toBe("2100-12");
+    expect(parseBookMonth("1999-12")).toBeNull();
+    expect(parseBookMonth("2101-01")).toBeNull();
+    expect(parseBookMonth("2026-13")).toBeNull();
+  });
+
+  test("今日の月以降には次がない", () => {
+    const today = requireYearMonth("2026-09");
+    expect(nextBookMonth(today, today)).toBeNull();
+    expect(nextBookMonth(requireYearMonth("2026-10"), today)).toBeNull();
+    expect(nextBookMonth(requireYearMonth("2026-08"), today)).toBe("2026-09");
   });
 });
 

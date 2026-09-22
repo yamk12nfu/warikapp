@@ -5,6 +5,7 @@ import ExpenseEditor, {
 } from "@/components/ExpenseEditor";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { toStoredCategory } from "@/lib/category";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -62,6 +63,7 @@ export default function ExpenseEditClient({
       // 由来(source)は更新時に変えない。
       // ドラフトはこの保存で確定させる(確定済みはそのまま確定のまま)
       status: "confirmed",
+      category: toStoredCategory(value.category) ?? null,
     });
     router.replace(`/expenses/${expense._id}`);
   }
@@ -132,6 +134,7 @@ export default function ExpenseEditClient({
           paidBy: expense.paidBy,
           storeName: expense.storeName ?? "",
           purchasedAt: expense.purchasedAt,
+          category: expense.category,
           items: expense.items,
         }}
         submitLabel={
