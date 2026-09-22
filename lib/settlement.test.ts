@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   calcAdvanceAmount,
+  calcItemAdvance,
   calcItemShareAmount,
   calcNetBalance,
   calcTotalAmount,
@@ -49,6 +50,67 @@ describe("calcItemShareAmount", () => {
   test("端数は品目ごとに四捨五入する", () => {
     // 333円の折半は166.5 → 167(立て替え額の計算と同じ丸め方)
     expect(calcItemShareAmount(item(333, split()), SELF)).toBe(167);
+  });
+});
+
+describe("calcItemAdvance", () => {
+  test("折半: 支払者が相手の50%を立て替える", () => {
+    expect(calcItemAdvance(SELF, item(5000, split()))).toEqual({
+      kind: "advanced",
+      advancedByMemberId: SELF,
+      forMemberId: PARTNER,
+      amount: 2500,
+    });
+  });
+
+  test("自分(100:0): 立て替えは発生しない", () => {
+    expect(calcItemAdvance(SELF, item(5000, onlySelf()))).toEqual({
+      kind: "none",
+      amount: 0,
+    });
+  });
+
+  test("相手(0:100): 全額が立て替えになる", () => {
+    expect(calcItemAdvance(SELF, item(5000, onlyPartner()))).toEqual({
+      kind: "advanced",
+      advancedByMemberId: SELF,
+      forMemberId: PARTNER,
+      amount: 5000,
+    });
+  });
+
+  test("数量は金額に掛けてから割合を適用する", () => {
+    expect(calcItemAdvance(SELF, item(100, split(), 3))).toEqual({
+      kind: "advanced",
+      advancedByMemberId: SELF,
+      forMemberId: PARTNER,
+      amount: 150,
+    });
+  });
+
+  test("端数は品目ごとに四捨五入する(0.5円境界)", () => {
+    expect(calcItemAdvance(SELF, item(333, split()))).toEqual({
+      kind: "advanced",
+      advancedByMemberId: SELF,
+      forMemberId: PARTNER,
+      amount: 167,
+    });
+  });
+
+  test("品目立て替えの合計は calcAdvanceAmount と一致する", () => {
+    const items = [
+      item(1000, split()),
+      item(2000, onlySelf()),
+      item(3000, onlyPartner()),
+      item(333, split()),
+      item(100, split(), 3),
+    ];
+    const sum = items.reduce(
+      (total, current) => total + calcItemAdvance(SELF, current).amount,
+      0,
+    );
+    expect(sum).toBe(3817);
+    expect(calcAdvanceAmount(SELF, items)).toBe(3817);
   });
 });
 

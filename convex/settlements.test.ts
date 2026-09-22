@@ -716,6 +716,222 @@ describe("settlements.list", () => {
   });
 });
 
+describe("settlements.detail", () => {
+  test("自世帯の精算は found で、支出は新しい順、品目の立て替えを含む", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t.withIdentity(ALICE).mutation(api.expenses.save, {
+      paidBy: members.self._id,
+      storeName: "古い店",
+      purchasedAt: jstDate(-3),
+      items: [
+        {
+          name: "折半",
+          price: 5000,
+          quantity: 1,
+          shares: split(members),
+        },
+        {
+          name: "自分",
+          price: 2000,
+          quantity: 1,
+          shares: [{ memberId: members.self._id, ratioPercent: 100 }],
+        },
+      ],
+      source: "manual",
+      status: "confirmed",
+    });
+    await t.withIdentity(ALICE).mutation(api.expenses.save, {
+      paidBy: members.self._id,
+      storeName: "新しい店",
+      purchasedAt: jstDate(),
+      items: [
+        {
+          name: "数量",
+          price: 100,
+          quantity: 3,
+          shares: split(members),
+        },
+      ],
+      source: "manual",
+      status: "confirmed",
+    });
+    const settlementId = await settle(t, ALICE, { memo: "6月分" });
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.detail, { settlementId });
+
+    expect(result.kind).toBe("found");
+    if (result.kind !== "found") {
+      return;
+    }
+
+    expect(result.detail.participants).toEqual([
+      {
+        memberId: members.self._id,
+        displayName: "あきこ",
+        isViewer: true,
+      },
+      {
+        memberId: members.partner._id,
+        displayName: "ぼぶ",
+        isViewer: false,
+      },
+    ]);
+    expect(result.detail.settlement).toMatchObject({
+      settlementId,
+      amount: 2650,
+      fromMemberId: members.partner._id,
+      toMemberId: members.self._id,
+      memo: "6月分",
+      expenseCount: 2,
+    });
+    expect(result.detail.settlement.countMismatch).toBeUndefined();
+    expect(result.detail.expenses.map((expense) => expense.title)).toEqual([
+      "新しい店",
+      "古い店",
+    ]);
+    expect(result.detail.expenses[0]).toMatchObject({
+      title: "新しい店",
+      paidByMemberId: members.self._id,
+      totalAmount: 300,
+      advanceAmount: 150,
+      items: [
+        {
+          name: "数量",
+          unitPrice: 100,
+          quantity: 3,
+          lineTotal: 300,
+          shares: [
+            {
+              memberId: members.self._id,
+              ratioPercent: 50,
+              amount: 150,
+            },
+            {
+              memberId: members.partner._id,
+              ratioPercent: 50,
+              amount: 150,
+            },
+          ],
+          advance: {
+            kind: "advanced",
+            advancedByMemberId: members.self._id,
+            forMemberId: members.partner._id,
+            amount: 150,
+          },
+        },
+      ],
+    });
+    expect(result.detail.expenses[1]).toMatchObject({
+      title: "古い店",
+      totalAmount: 7000,
+      advanceAmount: 2500,
+      items: [
+        {
+          name: "折半",
+          unitPrice: 5000,
+          quantity: 1,
+          lineTotal: 5000,
+          advance: {
+            kind: "advanced",
+            advancedByMemberId: members.self._id,
+            forMemberId: members.partner._id,
+            amount: 2500,
+          },
+        },
+        {
+          name: "自分",
+          unitPrice: 2000,
+          quantity: 1,
+          lineTotal: 2000,
+          advance: { kind: "none", amount: 0 },
+        },
+      ],
+    });
+    const itemAdvances = result.detail.expenses.flatMap((expense) =>
+      expense.items.map((item) => item.advance.amount),
+    );
+    expect(itemAdvances.reduce((sum, amount) => sum + amount, 0)).toBe(2650);
+    expect(
+      result.detail.expenses.reduce(
+        (sum, expense) => sum + expense.advanceAmount,
+        0,
+      ),
+    ).toBe(2650);
+  });
+
+  test("他世帯の精算と不正な ID は同じ notFound", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+    await setupCouple(t, CAROL, identity("dave"));
+
+    expect(
+      await t
+        .withIdentity(CAROL)
+        .query(api.settlements.detail, { settlementId }),
+    ).toEqual({ kind: "notFound" });
+    expect(
+      await t
+        .withIdentity(ALICE)
+        .query(api.settlements.detail, { settlementId: "not-an-id" }),
+    ).toEqual({ kind: "notFound" });
+  });
+
+  test("キャンセル後の URL は notFound", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.settlements.cancel, { settlementId });
+
+    expect(
+      await t
+        .withIdentity(ALICE)
+        .query(api.settlements.detail, { settlementId }),
+    ).toEqual({ kind: "notFound" });
+  });
+
+  test("expenseCount がずれても found のまま可視行を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+    await t.run(async (ctx) => {
+      await ctx.db.patch("settlements", settlementId, { expenseCount: 99 });
+    });
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.detail, { settlementId });
+    expect(result.kind).toBe("found");
+    if (result.kind !== "found") {
+      return;
+    }
+    expect(result.detail.settlement.countMismatch).toBe(true);
+    expect(result.detail.expenses).toHaveLength(1);
+    expect(result.detail.expenses[0].advanceAmount).toBe(2500);
+  });
+
+  test("未ログイン・世帯未所属では読めない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    await expect(
+      t.query(api.settlements.detail, { settlementId: "x" }),
+    ).rejects.toThrow("ログインしてください");
+    await expect(
+      t
+        .withIdentity(CAROL)
+        .query(api.settlements.detail, { settlementId: "x" }),
+    ).rejects.toThrow("世帯に参加してください");
+  });
+});
+
 describe("settlements.cancel", () => {
   test("直近の精算を取り消すと支出が未精算に戻り、差額が復活する", async () => {
     const t = convexTest(schema, modules);

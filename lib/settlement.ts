@@ -25,18 +25,61 @@ export function calcItemShareAmount(
   return shareAmount(item, ratio);
 }
 
+export type ItemAdvance<TMemberId extends string = string> =
+  | { kind: "none"; amount: 0 }
+  | {
+      kind: "advanced";
+      advancedByMemberId: TMemberId;
+      forMemberId: TMemberId;
+      amount: number;
+    };
+
+type SettlementItemInput<TMemberId extends string> = Omit<
+  ExpenseItemInput,
+  "shares"
+> & {
+  shares: Array<{ memberId: TMemberId; ratioPercent: number }>;
+};
+
+export function calcItemAdvance<TMemberId extends string>(
+  paidBy: TMemberId,
+  item: SettlementItemInput<TMemberId>,
+): ItemAdvance<TMemberId> {
+  const others = item.shares.filter(
+    (share) => share.memberId !== paidBy && share.ratioPercent > 0,
+  );
+  if (others.length > 1) {
+    throw new Error(
+      "calcItemAdvance: more than one other member with a positive share",
+    );
+  }
+  const other = others[0];
+  if (other === undefined) {
+    return { kind: "none", amount: 0 };
+  }
+  const amount = shareAmount(item, other.ratioPercent);
+  if (amount === 0) {
+    return { kind: "none", amount: 0 };
+  }
+  return {
+    kind: "advanced",
+    advancedByMemberId: paidBy,
+    forMemberId: other.memberId,
+    amount,
+  };
+}
+
 // 1つの支出について「支払者が相手の分を立て替えた金額」を返す。
-// 品目単位で 品目金額 × 相手の負担割合% を計算し、品目ごとに四捨五入(要件 F-007)
+// 品目単位で 品目金額 × 相手の負担割合% を計算し、品目ごとに四捨五入(要件 F-007)。
+// calcItemShareAmount の相手分合計で代用しない。3名以上では丸め単位がずれる。
 export function calcAdvanceAmount(
   paidBy: string,
   items: ExpenseItemInput[],
 ): number {
-  return items.reduce((sum, item) => {
-    const otherRatio = item.shares
-      .filter((s) => s.memberId !== paidBy)
-      .reduce((r, s) => r + s.ratioPercent, 0);
-    return sum + shareAmount(item, otherRatio);
-  }, 0);
+  return items.reduce(
+    (sum, item) => sum + calcItemAdvance(paidBy, item).amount,
+    0,
+  );
 }
 
 // 差額計算(F-007)の入力。Convexの支出ドキュメントをそのまま渡せる形にしてある。
