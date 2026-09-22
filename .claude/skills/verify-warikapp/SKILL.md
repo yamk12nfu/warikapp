@@ -28,7 +28,7 @@ $V launch          # npx convex dev --once で関数を push → next dev を po
 $V doctor
 ```
 
-読み取り専用。次を PASS/FAIL で出す: この run が起動した next dev が生きている / port 3100 の所有者がその pid ツリー / `/login` が 200 / 未ログインの `/settlement` がリダイレクト / Clerk キーが `sk_test_` / Convex が `dev:` / playwright-cli の解決先 / ブラウザセッション `verify` の有無。何かおかしいと感じたら、まずこれを走らせる。FAIL があるインスタンスは操作しない。
+読み取り専用。次を PASS/FAIL で出す: この run が起動した next dev が生きている / port 3100 の所有者がその pid ツリー / `/login` が 200 / 未ログインの `/settlement` がリダイレクト / 未ログインの `/manifest.webmanifest` が manifest の content-type で 200 / 未ログインの `/icon.png` と `/apple-icon.png` が image/png で 200 / Clerk キーが `sk_test_` / Convex が `dev:` / playwright-cli の解決先 / ブラウザセッション `verify` の有無。何かおかしいと感じたら、まずこれを走らせる。FAIL があるインスタンスは操作しない。
 
 ## Drive
 
