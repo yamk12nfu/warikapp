@@ -1,13 +1,30 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import {
+  internalMutation,
+  mutation,
+  query,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
+import { Doc, Id } from "./_generated/dataModel";
 import { requireMember, requireUser } from "./lib/auth";
+import { collectUnsettled } from "./settlements";
+import {
+  departMember,
+  listActiveMembers,
+  MAX_MEMBERS,
+} from "./lib/members";
+import {
+  getLeaveBlocker,
+  LEAVE_BLOCKER_MESSAGE,
+  LeaveBlocker,
+} from "./lib/leave";
 
 // 世帯(couple)は全データのテナント境界。1ユーザーは1世帯にのみ所属する(V-202)。
 // 画面に出すエラーは ConvexError で投げる(本番でもメッセージがクライアントに届く)。
 
 const DEFAULT_COUPLE_NAME = "わたしたち";
-const MAX_MEMBERS = 2; // V-203: 世帯の上限2名
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000; // 招待コードの有効期限72時間
 const INVITATION_CODE_LENGTH = 8;
 // 紛らわしい 0 / O / 1 / I / L を除いた31文字。口頭・手入力での取り違えを防ぐ
@@ -69,16 +86,6 @@ async function findMemberByToken(ctx: QueryCtx | MutationCtx, token: string) {
     .query("members")
     .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", token))
     .unique();
-}
-
-async function listCoupleMembers(
-  ctx: QueryCtx | MutationCtx,
-  coupleId: Id<"couples">,
-) {
-  return await ctx.db
-    .query("members")
-    .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
-    .take(MAX_MEMBERS);
 }
 
 // 未使用の招待コード(再発行時に消す対象・設定画面に出す対象)。
@@ -149,8 +156,9 @@ export const household = query({
     if (couple === null) {
       throw new ConvexError("世帯が見つかりません");
     }
-    const members = await listCoupleMembers(ctx, member.coupleId);
+    const members = await listActiveMembers(ctx, member.coupleId);
     const partner = members.find((m) => m._id !== member._id) ?? null;
+    const leaveBlocker = await findLeaveBlocker(ctx, member, partner);
 
     // 招待コードはパートナー未参加のときだけ返す(満員なら発行済みでも使えない)
     let invitation = null;
@@ -171,6 +179,7 @@ export const household = query({
           ? null
           : { _id: partner._id, displayName: partner.displayName },
       invitation,
+      leaveBlocker,
     };
   },
 });
@@ -234,7 +243,7 @@ export const joinCouple = mutation({
     }
 
     // V-203: 世帯の上限2名
-    const members = await listCoupleMembers(ctx, invitation.coupleId);
+    const members = await listActiveMembers(ctx, invitation.coupleId);
     if (members.length >= MAX_MEMBERS) {
       throw new ConvexError(ERR_COUPLE_FULL);
     }
@@ -246,6 +255,49 @@ export const joinCouple = mutation({
     });
     // 2名に達したのでコードを無効化する
     await ctx.db.patch("invitations", invitation._id, { usedAt: Date.now() });
+    return null;
+  },
+});
+
+async function findLeaveBlocker(
+  ctx: QueryCtx | MutationCtx,
+  member: Doc<"members">,
+  partner: Doc<"members"> | null,
+): Promise<LeaveBlocker> {
+  if (partner === null) {
+    return null;
+  }
+  return getLeaveBlocker(await collectUnsettled(ctx, member.coupleId));
+}
+
+export const leaveCouple = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await requireUser(ctx);
+    const member = await findMemberByToken(ctx, identity.tokenIdentifier);
+    if (member === null) {
+      return null;
+    }
+
+    const partner =
+      (await listActiveMembers(ctx, member.coupleId)).find(
+        (m) => m._id !== member._id,
+      ) ?? null;
+    const blocker = await findLeaveBlocker(ctx, member, partner);
+    if (blocker !== null) {
+      throw new ConvexError(LEAVE_BLOCKER_MESSAGE[blocker]);
+    }
+
+    await departMember(ctx, member);
+    if (partner === null) {
+      const unused = await listUnusedInvitations(ctx, member.coupleId);
+      for (const invitation of unused) {
+        await ctx.db.delete("invitations", invitation._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.couples.purgeCouple, {
+        coupleId: member.coupleId,
+      });
+    }
     return null;
   },
 });
@@ -267,7 +319,7 @@ export const reissueInvitation = mutation({
   args: {},
   handler: async (ctx) => {
     const member = await requireMember(ctx);
-    const members = await listCoupleMembers(ctx, member.coupleId);
+    const members = await listActiveMembers(ctx, member.coupleId);
     if (members.length >= MAX_MEMBERS) {
       throw new ConvexError(ERR_COUPLE_FULL);
     }
@@ -279,5 +331,89 @@ export const reissueInvitation = mutation({
       await ctx.db.delete("invitations", invitation._id);
     }
     return issued;
+  },
+});
+
+// 1回の実行で各テーブルから消す上限。1トランザクションの書き込み上限に
+// 収めるため、上限いっぱい消したら自分を再スケジュールして続きを行う
+export const PURGE_BATCH_SIZE = 100;
+
+export const purgeCouple = internalMutation({
+  args: { coupleId: v.id("couples") },
+  handler: async (ctx, { coupleId }) => {
+    if ((await ctx.db.get("couples", coupleId)) === null) {
+      return null;
+    }
+    if ((await listActiveMembers(ctx, coupleId)).length > 0) {
+      return null;
+    }
+
+    const steps: Array<() => Promise<number>> = [
+      async () => {
+        const rows = await ctx.db
+          .query("expenses")
+          .withIndex("by_coupleId_and_purchasedAt", (q) =>
+            q.eq("coupleId", coupleId),
+          )
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("expenses", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("uploads")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.storage.delete(row.storageId);
+          await ctx.db.delete("uploads", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("settlements")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("settlements", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("invitations")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("invitations", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("members")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("members", row._id);
+        }
+        return rows.length;
+      },
+    ];
+
+    for (const step of steps) {
+      if ((await step()) === PURGE_BATCH_SIZE) {
+        await ctx.scheduler.runAfter(0, internal.couples.purgeCouple, {
+          coupleId,
+        });
+        return null;
+      }
+    }
+
+    await ctx.db.delete("couples", coupleId);
+    return null;
   },
 });

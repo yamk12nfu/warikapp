@@ -40,6 +40,7 @@ const ERR_MEMO_TOO_LONG = "メモは100文字以内で入力してください";
 // 他世帯の精算を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "精算が見つかりません";
 const ERR_NOT_LATEST = "直近の精算のみ取り消せます";
+const ERR_COUNTERPART_LEFT = "退出したメンバーとの精算は取り消せません";
 const ERR_CANCEL_MISMATCH =
   "精算の対象が変わっているため取り消せません。時間をおいて再度お試しください";
 // V-702: 確認画面に出ていた差額と、実行時にサーバーが計算した差額が違う場合
@@ -500,6 +501,15 @@ export const cancel = mutation({
       .first();
     if (latest === null || latest._id !== settlement._id) {
       throw new ConvexError(ERR_NOT_LATEST);
+    }
+
+    const counterpartId =
+      settlement.fromMemberId === member._id
+        ? settlement.toMemberId
+        : settlement.fromMemberId;
+    const counterpart = await ctx.db.get("members", counterpartId);
+    if (counterpart === null || counterpart.leftAt !== undefined) {
+      throw new ConvexError(ERR_COUNTERPART_LEFT);
     }
 
     const { expenses: settled, overflow } = await collectSettled(
