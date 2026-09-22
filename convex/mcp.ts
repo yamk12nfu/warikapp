@@ -14,6 +14,7 @@ import {
   summarize,
   MAX_UNSETTLED_EXPENSES,
 } from "./settlements";
+import { listAllMembers } from "./lib/members";
 import { calcAdvanceAmount, calcItemShareAmount } from "../lib/settlement";
 import type { SettlementBalance } from "../lib/settlement";
 import {
@@ -115,10 +116,10 @@ async function requireMcpMember(
 async function loadCoupleContext(ctx: QueryCtx, clerkUserId: string) {
   const member = await requireMcpMember(ctx, clerkUserId);
   const partner = await findPartner(ctx, member);
+  const members = await listAllMembers(ctx, member.coupleId);
   const membersById = new Map<Id<"members">, Doc<"members">>();
-  membersById.set(member._id, member);
-  if (partner !== null) {
-    membersById.set(partner._id, partner);
+  for (const row of members) {
+    membersById.set(row._id, row);
   }
   return { member, partner, membersById };
 }

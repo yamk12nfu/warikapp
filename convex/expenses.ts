@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
+import { listActiveMembers, listAllMembers } from "./lib/members";
 import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator, storedCategoryValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
@@ -265,7 +266,10 @@ export const setCategory = mutation({
 
 // 一覧の1行分。items をそのまま返すと転送量が無駄なので、行の表示に必要な
 // フィールドだけに射影する(詳細は expenses.get で読む)。
-function toListRow(expense: Doc<"expenses">) {
+function toListRow(
+  expense: Doc<"expenses">,
+  membersById: Map<Id<"members">, Doc<"members">>,
+) {
   return {
     _id: expense._id,
     // 店名は任意項目。未設定なら先頭の品目名を見出しに使う
@@ -274,6 +278,7 @@ function toListRow(expense: Doc<"expenses">) {
     purchasedAt: expense.purchasedAt,
     totalAmount: expense.totalAmount,
     paidBy: expense.paidBy,
+    paidByName: membersById.get(expense.paidBy)?.displayName ?? "メンバー",
     status: expense.status,
     settled: expense.settlementId !== undefined,
     category: normalizeCategory(expense.category),
@@ -316,12 +321,19 @@ export const list = query({
               q.eq("coupleId", member.coupleId),
             );
 
-    const result = await scoped
-      .order("desc")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
-      .paginate(args.paginationOpts);
+    const [result, members] = await Promise.all([
+      scoped
+        .order("desc")
+        .filter((q) => q.eq(q.field("deletedAt"), undefined))
+        .paginate(args.paginationOpts),
+      listAllMembers(ctx, member.coupleId),
+    ]);
+    const membersById = new Map(members.map((row) => [row._id, row]));
 
-    return { ...result, page: result.page.map(toListRow) };
+    return {
+      ...result,
+      page: result.page.map((expense) => toListRow(expense, membersById)),
+    };
   },
 });
 
@@ -341,13 +353,24 @@ export const get = query({
     if (expense === null) {
       return null;
     }
+    const members = await listAllMembers(ctx, member.coupleId);
+    const membersById = new Map(members.map((row) => [row._id, row]));
+    const displayNameOf = (memberId: Id<"members">) =>
+      membersById.get(memberId)?.displayName ?? "メンバー";
     return {
       _id: expense._id,
       paidBy: expense.paidBy,
+      paidByName: displayNameOf(expense.paidBy),
       storeName: expense.storeName,
       purchasedAt: expense.purchasedAt,
       totalAmount: expense.totalAmount,
-      items: expense.items,
+      items: expense.items.map((item) => ({
+        ...item,
+        shares: item.shares.map((share) => ({
+          ...share,
+          displayName: displayNameOf(share.memberId),
+        })),
+      })),
       source: expense.source,
       status: expense.status,
       settled: expense.settlementId !== undefined,
@@ -401,10 +424,7 @@ export const suggestReceiptItemShares = query({
       throw new ConvexError(`品目は${MAX_ITEMS}件までです`);
     }
 
-    const householdMembers = await ctx.db
-      .query("members")
-      .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
-      .take(2);
+    const householdMembers = await listActiveMembers(ctx, member.coupleId);
     const partner =
       householdMembers.find((entry) => entry._id !== member._id) ?? null;
 

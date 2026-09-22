@@ -38,11 +38,13 @@ export default defineSchema({
   members: defineTable({
     coupleId: v.id("couples"),
     // 認証プロバイダ発行の安定ID(identity.tokenIdentifier)
-    tokenIdentifier: v.string(),
+    tokenIdentifier: v.optional(v.string()),
     displayName: v.string(), // 1〜20文字
+    leftAt: v.optional(v.number()),
   })
     .index("by_tokenIdentifier", ["tokenIdentifier"])
-    .index("by_coupleId", ["coupleId"]),
+    .index("by_coupleId", ["coupleId"])
+    .index("by_coupleId_and_leftAt", ["coupleId", "leftAt"]),
 
   invitations: defineTable({
     coupleId: v.id("couples"),
@@ -117,7 +119,9 @@ export default defineSchema({
     // 時刻ではなく参照元のIDを持つのは、支出の画像が差し替わったときに
     // 「その支出のものだった画像」だけを安全に消せるようにするため
     usedByExpenseId: v.optional(v.id("expenses")),
-  }).index("by_storageId", ["storageId"]),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_coupleId", ["coupleId"]),
 });
 
 // レート制限(要件: AI読み取り30回/時/世帯、アップロードURL発行60回/時/世帯)は
