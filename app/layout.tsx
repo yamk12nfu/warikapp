@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Zen_Maru_Gothic } from "next/font/google";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
+import { brand } from "@/lib/brand";
 import "./globals.css";
 
 // 丸ゴシックはアプリ全体の声。日本語グリフはビルド時に分割self-hostされるが、
@@ -16,6 +17,24 @@ const zenMaru = Zen_Maru_Gothic({
 export const metadata: Metadata = {
   title: "warikapp",
   description: "レシート割り勘精算アプリ",
+  appleWebApp: {
+    capable: true,
+    title: "warikapp",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    {
+      media: "(prefers-color-scheme: light)",
+      color: brand.background.light,
+    },
+    {
+      media: "(prefers-color-scheme: dark)",
+      color: brand.background.dark,
+    },
+  ],
 };
 
 export default function RootLayout({

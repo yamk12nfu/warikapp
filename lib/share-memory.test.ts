@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { suggestReceiptItemSharesFromHistory } from "./share-memory";
+import {
+  suggestReceiptItemSharesFromHistory,
+  type ShareMemoryHousehold,
+} from "./share-memory";
 import type { ShareRatio } from "./types";
 
 const SELF = "member-self";
@@ -22,7 +25,7 @@ const selfOnly: ShareRatio[] = [
 function suggest(
   itemNames: string[],
   history: Parameters<typeof suggestReceiptItemSharesFromHistory>[0]["history"],
-  members = household,
+  members: ShareMemoryHousehold = household,
 ) {
   return suggestReceiptItemSharesFromHistory({
     itemNames,
