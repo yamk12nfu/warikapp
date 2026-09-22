@@ -18,6 +18,7 @@ import type * as expenses from "../expenses.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as mcp from "../mcp.js";
+import type * as monthBook from "../monthBook.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as receipts from "../receipts.js";
 import type * as settlements from "../settlements.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/auth": typeof lib_auth;
   mcp: typeof mcp;
+  monthBook: typeof monthBook;
   rateLimits: typeof rateLimits;
   receipts: typeof receipts;
   settlements: typeof settlements;

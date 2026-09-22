@@ -1,5 +1,19 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { STORED_CATEGORY_IDS } from "../lib/category";
+
+// id リテラルは lib/category.ts が持つ。ここは union に組むだけ。
+const storedCategoryLiterals = STORED_CATEGORY_IDS.map((id) => v.literal(id));
+const [firstCategory, secondCategory, ...restCategories] =
+  storedCategoryLiterals;
+if (firstCategory === undefined || secondCategory === undefined) {
+  throw new Error("STORED_CATEGORY_IDS must contain at least two ids");
+}
+export const storedCategoryValidator = v.union(
+  firstCategory,
+  secondCategory,
+  ...restCategories,
+);
 
 // 負担割合: 2名で合計100%になること(検証はアプリ層で行う)
 export const shareValidator = v.object({
@@ -47,6 +61,8 @@ export default defineSchema({
     storeName: v.optional(v.string()),
     purchasedAt: v.string(), // "YYYY-MM-DD"
     totalAmount: v.number(), // 品目合計から算出して保存
+    // 未設定は未分類。語彙の欠落で表し、"uncategorized" は保存しない。
+    category: v.optional(storedCategoryValidator),
     items: v.array(itemValidator), // 1件以上
     imageStorageId: v.optional(v.id("_storage")), // レシート画像。手入力は未設定
     source: v.union(v.literal("receipt"), v.literal("manual")),

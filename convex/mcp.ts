@@ -14,7 +14,14 @@ import {
   summarize,
   MAX_UNSETTLED_EXPENSES,
 } from "./settlements";
-import { calcAdvanceAmount, calcItemShareAmount, calcNetBalance } from "../lib/settlement";
+import { calcAdvanceAmount, calcItemShareAmount } from "../lib/settlement";
+import type { SettlementBalance } from "../lib/settlement";
+import {
+  foldMonth,
+  monthDateRange,
+  requireYearMonth,
+  toMonthExpenseFact,
+} from "../lib/month-book";
 import { rateLimiter, MCP_READ_LIMIT_NAME } from "./rateLimits";
 
 // リモートMCPサーバー(convex/http.ts)の内部境界。ここに置く関数はすべて
@@ -288,34 +295,48 @@ export const listExpenses = internalQuery({
   },
 });
 
-// "YYYY-MM" から月初・月末の "YYYY-MM-DD" を求める。month の形式・実在性は
-// http.ts側で検証済みの入力を前提にする。UTC基準のDate.UTCで計算するため、
-// 月末日やうるう年の繰り上げをタイムゾーンずれなく求められる
-// (queryの中だがDate.now()等の現在時刻は読まないので、Convexの
-// 「queryでwall clockを読まない」規約には反しない)
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function monthDateRange(month: string): { from: string; to: string } {
-  const [yearStr, monthStr] = month.split("-");
-  const year = Number(yearStr);
-  const monthIndex = Number(monthStr); // 1〜12。翌月の0-indexed値と数値が一致する
-  const from = `${month}-01`;
-  const nextMonthStart = Date.UTC(year, monthIndex, 1);
-  const lastDayOfMonth = new Date(nextMonthStart - DAY_MS);
-  const to = lastDayOfMonth.toISOString().slice(0, 10);
-  return { from, to };
+// foldMonth の差額は string の memberId で返る。http.ts は Id として比較する。
+function mcpUnsettledBalance(
+  viewerId: Id<"members">,
+  partnerId: Id<"members"> | null,
+  balance: SettlementBalance,
+): SettlementBalance<Id<"members">> {
+  const amount = balance.amount;
+  if (
+    partnerId === null ||
+    balance.fromMemberId === null ||
+    balance.toMemberId === null
+  ) {
+    return { fromMemberId: null, toMemberId: null, amount };
+  }
+  const known = (id: string): Id<"members"> => {
+    if (id === viewerId) {
+      return viewerId;
+    }
+    if (id === partnerId) {
+      return partnerId;
+    }
+    throw new Error("unsettled balance names a member outside the couple");
+  };
+  return {
+    fromMemberId: known(balance.fromMemberId),
+    toMemberId: known(balance.toMemberId),
+    amount,
+  };
 }
 
 // GET /mcp/summary — 月次サマリー。
 // 金額集計はconfirmedのみ(draftは件数だけ。Webの差額計算と同じ扱い)。
-// unsettled_balanceはその月のconfirmed×未精算だけをcalcNetBalanceに通した
-// 「月内の誰が誰にいくら」で、get_unsettled_balance(全期間の現在残高)とは別物
+// unsettled_balanceはその月のconfirmed×未精算だけを見た
+// 「月内の誰が誰にいくら」で、get_unsettled_balance(全期間の現在残高)とは別物。
+// カテゴリは返さない。上限超過は従来どおり部分合計 + truncated:true。
 export const monthlySummary = internalQuery({
   args: { clerkUserId: v.string(), month: v.string() },
   handler: async (ctx, args) => {
     const member = await requireMcpMember(ctx, args.clerkUserId);
     const partner = await findPartner(ctx, member);
-    const { from, to } = monthDateRange(args.month);
+    const month = requireYearMonth(args.month);
+    const { from, to } = monthDateRange(month);
 
     // 上限+1件読んで「まだ続きがあるか」を判定する(collectUnsettledと同じパターン)。
     // 200件の根拠(支出1件の読み取りバイト上限)はsettlements.tsのコメントを参照
@@ -332,60 +353,51 @@ export const monthlySummary = internalQuery({
 
     const truncated = rows.length > MAX_UNSETTLED_EXPENSES;
     const expenses = truncated ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows;
-    const confirmed = expenses.filter((e) => e.status === "confirmed");
-    const unsettledConfirmed = confirmed.filter(
-      (e) => e.settlementId === undefined,
+    const folded = foldMonth(
+      month,
+      expenses.map((expense) => toMonthExpenseFact(expense)),
+      member._id,
+      partner?._id ?? null,
     );
 
-    const sumTotalAmount = (list: Doc<"expenses">[]) =>
-      list.reduce((sum, e) => sum + e.totalAmount, 0);
-
-    const unsettledBalance =
-      partner === null
-        ? { fromMemberId: null, toMemberId: null, amount: 0 }
-        : calcNetBalance(member._id, partner._id, unsettledConfirmed);
-
-    const memberSummary = (target: Doc<"members">, isSelf: boolean) => {
-      const paidByTarget = confirmed.filter((e) => e.paidBy === target._id);
-      const unsettledPaidByTarget = unsettledConfirmed.filter(
-        (e) => e.paidBy === target._id,
-      );
-      // 負担すべき合計。品目ごとの端数四捨五入(calcItemShareAmount)を
-      // 支出→品目の順に合算する(支出詳細の内訳表示と丸めの基準を揃えるため)
-      const shareAmount = confirmed.reduce(
-        (sum, e) =>
-          sum +
-          e.items.reduce(
-            (itemSum, item) => itemSum + calcItemShareAmount(item, target._id),
-            0,
-          ),
-        0,
-      );
-      return {
-        memberId: target._id,
-        displayName: target.displayName,
-        isSelf,
-        paidAmount: sumTotalAmount(paidByTarget),
-        shareAmount,
-        unsettledPaidAmount: sumTotalAmount(unsettledPaidByTarget),
-      };
-    };
-
+    const viewer = folded.members[0];
     const members = [
-      memberSummary(member, true),
-      ...(partner === null ? [] : [memberSummary(partner, false)]),
+      {
+        memberId: member._id,
+        displayName: member.displayName,
+        isSelf: true,
+        paidAmount: viewer.paidAmount,
+        shareAmount: viewer.shareAmount,
+        unsettledPaidAmount: viewer.unsettledPaidAmount,
+      },
     ];
+    if (partner !== null) {
+      const partnerFold = folded.members[1];
+      if (partnerFold === undefined) {
+        throw new Error("foldMonth omitted the partner");
+      }
+      members.push({
+        memberId: partner._id,
+        displayName: partner.displayName,
+        isSelf: false,
+        paidAmount: partnerFold.paidAmount,
+        shareAmount: partnerFold.shareAmount,
+        unsettledPaidAmount: partnerFold.unsettledPaidAmount,
+      });
+    }
 
     return {
-      month: args.month,
-      includedExpenseCount: confirmed.length,
-      draftCount: expenses.length - confirmed.length,
-      totalAmount: sumTotalAmount(confirmed),
-      settledAmount: sumTotalAmount(
-        confirmed.filter((e) => e.settlementId !== undefined),
+      month: folded.month,
+      includedExpenseCount: folded.confirmedCount,
+      draftCount: folded.draftCount,
+      totalAmount: folded.totalAmount,
+      settledAmount: folded.settledAmount,
+      unsettledAmount: folded.unsettledAmount,
+      unsettledBalance: mcpUnsettledBalance(
+        member._id,
+        partner?._id ?? null,
+        folded.unsettledBalance,
       ),
-      unsettledAmount: sumTotalAmount(unsettledConfirmed),
-      unsettledBalance,
       members,
       truncated,
     };

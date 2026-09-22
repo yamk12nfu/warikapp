@@ -174,7 +174,7 @@ function parseFilter(raw: string | null): "unsettled" | "all" | null {
   return raw === "unsettled" || raw === "all" ? raw : null;
 }
 
-// 年の妥当範囲(レビュー指摘 軽微1)。convex/mcp.ts の monthDateRange は
+// 年の妥当範囲(レビュー指摘 軽微1)。lib/month-book.ts の monthDateRange は
 // `Date.UTC(year, monthIndex, 1)` を使うが、Date.UTC は年0〜99を1900〜1999年と
 // 特別扱いする仕様がある(例: Date.UTC(1, 0, 1) は西暦1年ではなく1901年になる)。
 // 正規表現 \d{4} は "0001" のような値も通してしまうため、ここで実用範囲
