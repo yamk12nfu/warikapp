@@ -459,6 +459,8 @@ Import画面の **Environment Variables**(あとから足すなら Settings → 
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_...`(手順1-7) | Production |
 | `CLERK_SECRET_KEY` | `sk_live_...`(手順1-7) | Production |
 
+`CLERK_SECRET_KEY` は、アカウント削除時にClerkユーザーを削除するServer Actionから使用する。
+
 > ⚠️ Vercelで環境変数を足すと **既定で Production / Preview / Development の3つ全部にチェックが入る**。
 > `CONVEX_DEPLOY_KEY` は必ず Production だけに絞る(`ignoreCommand` で二重に防いではいるが、
 > 元を断っておく)。
