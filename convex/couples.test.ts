@@ -651,6 +651,19 @@ describe("leaveCouple", () => {
       throw new Error("自分のメンバーが見つからない");
     }
     const coupleId = currentMember.coupleId;
+    await t.run(async (ctx) =>
+      ctx.db.insert("fixedCosts", {
+        coupleId,
+        name: "家賃",
+        amount: 120000,
+        paidBy: household.self._id,
+        shares: [
+          { memberId: household.self._id, ratioPercent: 50 },
+          { memberId: household.partner!._id, ratioPercent: 50 },
+        ],
+        startMonth: "2026-07",
+      }),
+    );
     const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["receipt"], { type: "image/jpeg" })),
     );
@@ -695,7 +708,7 @@ describe("leaveCouple", () => {
     }
 
     const afterPurge = await t.run(async (ctx) => {
-      const [couple, expenses, uploads, settlements, invitations, members, storage] =
+      const [couple, expenses, fixedCosts, uploads, settlements, invitations, members, storage] =
         await Promise.all([
           ctx.db.get("couples", coupleId),
           ctx.db
@@ -704,6 +717,12 @@ describe("leaveCouple", () => {
               q.eq("coupleId", coupleId),
             )
             .collect(),
+          ctx.db
+            .query("fixedCosts")
+            .withIndex("by_coupleId_and_stoppedAt", (q) =>
+              q.eq("coupleId", coupleId),
+            )
+            .take(10),
           ctx.db
             .query("uploads")
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
@@ -725,6 +744,7 @@ describe("leaveCouple", () => {
       return {
         couple,
         expenses,
+        fixedCosts,
         uploads,
         settlements,
         invitations,
@@ -734,6 +754,7 @@ describe("leaveCouple", () => {
     });
     expect(afterPurge.couple).toBeNull();
     expect(afterPurge.expenses).toHaveLength(0);
+    expect(afterPurge.fixedCosts).toHaveLength(0);
     expect(afterPurge.uploads).toHaveLength(0);
     expect(afterPurge.settlements).toHaveLength(0);
     expect(afterPurge.invitations).toHaveLength(0);
