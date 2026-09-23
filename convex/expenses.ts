@@ -92,7 +92,7 @@ type ItemInput = {
 };
 
 // 品目名の前後空白を落として検証済みの品目を返す
-function normalizeItems(items: ItemInput[]): ItemInput[] {
+export function normalizeItems(items: ItemInput[]): ItemInput[] {
   if (items.length === 0) {
     throw new ConvexError(ERR_ITEMS_REQUIRED); // V-402
   }
@@ -282,6 +282,7 @@ function toListRow(
     status: expense.status,
     settled: expense.settlementId !== undefined,
     category: normalizeCategory(expense.category),
+    fixedCost: expense.fixedCost,
   };
 }
 
@@ -376,6 +377,7 @@ export const get = query({
       settled: expense.settlementId !== undefined,
       hasImage: expense.imageStorageId !== undefined,
       category: normalizeCategory(expense.category),
+      fixedCost: expense.fixedCost,
     };
   },
 });

@@ -363,6 +363,18 @@ export const purgeCouple = internalMutation({
       },
       async () => {
         const rows = await ctx.db
+          .query("fixedCosts")
+          .withIndex("by_coupleId_and_stoppedAt", (q) =>
+            q.eq("coupleId", coupleId),
+          )
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("fixedCosts", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
           .query("uploads")
           .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
           .take(PURGE_BATCH_SIZE);

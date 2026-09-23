@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 const NAV_ITEMS = [
   { href: "/", label: "ホーム" },
   { href: "/months", label: "月次" },
+  { href: "/fixed-costs", label: "固定費" },
   { href: "/settlement", label: "精算" },
   { href: "/settlements", label: "精算履歴" },
   { href: "/settings", label: "設定" },

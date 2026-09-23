@@ -646,6 +646,52 @@ describe("expenses.save(更新)", () => {
     expect(expense!.source).toBe("receipt");
   });
 
+  test("fixedCost を持つ支出の編集・論理削除で fixedCost を保持する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const currentMember = await t
+      .withIdentity(ALICE)
+      .query(api.couples.currentMember, {});
+    if (currentMember === null) {
+      throw new Error("自分のメンバーが見つからない");
+    }
+    const month = jstDate().slice(0, 7);
+    const fixedCostId = await t.run(async (ctx) =>
+      ctx.db.insert("fixedCosts", {
+        coupleId: currentMember.coupleId,
+        name: "家賃",
+        amount: 5000,
+        paidBy: members.self._id,
+        shares: split(members),
+        startMonth: month,
+      }),
+    );
+    const expenseId = await t.run(async (ctx) =>
+      ctx.db.insert("expenses", {
+        coupleId: currentMember.coupleId,
+        paidBy: members.self._id,
+        purchasedAt: `${month}-01`,
+        totalAmount: 5000,
+        items: [
+          { name: "家賃", price: 5000, quantity: 1, shares: split(members) },
+        ],
+        source: "manual",
+        status: "confirmed",
+        fixedCost: { id: fixedCostId, month },
+      }),
+    );
+
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { expenseId, storeName: "編集後" }),
+    );
+    await t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId });
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.fixedCost).toEqual({ id: fixedCostId, month });
+    expect(expense!.deletedAt).toEqual(expect.any(Number));
+  });
+
   test("category を省略すると既存の分類を残す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1420,4 +1466,3 @@ describe("expenses.setCategory", () => {
     ).rejects.toThrow("支出が見つかりません");
   });
 });
-

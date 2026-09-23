@@ -12,7 +12,11 @@ import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import { toUserMessage } from "@/lib/convex-error";
 import { amountClass, inputClass } from "@/lib/ui";
-import { CSSProperties, FormEvent, useRef, useState } from "react";
+import ShareRatioPicker, {
+  isCustomPreset,
+  ShareRatioInputs,
+} from "@/components/ShareRatioPicker";
+import { FormEvent, useRef, useState } from "react";
 
 // 品目仕分けUI(F-004)。手入力(S-006)・レシート確認・編集(S-005)の3画面で共用する。
 // 負担区分チップはタップで 折半 → 自分 → 相手 → 折半 と循環し、
@@ -84,71 +88,6 @@ function normalizeShares(
   ];
 }
 
-type Preset = "split" | "self" | "partner" | "custom";
-
-function presetOf(
-  shares: ShareRatio[],
-  selfId: string,
-  partnerId: string | null,
-): Preset {
-  const selfRatio = ratioOf(shares, selfId);
-  if (partnerId === null) {
-    return selfRatio === 100 ? "self" : "custom";
-  }
-  const partnerRatio = ratioOf(shares, partnerId);
-  if (selfRatio === 50 && partnerRatio === 50) {
-    return "split";
-  }
-  if (selfRatio === 100 && partnerRatio === 0) {
-    return "self";
-  }
-  if (selfRatio === 0 && partnerRatio === 100) {
-    return "partner";
-  }
-  return "custom";
-}
-
-const PRESET_LABEL: Record<Preset, string> = {
-  split: "折半",
-  self: "自分",
-  partner: "相手",
-  custom: "カスタム",
-};
-
-// 負担区分チップの色。メンバー色(自分=青緑 / 相手=菫)をそのまま使い、
-// 折半は2色を半々に塗る(誰の負担かが色だけで読めるようにする)
-const PRESET_CHIP_CLASS: Record<Preset, string> = {
-  split: "border-transparent text-on-accent",
-  self: "border-transparent bg-me text-on-accent",
-  partner: "border-transparent bg-partner text-on-accent",
-  custom: "",
-};
-
-const PRESET_CHIP_STYLE: Partial<Record<Preset, CSSProperties>> = {
-  split: {
-    background: "linear-gradient(90deg, var(--me) 50%, var(--partner) 50%)",
-  },
-};
-
-// 折半 → 自分 → 相手 → 折半 の循環(カスタムからは折半に戻す)
-function nextPresetShares(
-  shares: ShareRatio[],
-  selfId: string,
-  partnerId: string,
-): ShareRatio[] {
-  const ratios: Record<Preset, [number, number]> = {
-    split: [100, 0], // 折半の次は「自分」
-    self: [0, 100], // 自分の次は「相手」
-    partner: [50, 50], // 相手の次は「折半」
-    custom: [50, 50], // カスタムからは折半に戻す
-  };
-  const [selfRatio, partnerRatio] = ratios[presetOf(shares, selfId, partnerId)];
-  return [
-    { memberId: selfId, ratioPercent: selfRatio },
-    { memberId: partnerId, ratioPercent: partnerRatio },
-  ];
-}
-
 export function createInitialItem(
   selfId: string,
   partnerId: string | null,
@@ -198,7 +137,7 @@ export default function ExpenseEditor({
         priceText: item.price === 0 ? "" : String(item.price),
         quantity: item.quantity,
         shares,
-        custom: presetOf(shares, self._id, partnerId) === "custom",
+        custom: isCustomPreset(shares, self._id, partnerId),
         // 既存の支出を読み込んだ行は最初から検証結果を出す(空の新規行だけ抑える)
         touched: item.name !== "" || item.price !== 0,
       };
@@ -249,29 +188,6 @@ export default function ExpenseEditor({
 
   function removeRow(key: string) {
     setRows((current) => current.filter((row) => row.key !== key));
-  }
-
-  function cyclePreset(row: ItemRow) {
-    if (partnerId === null) {
-      return; // 相手が未参加のうちは自分100%しかない
-    }
-    const shares = nextPresetShares(row.shares, self._id, partnerId);
-    updateRow(row.key, { shares, custom: false, touched: true });
-  }
-
-  function setShareRatio(row: ItemRow, memberId: string, text: string) {
-    if (!/^\d{0,3}$/.test(text)) {
-      return; // 数字3桁までのみ受け付ける
-    }
-    const ratioPercent = text === "" ? 0 : Number(text);
-    updateRow(row.key, {
-      shares: row.shares.some((share) => share.memberId === memberId)
-        ? row.shares.map((share) =>
-            share.memberId === memberId ? { ...share, ratioPercent } : share,
-          )
-        : [...row.shares, { memberId, ratioPercent }],
-      touched: true,
-    });
   }
 
   // 行ごとの検証結果。V-401(割合合計)・V-403(金額)・品目名を判定する
@@ -445,7 +361,6 @@ export default function ExpenseEditor({
 
         {checked.map((item) => {
           const { row } = item;
-          const preset = presetOf(row.shares, self._id, partnerId);
           return (
             <div
               key={row.key}
@@ -487,28 +402,16 @@ export default function ExpenseEditor({
                     className={`${inputClass} text-right`}
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => cyclePreset(row)}
-                  aria-label={`負担区分: ${PRESET_LABEL[preset]}`}
-                  className={`${chipClass} ${PRESET_CHIP_CLASS[preset]}`}
-                  style={PRESET_CHIP_STYLE[preset]}
-                >
-                  {PRESET_LABEL[preset]}
-                </button>
-                {partner !== null && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateRow(row.key, { custom: !row.custom })
-                    }
-                    aria-label="カスタム割合を入力"
-                    aria-pressed={row.custom}
-                    className={chipClass}
-                  >
-                    %
-                  </button>
-                )}
+                <ShareRatioPicker
+                  self={self}
+                  partner={partner}
+                  shares={row.shares}
+                  custom={row.custom}
+                  onSharesChange={(shares) =>
+                    updateRow(row.key, { shares, touched: true })
+                  }
+                  onCustomChange={(custom) => updateRow(row.key, { custom })}
+                />
                 <button
                   type="button"
                   onClick={() => removeRow(row.key)}
@@ -520,32 +423,14 @@ export default function ExpenseEditor({
               </div>
 
               {row.custom && partner !== null && (
-                <div className="flex items-center gap-3 text-sm">
-                  <label className="flex items-center gap-1">
-                    あなた
-                    <input
-                      value={String(ratioOf(row.shares, self._id))}
-                      onChange={(event) =>
-                        setShareRatio(row, self._id, event.target.value)
-                      }
-                      inputMode="numeric"
-                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
-                    />
-                    %
-                  </label>
-                  <label className="flex items-center gap-1">
-                    {partner.displayName}
-                    <input
-                      value={String(ratioOf(row.shares, partner._id))}
-                      onChange={(event) =>
-                        setShareRatio(row, partner._id, event.target.value)
-                      }
-                      inputMode="numeric"
-                      className="w-16 rounded-lg border border-edge bg-surface px-2 py-1 text-right tabular-nums"
-                    />
-                    %
-                  </label>
-                </div>
+                <ShareRatioInputs
+                  self={self}
+                  partner={partner}
+                  shares={row.shares}
+                  onSharesChange={(shares) =>
+                    updateRow(row.key, { shares, touched: true })
+                  }
+                />
               )}
 
               {item.showErrors && (

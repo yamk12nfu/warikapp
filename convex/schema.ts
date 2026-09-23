@@ -46,6 +46,22 @@ export default defineSchema({
     .index("by_coupleId", ["coupleId"])
     .index("by_coupleId_and_leftAt", ["coupleId", "leftAt"]),
 
+  fixedCosts: defineTable({
+    coupleId: v.id("couples"),
+    name: v.string(),
+    amount: v.number(),
+    paidBy: v.id("members"),
+    shares: v.array(shareValidator),
+    category: v.optional(storedCategoryValidator),
+    startMonth: v.string(),
+    stoppedAt: v.optional(v.number()),
+    stoppedReason: v.optional(
+      v.union(v.literal("user"), v.literal("memberLeft")),
+    ),
+  })
+    .index("by_coupleId_and_stoppedAt", ["coupleId", "stoppedAt"])
+    .index("by_stoppedAt", ["stoppedAt"]),
+
   invitations: defineTable({
     coupleId: v.id("couples"),
     code: v.string(), // 8文字英数字
@@ -69,6 +85,9 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("confirmed")),
     settlementId: v.optional(v.id("settlements")), // 未設定なら未精算
     deletedAt: v.optional(v.number()), // 論理削除
+    fixedCost: v.optional(
+      v.object({ id: v.id("fixedCosts"), month: v.string() }),
+    ),
   })
     // 「すべて」表示用: 世帯内を購入日順に読む
     .index("by_coupleId_and_purchasedAt", ["coupleId", "purchasedAt"])
@@ -91,6 +110,12 @@ export default defineSchema({
       "coupleId",
       "deletedAt",
       "purchasedAt",
+    ])
+    // 固定費テンプレート×対象月で1行を引く。deletedAt は含めない:
+    // 削除した月を再計上しないよう、論理削除済みの行も「計上済みの印」として使う
+    .index("by_fixedCost_id_and_fixedCost_month", [
+      "fixedCost.id",
+      "fixedCost.month",
     ]),
 
   settlements: defineTable({
