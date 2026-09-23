@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -122,6 +123,50 @@ const listArgs = (numItems = 20, cursor: string | null = null) => ({
 });
 
 describe("settlements.currentBalance", () => {
+  test("支払者以外の2人が負担する行があると、ConvexError で文言を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(CAROL)
+      .mutation(api.couples.createCouple, { displayName: "きゃろる" });
+    const carol = await t.withIdentity(CAROL).query(api.couples.household, {});
+    await t.run(async (ctx) => {
+      const self = await ctx.db.get("members", members.self._id);
+      if (self === null) {
+        throw new Error("メンバーが無い");
+      }
+      await ctx.db.insert("expenses", {
+        coupleId: self.coupleId,
+        paidBy: members.self._id,
+        purchasedAt: jstDate(),
+        totalAmount: 300,
+        items: [
+          {
+            name: "3人負担",
+            price: 300,
+            quantity: 1,
+            shares: [
+              { memberId: members.self._id, ratioPercent: 34 },
+              { memberId: members.partner._id, ratioPercent: 33 },
+              { memberId: carol.self._id, ratioPercent: 33 },
+            ],
+          },
+        ],
+        source: "manual",
+        status: "confirmed",
+      });
+    });
+
+    const error = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {})
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ConvexError);
+    expect((error as ConvexError<string>).data).toBe(
+      "負担区分を読み取れない支出があります。支出の負担区分を確認してください",
+    );
+  });
+
   test("要件の例: A5,000円折半+B2,000円折半 → BがAに1,500円", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
