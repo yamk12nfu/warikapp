@@ -21,7 +21,7 @@ const THIS_MONTH_LABEL = {
 } as const;
 
 const THIS_MONTH_BADGE = {
-  posted: "bg-ok-soft text-ok-strong",
+  posted: "bg-ok-soft text-ok",
   notPosted: "bg-warn-soft text-warn-strong",
   deleted: "bg-line text-muted",
   notStarted: "bg-line text-muted",
