@@ -9,7 +9,6 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireMember, requireUser } from "./lib/auth";
-import { collectUnsettled } from "./settlements";
 import {
   departMember,
   listActiveMembers,
@@ -267,7 +266,32 @@ async function findLeaveBlocker(
   if (partner === null) {
     return null;
   }
-  return getLeaveBlocker(await collectUnsettled(ctx, member.coupleId));
+  const [draft, unsettled] = await Promise.all([
+    ctx.db
+      .query("expenses")
+      .withIndex("by_coupleId_and_status_and_deletedAt", (q) =>
+        q
+          .eq("coupleId", member.coupleId)
+          .eq("status", "draft")
+          .eq("deletedAt", undefined),
+      )
+      .first(),
+    ctx.db
+      .query("expenses")
+      .withIndex(
+        "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+        (q) =>
+          q
+            .eq("coupleId", member.coupleId)
+            .eq("settlementId", undefined)
+            .eq("deletedAt", undefined),
+      )
+      .first(),
+  ]);
+  return getLeaveBlocker({
+    hasDraft: draft !== null,
+    hasUnsettled: unsettled !== null,
+  });
 }
 
 export const leaveCouple = mutation({
