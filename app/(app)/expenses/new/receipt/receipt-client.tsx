@@ -12,6 +12,10 @@ import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
+import {
+  originFromMatched,
+  type InitialShareOrigin,
+} from "@/lib/share-origin";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import {
   useAction,
@@ -152,7 +156,7 @@ export function ReceiptImageInputs({
   );
 }
 
-// アップロードの打ち切り時間。応答が返らないままだと画面が「アップロード中…」で
+// アップロードの打ち切り時間。応答が返らないままだと画面が「アップロードしています」のまま
 // 固まり、撮り直しにも戻れなくなるため、失敗として再試行の導線に載せる。
 // 圧縮後の画像は数百KBなので、モバイル回線でも60秒あれば十分。
 const UPLOAD_TIMEOUT_MS = 60_000;
@@ -170,6 +174,20 @@ function toEditorItems(
       ? {}
       : { shares: [...sharesByItem[index]] }),
   }));
+}
+
+type ReceiptDraft = {
+  value: ExpenseFormValue;
+  shareOrigins?: readonly InitialShareOrigin[];
+};
+
+function shareOriginsFromMatched(
+  matchedHistory: readonly boolean[] | undefined,
+): readonly InitialShareOrigin[] | undefined {
+  if (matchedHistory === undefined) {
+    return undefined;
+  }
+  return matchedHistory.map((matched) => originFromMatched(matched));
 }
 
 function toSaveItems(items: ExpenseItemInput[]) {
@@ -211,10 +229,8 @@ export default function ReceiptExpenseClient() {
   const [file, setFile] = useState<File | null>(null);
   const [storageId, setStorageId] = useState<Id<"_storage"> | null>(null);
   const [expenseId, setExpenseId] = useState<Id<"expenses"> | null>(null);
-  const [initialValue, setInitialValue] = useState<ExpenseFormValue | null>(
-    null,
-  );
-  // ExpenseEditor は initialValue をマウント時にしか読まないので、
+  const [draft, setDraft] = useState<ReceiptDraft | null>(null);
+  // ExpenseEditor は初期値をマウント時にしか読まないので、
   // 読み取りをやり直したら別インスタンスとして作り直す
   const [editorKey, setEditorKey] = useState(0);
 
@@ -263,15 +279,17 @@ export default function ReceiptExpenseClient() {
     setPhase("select");
   }
 
-  async function suggestSharesOrNull(
-    itemNames: string[],
-  ): Promise<ShareRatio[][] | undefined> {
+  async function suggestSharesOrNull(itemNames: string[]): Promise<
+    | {
+        sharesByItem: ShareRatio[][];
+        matchedHistory: boolean[];
+      }
+    | undefined
+  > {
     try {
-      const suggested = await convex.query(
-        api.expenses.suggestReceiptItemShares,
-        { itemNames },
-      );
-      return suggested.sharesByItem;
+      return await convex.query(api.expenses.suggestReceiptItemShares, {
+        itemNames,
+      });
     } catch {
       return undefined;
     }
@@ -285,15 +303,16 @@ export default function ReceiptExpenseClient() {
   ) {
     setWorkingStep("parse");
     const parsed = await parseReceipt({ storageId: uploaded });
-    const sharesByItem = await suggestSharesOrNull(
+    const suggested = await suggestSharesOrNull(
       parsed.items.map((item) => item.name),
     );
     const items = toEditorItems(
       parsed.items,
       self._id,
       partnerId,
-      sharesByItem,
+      suggested?.sharesByItem,
     );
+    const shareOrigins = shareOriginsFromMatched(suggested?.matchedHistory);
     const value: ExpenseFormValue = {
       paidBy: self._id,
       storeName: parsed.storeName ?? "",
@@ -317,7 +336,7 @@ export default function ReceiptExpenseClient() {
     });
 
     setExpenseId(savedId);
-    setInitialValue(value);
+    setDraft({ value, shareOrigins });
     setEditorKey((key) => key + 1);
     // 税別レシートなどで品目合計と合計金額がずれた場合、差額は各品目へ
     // 金額比で配分してある(lib/receipt.ts の distributeDifference)。
@@ -437,12 +456,14 @@ export default function ReceiptExpenseClient() {
       text: "読み取り結果なしで開いています。品目を入力してください",
       tone: "warn",
     });
-    setInitialValue({
-      paidBy: household.self._id,
-      storeName: "",
-      purchasedAt: todayLocalDate(),
-      category: "uncategorized",
-      items: [createInitialItem(household.self._id, partnerId)],
+    setDraft({
+      value: {
+        paidBy: household.self._id,
+        storeName: "",
+        purchasedAt: todayLocalDate(),
+        category: "uncategorized",
+        items: [createInitialItem(household.self._id, partnerId)],
+      },
     });
     setEditorKey((key) => key + 1);
     setPhase("editing");
@@ -550,7 +571,7 @@ export default function ReceiptExpenseClient() {
         </div>
       )}
 
-      {phase === "editing" && initialValue !== null && (
+      {phase === "editing" && draft !== null && (
         <>
           {notice !== null && (
             <p
@@ -563,7 +584,8 @@ export default function ReceiptExpenseClient() {
             key={editorKey}
             self={household.self}
             partner={household.partner}
-            initialValue={initialValue}
+            initialValue={draft.value}
+            initialShareOrigins={draft.shareOrigins}
             submitLabel="この支出を確定する"
             submittingLabel="確定中…"
             onSubmit={handleSubmit}

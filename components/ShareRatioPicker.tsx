@@ -134,6 +134,9 @@ export default function ShareRatioPicker({
   partner,
   shares,
   custom,
+  density = "regular",
+  percentWeight = "normal",
+  suggested = false,
   onSharesChange,
   onCustomChange,
 }: {
@@ -141,11 +144,15 @@ export default function ShareRatioPicker({
   partner: Member | null;
   shares: ShareRatio[];
   custom: boolean;
+  density?: "regular" | "thumb";
+  percentWeight?: "normal" | "quiet";
+  suggested?: boolean;
   onSharesChange: (shares: ShareRatio[]) => void;
   onCustomChange: (custom: boolean) => void;
 }) {
   const partnerId = partner?._id ?? null;
   const preset = presetOf(shares, self._id, partnerId);
+  const presetLabel = PRESET_LABEL[preset];
 
   function cyclePreset() {
     if (partnerId === null) {
@@ -155,30 +162,57 @@ export default function ShareRatioPicker({
     onCustomChange(false);
   }
 
-  return (
-    <>
+  const chip = (
+    <button
+      type="button"
+      onClick={cyclePreset}
+      aria-label={
+        suggested ? `負担区分: ${presetLabel}（前回）` : `負担区分: ${presetLabel}`
+      }
+      className={`relative rounded-full border border-edge font-bold whitespace-nowrap ${
+        density === "thumb"
+          ? "min-h-11 min-w-[4.5rem] px-4 text-base"
+          : "px-3 py-2 text-sm"
+      } ${PRESET_CHIP_CLASS[preset]}`}
+      style={PRESET_CHIP_STYLE[preset]}
+    >
+      {presetLabel}
+      {suggested ? (
+        <span className="pointer-events-none absolute -top-2 right-0 rounded-full bg-surface px-1 text-[10px] leading-none font-medium text-muted">
+          前回
+        </span>
+      ) : null}
+    </button>
+  );
+  const percent =
+    partner === null ? null : (
       <button
         type="button"
-        onClick={cyclePreset}
-        aria-label={`負担区分: ${PRESET_LABEL[preset]}`}
-        className={`rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap ${PRESET_CHIP_CLASS[preset]}`}
-        style={PRESET_CHIP_STYLE[preset]}
+        onClick={() => onCustomChange(!custom)}
+        aria-label="カスタム割合を入力"
+        aria-pressed={custom}
+        className={`rounded-full whitespace-nowrap ${
+          percentWeight === "quiet"
+            ? "min-h-11 border border-transparent px-3 text-xs font-medium text-muted"
+            : "border border-edge px-3 py-2 text-sm font-bold"
+        }`}
       >
-        {PRESET_LABEL[preset]}
+        %
       </button>
-      {partner !== null && (
-        <>
-          <button
-            type="button"
-            onClick={() => onCustomChange(!custom)}
-            aria-label="カスタム割合を入力"
-            aria-pressed={custom}
-            className="rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap"
-          >
-            %
-          </button>
-        </>
-      )}
+    );
+
+  if (density === "thumb") {
+    return (
+      <>
+        {percent}
+        {chip}
+      </>
+    );
+  }
+  return (
+    <>
+      {chip}
+      {percent}
     </>
   );
 }

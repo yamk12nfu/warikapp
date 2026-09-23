@@ -9,6 +9,14 @@ import {
 import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
+import {
+  originAfterNameEdit,
+  originAfterShareEdit,
+  originOrDefault,
+  showsHistoryBadge,
+  type InitialShareOrigin,
+  type ShareOrigin,
+} from "@/lib/share-origin";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import { toUserMessage } from "@/lib/convex-error";
 import { amountClass, inputClass } from "@/lib/ui";
@@ -44,6 +52,7 @@ type ItemRow = {
   custom: boolean; // カスタム割合の入力欄を開いているか
   // 一度でも編集された行か。まだ触っていない空行を赤枠にしないための判定
   touched: boolean;
+  shareOrigin: ShareOrigin;
 };
 
 const submitClass =
@@ -111,6 +120,7 @@ export default function ExpenseEditor({
   self,
   partner,
   initialValue,
+  initialShareOrigins,
   submitLabel,
   submittingLabel,
   onSubmit,
@@ -118,6 +128,7 @@ export default function ExpenseEditor({
   self: EditorMember;
   partner: EditorMember | null;
   initialValue: ExpenseFormValue;
+  initialShareOrigins?: readonly InitialShareOrigin[];
   submitLabel: string;
   submittingLabel: string;
   onSubmit: (value: ExpenseFormValue) => Promise<void>;
@@ -140,6 +151,7 @@ export default function ExpenseEditor({
         custom: isCustomPreset(shares, self._id, partnerId),
         // 既存の支出を読み込んだ行は最初から検証結果を出す(空の新規行だけ抑える)
         touched: item.name !== "" || item.price !== 0,
+        shareOrigin: originOrDefault(initialShareOrigins?.[index]),
       };
     }),
   );
@@ -182,6 +194,7 @@ export default function ExpenseEditor({
         shares: item.shares,
         custom: false,
         touched: false,
+        shareOrigin: "default",
       },
     ]);
   }
@@ -368,22 +381,33 @@ export default function ExpenseEditor({
                 item.showErrors ? "border border-danger" : ""
               }`}
             >
-              <input
-                value={row.name}
-                onChange={(event) =>
-                  updateRow(row.key, {
-                    name: event.target.value,
-                    touched: true,
-                  })
-                }
-                maxLength={MAX_ITEM_NAME_LENGTH}
-                placeholder="品目名(例: 牛肉)"
-                aria-label="品目名"
-                className={inputClass}
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  value={row.name}
+                  onChange={(event) =>
+                    updateRow(row.key, {
+                      name: event.target.value,
+                      touched: true,
+                      shareOrigin: originAfterNameEdit(row.shareOrigin),
+                    })
+                  }
+                  maxLength={MAX_ITEM_NAME_LENGTH}
+                  placeholder="品目名(例: 牛肉)"
+                  aria-label="品目名"
+                  className={`${inputClass} min-w-0 flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeRow(row.key)}
+                  aria-label="この品目を削除"
+                  className={`${chipClass} text-muted`}
+                >
+                  ×
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
-                <div className="flex flex-1 items-center gap-1">
+                <div className="flex min-w-0 flex-1 items-center gap-1">
                   <span aria-hidden className="text-base">
                     ¥
                   </span>
@@ -407,19 +431,23 @@ export default function ExpenseEditor({
                   partner={partner}
                   shares={row.shares}
                   custom={row.custom}
+                  density="thumb"
+                  percentWeight="quiet"
+                  suggested={showsHistoryBadge(row.shareOrigin)}
                   onSharesChange={(shares) =>
-                    updateRow(row.key, { shares, touched: true })
+                    updateRow(row.key, {
+                      shares,
+                      touched: true,
+                      shareOrigin: originAfterShareEdit(row.shareOrigin),
+                    })
                   }
-                  onCustomChange={(custom) => updateRow(row.key, { custom })}
+                  onCustomChange={(custom) =>
+                    updateRow(row.key, {
+                      custom,
+                      shareOrigin: originAfterShareEdit(row.shareOrigin),
+                    })
+                  }
                 />
-                <button
-                  type="button"
-                  onClick={() => removeRow(row.key)}
-                  aria-label="この品目を削除"
-                  className={`${chipClass} text-muted`}
-                >
-                  ×
-                </button>
               </div>
 
               {row.custom && partner !== null && (
@@ -428,7 +456,11 @@ export default function ExpenseEditor({
                   partner={partner}
                   shares={row.shares}
                   onSharesChange={(shares) =>
-                    updateRow(row.key, { shares, touched: true })
+                    updateRow(row.key, {
+                      shares,
+                      touched: true,
+                      shareOrigin: originAfterShareEdit(row.shareOrigin),
+                    })
                   }
                 />
               )}

@@ -45,6 +45,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("新しい確定支出が勝つ", () => {
@@ -58,6 +59,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("同じ支出では後ろの行が勝つ", () => {
@@ -76,6 +78,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("ドラフトは使わず、より古い確定を採用する", () => {
@@ -84,6 +87,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
       { status: "confirmed", items: [{ name: "牛乳", shares: split }] },
     ]);
     expect(result.sharesByItem).toEqual([split]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("不正な割合はキーを埋めず、より古い正しい割合を使う", () => {
@@ -100,6 +104,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("パートナー未参加なら履歴があっても自分100%に載せ替える", () => {
@@ -111,6 +116,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
     expect(result.sharesByItem).toEqual([
       [{ memberId: SELF, ratioPercent: 100 }],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("現世帯に無い memberId はキーを埋めず、より古い正しい割合を使う", () => {
@@ -129,11 +135,21 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("履歴が無ければ折半になる", () => {
     const result = suggest(["パン"], []);
     expect(result.sharesByItem).toEqual([split]);
+    expect(result.matchedHistory).toEqual([false]);
+  });
+
+  test("履歴の折半は既定と同じ割合でも履歴ヒットになる", () => {
+    const result = suggest(["牛乳", "パン"], [
+      { status: "confirmed", items: [{ name: "牛乳", shares: split }] },
+    ]);
+    expect(result.sharesByItem).toEqual([split, split]);
+    expect(result.matchedHistory).toEqual([true, false]);
   });
 
   test("同じ品目名は同じ負担区分になる", () => {
@@ -150,6 +166,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 100 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true, true]);
   });
 
   test("精算済みでも status が confirmed なら採用する", () => {
@@ -162,6 +179,7 @@ describe("suggestReceiptItemSharesFromHistory", () => {
         { memberId: PARTNER, ratioPercent: 0 },
       ],
     ]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("入力と同じ長さの配列を必ず返す", () => {
@@ -171,5 +189,6 @@ describe("suggestReceiptItemSharesFromHistory", () => {
     expect(result.sharesByItem).toHaveLength(3);
     expect(result.sharesByItem[1]).toEqual(split);
     expect(result.sharesByItem[2]).toEqual(split);
+    expect(result.matchedHistory).toEqual([true, false, false]);
   });
 });
