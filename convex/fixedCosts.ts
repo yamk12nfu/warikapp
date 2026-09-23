@@ -33,6 +33,29 @@ type FixedCostTemplate = Pick<
 
 type MonthStatus = "posted" | "deleted" | "notPosted" | "notStarted";
 
+type PostedExpense = Doc<"expenses"> & {
+  fixedCost: NonNullable<Doc<"expenses">["fixedCost"]>;
+};
+
+function isPostedExpense(expense: Doc<"expenses">): expense is PostedExpense {
+  return expense.fixedCost !== undefined;
+}
+
+// 論理削除済みの行も返す。削除した月を再計上しないための「計上済みの印」に使う
+async function findPosting(
+  ctx: QueryCtx,
+  fixedCostId: Id<"fixedCosts">,
+  month: string,
+): Promise<PostedExpense | null> {
+  const expense = await ctx.db
+    .query("expenses")
+    .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+      q.eq("fixedCost.id", fixedCostId).eq("fixedCost.month", month),
+    )
+    .unique();
+  return expense !== null && isPostedExpense(expense) ? expense : null;
+}
+
 async function postMonth(
   ctx: MutationCtx,
   template: FixedCostTemplate,
@@ -45,13 +68,7 @@ async function postMonth(
     return "notStarted";
   }
 
-  const existing = await ctx.db
-    .query("expenses")
-    .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
-      q.eq("fixedCost.id", template._id).eq("fixedCost.month", month),
-    )
-    .unique();
-  if (existing !== null) {
+  if ((await findPosting(ctx, template._id, month)) !== null) {
     return "exists";
   }
 
@@ -86,12 +103,7 @@ async function monthStatus(
   template: Doc<"fixedCosts">,
   month: string,
 ): Promise<MonthStatus> {
-  const expense = await ctx.db
-    .query("expenses")
-    .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
-      q.eq("fixedCost.id", template._id).eq("fixedCost.month", month),
-    )
-    .unique();
+  const expense = await findPosting(ctx, template._id, month);
   if (expense !== null) {
     return expense.deletedAt === undefined ? "posted" : "deleted";
   }
@@ -155,8 +167,8 @@ export const get = query({
       .take(12);
     return {
       ...fixedCost,
-      history: history.map((expense) => ({
-        month: expense.fixedCost!.month,
+      history: history.filter(isPostedExpense).map((expense) => ({
+        month: expense.fixedCost.month,
         expenseId: expense._id,
         totalAmount: expense.totalAmount,
         deleted: expense.deletedAt !== undefined,

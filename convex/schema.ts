@@ -111,7 +111,8 @@ export default defineSchema({
       "deletedAt",
       "purchasedAt",
     ])
-    // 論理削除済みも月ごとの計上済みマーカーとして一意に引く。
+    // 固定費テンプレート×対象月で1行を引く。deletedAt は含めない:
+    // 削除した月を再計上しないよう、論理削除済みの行も「計上済みの印」として使う
     .index("by_fixedCost_id_and_fixedCost_month", [
       "fixedCost.id",
       "fixedCost.month",
