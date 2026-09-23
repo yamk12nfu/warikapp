@@ -12,6 +12,10 @@ import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
+import {
+  originFromMatched,
+  type InitialShareOrigin,
+} from "@/lib/share-origin";
 import type { ExpenseItemInput, ShareRatio } from "@/lib/types";
 import {
   useAction,
@@ -26,7 +30,7 @@ import { useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useState } from "react";
 
 // レシート登録(S-004 / F-003)。
-// 撮影・選択 → クライアントで縮小圧縮 → アップロード → AI読み取り →
+// 撮影またはアルバム選択 → クライアントで縮小圧縮 → アップロード → AI読み取り →
 // ExpenseEditor で確認(この時点でドラフト保存)→ 確定、の順に進む。
 //
 // 失敗時の導線は要件の表どおりに分ける:
@@ -37,6 +41,58 @@ import { ChangeEvent, useEffect, useState } from "react";
 //                     枠を捨てるだけになるため)
 
 type Phase = "select" | "working" | "editing";
+
+const WORKING_STEPS = ["compress", "upload", "parse", "draft"] as const;
+type WorkingStep = (typeof WORKING_STEPS)[number];
+type WorkingStepState = "done" | "current" | "pending";
+
+const WORKING_STEP_LABEL: Record<WorkingStep, string> = {
+  compress: "画像を小さくしています",
+  upload: "アップロードしています",
+  parse: "レシートを読み取っています",
+  draft: "下書きを保存しています",
+};
+
+export function workingStepState(
+  step: WorkingStep,
+  current: WorkingStep,
+): WorkingStepState {
+  const stepIndex = WORKING_STEPS.indexOf(step);
+  const currentIndex = WORKING_STEPS.indexOf(current);
+  if (stepIndex < currentIndex) {
+    return "done";
+  }
+  if (stepIndex === currentIndex) {
+    return "current";
+  }
+  return "pending";
+}
+
+export function ReceiptWorkingSteps({ step }: { step: WorkingStep }) {
+  return (
+    <ol aria-live="polite" className="space-y-1 text-sm">
+      {WORKING_STEPS.map((entry) => {
+        const state = workingStepState(entry, step);
+        return (
+          <li
+            key={entry}
+            aria-current={state === "current" ? "step" : undefined}
+            className={
+              state === "current"
+                ? "font-bold"
+                : state === "pending"
+                  ? "text-muted"
+                  : undefined
+            }
+          >
+            {state === "done" ? "✓ " : ""}
+            {WORKING_STEP_LABEL[entry]}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 // 失敗した工程。"unreadable"(レシート以外・不鮮明)は読み取り失敗の一種だが、
 // 再読み取りが無意味な点だけが違うので別扱いにする
@@ -62,7 +118,45 @@ const primaryButtonClass =
 
 const ERR_UPLOAD = "アップロードに失敗しました";
 
-// アップロードの打ち切り時間。応答が返らないままだと画面が「アップロード中…」で
+export function ReceiptImageInputs({
+  onFileChange,
+}: {
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <>
+      <label
+        htmlFor="receipt-camera"
+        className={`${primaryButtonClass} block cursor-pointer`}
+      >
+        撮影する
+      </label>
+      <input
+        id="receipt-camera"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={onFileChange}
+        className="sr-only"
+      />
+      <label
+        htmlFor="receipt-album"
+        className={`${buttonClass} block cursor-pointer`}
+      >
+        アルバムから選ぶ
+      </label>
+      <input
+        id="receipt-album"
+        type="file"
+        accept="image/*"
+        onChange={onFileChange}
+        className="sr-only"
+      />
+    </>
+  );
+}
+
+// アップロードの打ち切り時間。応答が返らないままだと画面が「アップロードしています」のまま
 // 固まり、撮り直しにも戻れなくなるため、失敗として再試行の導線に載せる。
 // 圧縮後の画像は数百KBなので、モバイル回線でも60秒あれば十分。
 const UPLOAD_TIMEOUT_MS = 60_000;
@@ -80,6 +174,20 @@ function toEditorItems(
       ? {}
       : { shares: [...sharesByItem[index]] }),
   }));
+}
+
+type ReceiptDraft = {
+  value: ExpenseFormValue;
+  shareOrigins?: readonly InitialShareOrigin[];
+};
+
+function shareOriginsFromMatched(
+  matchedHistory: readonly boolean[] | undefined,
+): readonly InitialShareOrigin[] | undefined {
+  if (matchedHistory === undefined) {
+    return undefined;
+  }
+  return matchedHistory.map((matched) => originFromMatched(matched));
 }
 
 function toSaveItems(items: ExpenseItemInput[]) {
@@ -110,7 +218,7 @@ export default function ReceiptExpenseClient() {
   const convex = useConvex();
 
   const [phase, setPhase] = useState<Phase>("select");
-  const [progress, setProgress] = useState("");
+  const [workingStep, setWorkingStep] = useState<WorkingStep>("compress");
   const [error, setError] = useState<string | null>(null);
   // 失敗した工程に応じて出すボタンを変える
   const [failedStep, setFailedStep] = useState<FailedStep | null>(null);
@@ -121,10 +229,8 @@ export default function ReceiptExpenseClient() {
   const [file, setFile] = useState<File | null>(null);
   const [storageId, setStorageId] = useState<Id<"_storage"> | null>(null);
   const [expenseId, setExpenseId] = useState<Id<"expenses"> | null>(null);
-  const [initialValue, setInitialValue] = useState<ExpenseFormValue | null>(
-    null,
-  );
-  // ExpenseEditor は initialValue をマウント時にしか読まないので、
+  const [draft, setDraft] = useState<ReceiptDraft | null>(null);
+  // ExpenseEditor は初期値をマウント時にしか読まないので、
   // 読み取りをやり直したら別インスタンスとして作り直す
   const [editorKey, setEditorKey] = useState(0);
 
@@ -136,9 +242,9 @@ export default function ReceiptExpenseClient() {
   }, [isAuthenticated, member, router]);
 
   async function upload(target: File): Promise<Id<"_storage">> {
-    setProgress("画像を準備しています…");
+    setWorkingStep("compress");
     const blob = await compressReceiptImage(target);
-    setProgress("アップロードしています…");
+    setWorkingStep("upload");
     const uploadUrl = await generateUploadUrl();
     let response: Response;
     try {
@@ -173,15 +279,17 @@ export default function ReceiptExpenseClient() {
     setPhase("select");
   }
 
-  async function suggestSharesOrNull(
-    itemNames: string[],
-  ): Promise<ShareRatio[][] | undefined> {
+  async function suggestSharesOrNull(itemNames: string[]): Promise<
+    | {
+        sharesByItem: ShareRatio[][];
+        matchedHistory: boolean[];
+      }
+    | undefined
+  > {
     try {
-      const suggested = await convex.query(
-        api.expenses.suggestReceiptItemShares,
-        { itemNames },
-      );
-      return suggested.sharesByItem;
+      return await convex.query(api.expenses.suggestReceiptItemShares, {
+        itemNames,
+      });
     } catch {
       return undefined;
     }
@@ -193,17 +301,18 @@ export default function ReceiptExpenseClient() {
     self: { _id: string },
     partnerId: string | null,
   ) {
-    setProgress("レシートを読み取っています…");
+    setWorkingStep("parse");
     const parsed = await parseReceipt({ storageId: uploaded });
-    const sharesByItem = await suggestSharesOrNull(
+    const suggested = await suggestSharesOrNull(
       parsed.items.map((item) => item.name),
     );
     const items = toEditorItems(
       parsed.items,
       self._id,
       partnerId,
-      sharesByItem,
+      suggested?.sharesByItem,
     );
+    const shareOrigins = shareOriginsFromMatched(suggested?.matchedHistory);
     const value: ExpenseFormValue = {
       paidBy: self._id,
       storeName: parsed.storeName ?? "",
@@ -213,7 +322,7 @@ export default function ReceiptExpenseClient() {
       items,
     };
 
-    setProgress("下書きを保存しています…");
+    setWorkingStep("draft");
     // 確定前に離脱しても入力が消えないよう、まずドラフトとして保存する
     const savedId = await saveExpense({
       expenseId: expenseId ?? undefined,
@@ -227,7 +336,7 @@ export default function ReceiptExpenseClient() {
     });
 
     setExpenseId(savedId);
-    setInitialValue(value);
+    setDraft({ value, shareOrigins });
     setEditorKey((key) => key + 1);
     // 税別レシートなどで品目合計と合計金額がずれた場合、差額は各品目へ
     // 金額比で配分してある(lib/receipt.ts の distributeDifference)。
@@ -347,12 +456,14 @@ export default function ReceiptExpenseClient() {
       text: "読み取り結果なしで開いています。品目を入力してください",
       tone: "warn",
     });
-    setInitialValue({
-      paidBy: household.self._id,
-      storeName: "",
-      purchasedAt: todayLocalDate(),
-      category: "uncategorized",
-      items: [createInitialItem(household.self._id, partnerId)],
+    setDraft({
+      value: {
+        paidBy: household.self._id,
+        storeName: "",
+        purchasedAt: todayLocalDate(),
+        category: "uncategorized",
+        items: [createInitialItem(household.self._id, partnerId)],
+      },
     });
     setEditorKey((key) => key + 1);
     setPhase("editing");
@@ -398,20 +509,7 @@ export default function ReceiptExpenseClient() {
 
       {phase === "select" && (
         <div className="space-y-4">
-          <label
-            htmlFor="receipt-image"
-            className={`${primaryButtonClass} block cursor-pointer`}
-          >
-            レシートを撮影・選択
-          </label>
-          <input
-            id="receipt-image"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileChange}
-            className="sr-only"
-          />
+          <ReceiptImageInputs onFileChange={handleFileChange} />
 
           {error !== null && (
             <div className="space-y-3 rounded-xl border border-danger p-3">
@@ -428,7 +526,7 @@ export default function ReceiptExpenseClient() {
                 </button>
               )}
               {/* レシート以外・不鮮明のときは再読み取りを出さない。
-                  撮り直しは上の「レシートを撮影・選択」がそのまま導線になる */}
+                  撮り直しは上の「撮影する」「アルバムから選ぶ」が導線になる */}
               {failedStep === "parse" && storageId !== null && (
                 <button
                   type="button"
@@ -460,9 +558,8 @@ export default function ReceiptExpenseClient() {
       )}
 
       {phase === "working" && (
-        <div className="space-y-3" aria-live="polite">
-          <p className="text-sm text-muted">{progress}</p>
-          {/* 読み取りは通常15秒以内。待ち時間をスケルトンで示す */}
+        <div className="space-y-3">
+          <ReceiptWorkingSteps step={workingStep} />
           <div className="space-y-2">
             {[0, 1, 2].map((row) => (
               <div
@@ -474,7 +571,7 @@ export default function ReceiptExpenseClient() {
         </div>
       )}
 
-      {phase === "editing" && initialValue !== null && (
+      {phase === "editing" && draft !== null && (
         <>
           {notice !== null && (
             <p
@@ -487,7 +584,8 @@ export default function ReceiptExpenseClient() {
             key={editorKey}
             self={household.self}
             partner={household.partner}
-            initialValue={initialValue}
+            initialValue={draft.value}
+            initialShareOrigins={draft.shareOrigins}
             submitLabel="この支出を確定する"
             submittingLabel="確定中…"
             onSubmit={handleSubmit}

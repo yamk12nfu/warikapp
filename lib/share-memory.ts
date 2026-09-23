@@ -18,16 +18,18 @@ export function suggestReceiptItemSharesFromHistory(input: {
   itemNames: readonly string[];
   history: readonly ShareMemoryExpense[];
   household: ShareMemoryHousehold;
-}): { sharesByItem: ShareRatio[][] } {
+}): { sharesByItem: ShareRatio[][]; matchedHistory: boolean[] } {
   const remembered = collapseShareMemory(input.history, input.household);
   const fallback = defaultShares(input.household);
-  return {
-    sharesByItem: input.itemNames.map((name) => {
-      const key = toReceiptItemMatchKey(name);
-      const hit = key === "" ? undefined : remembered.get(key);
-      return copyShares(hit ?? fallback);
-    }),
-  };
+  const sharesByItem: ShareRatio[][] = [];
+  const matchedHistory: boolean[] = [];
+  for (const name of input.itemNames) {
+    const key = toReceiptItemMatchKey(name);
+    const hit = key === "" ? undefined : remembered.get(key);
+    sharesByItem.push(copyShares(hit ?? fallback));
+    matchedHistory.push(hit !== undefined);
+  }
+  return { sharesByItem, matchedHistory };
 }
 
 function collapseShareMemory(

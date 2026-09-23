@@ -1276,6 +1276,7 @@ describe("expenses.suggestReceiptItemShares", () => {
       ],
       split(members),
     ]);
+    expect(result.matchedHistory).toEqual([true, false]);
   });
 
   test("返却配列の長さは入力の品目数と一致する", async () => {
@@ -1291,6 +1292,7 @@ describe("expenses.suggestReceiptItemShares", () => {
     expect(result.sharesByItem.every((shares) => shares.length === 2)).toBe(
       true,
     );
+    expect(result.matchedHistory).toEqual([false, false, false]);
   });
 
   test("ドラフトは使わず確定済みだけを見る", async () => {
@@ -1332,6 +1334,7 @@ describe("expenses.suggestReceiptItemShares", () => {
     );
 
     expect(result.sharesByItem).toEqual([split(members)]);
+    expect(result.matchedHistory).toEqual([true]);
   });
 
   test("他世帯の履歴は見えない", async () => {
@@ -1358,6 +1361,7 @@ describe("expenses.suggestReceiptItemShares", () => {
     );
 
     expect(result.sharesByItem).toEqual([split(members)]);
+    expect(result.matchedHistory).toEqual([false]);
   });
 
   test("未ログイン・世帯未所属では読めない", async () => {

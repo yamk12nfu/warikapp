@@ -134,6 +134,7 @@ export default function ShareRatioPicker({
   partner,
   shares,
   custom,
+  suggested = false,
   onSharesChange,
   onCustomChange,
 }: {
@@ -141,11 +142,13 @@ export default function ShareRatioPicker({
   partner: Member | null;
   shares: ShareRatio[];
   custom: boolean;
+  suggested?: boolean;
   onSharesChange: (shares: ShareRatio[]) => void;
   onCustomChange: (custom: boolean) => void;
 }) {
   const partnerId = partner?._id ?? null;
   const preset = presetOf(shares, self._id, partnerId);
+  const presetLabel = PRESET_LABEL[preset];
 
   function cyclePreset() {
     if (partnerId === null) {
@@ -160,24 +163,31 @@ export default function ShareRatioPicker({
       <button
         type="button"
         onClick={cyclePreset}
-        aria-label={`負担区分: ${PRESET_LABEL[preset]}`}
-        className={`rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap ${PRESET_CHIP_CLASS[preset]}`}
+        aria-label={
+          suggested
+            ? `負担区分: ${presetLabel}（前回）`
+            : `負担区分: ${presetLabel}`
+        }
+        className={`relative min-h-11 min-w-[4.5rem] rounded-full border border-edge px-4 text-base font-bold whitespace-nowrap ${PRESET_CHIP_CLASS[preset]}`}
         style={PRESET_CHIP_STYLE[preset]}
       >
-        {PRESET_LABEL[preset]}
+        {presetLabel}
+        {suggested ? (
+          <span className="pointer-events-none absolute -top-2 right-0 rounded-full bg-surface px-1 text-[10px] leading-none font-medium text-muted">
+            前回
+          </span>
+        ) : null}
       </button>
       {partner !== null && (
-        <>
-          <button
-            type="button"
-            onClick={() => onCustomChange(!custom)}
-            aria-label="カスタム割合を入力"
-            aria-pressed={custom}
-            className="rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap"
-          >
-            %
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => onCustomChange(!custom)}
+          aria-label="カスタム割合を入力"
+          aria-pressed={custom}
+          className="min-h-11 rounded-full border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted"
+        >
+          %
+        </button>
       )}
     </>
   );
