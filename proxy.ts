@@ -113,6 +113,7 @@ export const config = {
     // 動的セグメントを持つルートは明示指定し、拡張子風のURL
     // (例: /expenses/foo.css)も必ずclerkMiddlewareを通す
     "/expenses/:path*",
+    "/fixed-costs/:path*",
     "/(api|trpc)(.*)",
   ],
 };

@@ -191,6 +191,15 @@ export default function ExpenseDetailClient({
               精算済み
             </span>
           )}
+          {expense.fixedCost !== undefined && (
+            <Link
+              href={`/fixed-costs/${expense.fixedCost.id}`}
+              aria-label={`固定費の${Number(expense.fixedCost.month.slice(5, 7))}月分の詳細`}
+              className={`${badgeClass} bg-me-soft text-me-strong underline underline-offset-2`}
+            >
+              固定費・{Number(expense.fixedCost.month.slice(5, 7))}月分
+            </Link>
+          )}
           <span className="text-sm text-muted">
             {formatDateLabel(expense.purchasedAt)}
           </span>

@@ -125,6 +125,11 @@ export default function ExpenseEditClient({
             確定するとホームの未精算差額に反映されます。
           </p>
         )}
+        {expense.fixedCost !== undefined && (
+          <p className="mt-1 text-sm text-muted">
+            固定費の {Number(expense.fixedCost.month.slice(5, 7))}月分です。ここでの変更はこの月だけに反映されます。
+          </p>
+        )}
       </div>
 
       <ExpenseEditor

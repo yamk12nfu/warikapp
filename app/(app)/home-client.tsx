@@ -266,6 +266,13 @@ export default function HomeClient() {
                           精算済み
                         </span>
                       )}
+                      {expense.fixedCost !== undefined && (
+                        <span
+                          className={`${badgeClass} bg-me-soft text-me-strong`}
+                        >
+                          固定費
+                        </span>
+                      )}
                     </span>
                     <span className="block text-xs text-muted">
                       {rowMeta(expense)}
