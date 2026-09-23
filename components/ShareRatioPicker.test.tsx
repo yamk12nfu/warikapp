@@ -9,7 +9,7 @@ import type { ShareRatio } from "@/lib/types";
 const self = { _id: "self", displayName: "あなた" };
 const partner = { _id: "partner", displayName: "パートナー" };
 
-function renderPicker(shares: ShareRatio[], custom = false) {
+function renderPicker(shares: ShareRatio[], custom = false, suggested = false) {
   return renderToStaticMarkup(
     <>
       <ShareRatioPicker
@@ -17,6 +17,7 @@ function renderPicker(shares: ShareRatio[], custom = false) {
         partner={partner}
         shares={shares}
         custom={custom}
+        suggested={suggested}
         onSharesChange={() => {}}
         onCustomChange={() => {}}
       />
@@ -71,29 +72,20 @@ test("負担区分チップは折半・自分・相手の順に循環する", ()
   expect(nextPresetShares(partnerOnly, self._id, partner._id)).toEqual(split);
 });
 
-test("品目行では割合がチップの左にあり、前回の印を読み上げる", () => {
-  const html = renderToStaticMarkup(
-    <ShareRatioPicker
-      self={self}
-      partner={partner}
-      shares={[
-        { memberId: self._id, ratioPercent: 50 },
-        { memberId: partner._id, ratioPercent: 50 },
-      ]}
-      custom={false}
-      density="thumb"
-      percentWeight="quiet"
-      suggested
-      onSharesChange={() => {}}
-      onCustomChange={() => {}}
-    />,
+test("前回の提案は印と読み上げを付ける", () => {
+  const html = renderPicker(
+    [
+      { memberId: self._id, ratioPercent: 50 },
+      { memberId: partner._id, ratioPercent: 50 },
+    ],
+    false,
+    true,
   );
 
   expect(html).toContain('aria-label="負担区分: 折半（前回）"');
   expect(html).toContain(">前回<");
-  expect(html).toContain("text-muted");
   expect(html).toContain("min-h-11");
-  expect(html.indexOf('aria-label="カスタム割合を入力"')).toBeLessThan(
-    html.indexOf('aria-label="負担区分: 折半（前回）"'),
+  expect(html.indexOf('aria-label="負担区分: 折半（前回）"')).toBeLessThan(
+    html.indexOf('aria-label="カスタム割合を入力"'),
   );
 });

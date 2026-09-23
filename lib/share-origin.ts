@@ -10,13 +10,8 @@ export function showsHistoryBadge(origin: ShareOrigin): boolean {
   return origin === "history";
 }
 
-export function originAfterShareEdit(origin: ShareOrigin): "user" {
-  switch (origin) {
-    case "history":
-    case "default":
-    case "user":
-      return "user";
-  }
+export function originAfterShareEdit(_origin: ShareOrigin): "user" {
+  return "user";
 }
 
 export function originAfterNameEdit(origin: ShareOrigin): ShareOrigin {

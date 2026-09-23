@@ -431,8 +431,6 @@ export default function ExpenseEditor({
                   partner={partner}
                   shares={row.shares}
                   custom={row.custom}
-                  density="thumb"
-                  percentWeight="quiet"
                   suggested={showsHistoryBadge(row.shareOrigin)}
                   onSharesChange={(shares) =>
                     updateRow(row.key, {
