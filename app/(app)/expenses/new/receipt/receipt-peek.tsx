@@ -9,6 +9,7 @@ import {
 } from "@/lib/receipt-zoom";
 import {
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -28,20 +29,6 @@ const stripChromeClass =
 export default function ReceiptPeek({ image }: ReceiptPeekProps) {
   const src = useObjectUrl(image);
   const [open, setOpen] = useState(false);
-  if (src === null) {
-    return (
-      <div
-        aria-busy="true"
-        aria-label="レシート画像を読み込み中"
-        className={stripChromeClass}
-      >
-        <div className="h-14 w-11 rounded-lg border border-line bg-line" />
-        <span className="flex-1 text-left text-sm font-bold text-muted">
-          レシートを確認
-        </span>
-      </div>
-    );
-  }
   return (
     <>
       <ReceiptPeekStrip src={src} onOpen={() => setOpen(true)} />
@@ -270,15 +257,14 @@ function ReceiptLightbox({
   );
 }
 
-function useObjectUrl(blob: Blob): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+// object URL は描画に必要な派生値なので useMemo で作る。
+// effect 内で setState すると react-hooks/set-state-in-effect に落ちる。
+function useObjectUrl(blob: Blob): string {
+  const url = useMemo(() => URL.createObjectURL(blob), [blob]);
   useEffect(() => {
-    const next = URL.createObjectURL(blob);
-    setUrl(next);
     return () => {
-      URL.revokeObjectURL(next);
-      setUrl(null);
+      URL.revokeObjectURL(url);
     };
-  }, [blob]);
+  }, [url]);
   return url;
 }
