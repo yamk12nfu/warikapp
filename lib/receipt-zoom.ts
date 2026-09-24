@@ -31,7 +31,6 @@ export type ViewerEvent =
   | { readonly kind: "reset" };
 
 export const MIN_SCALE = 1;
-// 長辺 2,000px の保存画像は、390pt 幅で 2〜3 倍を超えると情報が増えない
 export const MAX_SCALE = 4;
 export const DOUBLE_TAP_SCALE = 2.5;
 

@@ -9,7 +9,6 @@ import {
 } from "@/lib/receipt-zoom";
 import {
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -257,10 +256,17 @@ function ReceiptLightbox({
   );
 }
 
-// object URL は描画に必要な派生値なので useMemo で作る。
-// effect 内で setState すると react-hooks/set-state-in-effect に落ちる。
 function useObjectUrl(blob: Blob): string {
-  const url = useMemo(() => URL.createObjectURL(blob), [blob]);
+  const [held, setHeld] = useState(() => ({
+    blob,
+    url: URL.createObjectURL(blob),
+  }));
+  let url = held.url;
+  if (held.blob !== blob) {
+    URL.revokeObjectURL(held.url);
+    url = URL.createObjectURL(blob);
+    setHeld({ blob, url });
+  }
   useEffect(() => {
     return () => {
       URL.revokeObjectURL(url);
