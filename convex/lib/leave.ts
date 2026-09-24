@@ -9,14 +9,11 @@ export const LEAVE_BLOCKER_MESSAGE: Record<
 };
 
 export function getLeaveBlocker(input: {
-  expenses: ReadonlyArray<{ status: "draft" | "confirmed" }>;
-  truncated: boolean;
+  hasDraft: boolean;
+  hasUnsettled: boolean;
 }): LeaveBlocker {
-  if (input.expenses.some((expense) => expense.status === "draft")) {
+  if (input.hasDraft) {
     return "draft";
   }
-  if (input.truncated || input.expenses.length > 0) {
-    return "unsettled";
-  }
-  return null;
+  return input.hasUnsettled ? "unsettled" : null;
 }
