@@ -28,6 +28,7 @@ import { ConvexError } from "convex/values";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useState } from "react";
+import ReceiptPeek from "./receipt-peek";
 
 // レシート登録(S-004 / F-003)。
 // 撮影またはアルバム選択 → クライアントで縮小圧縮 → アップロード → AI読み取り →
@@ -228,6 +229,7 @@ export default function ReceiptExpenseClient() {
   // 再試行のために、選んだ画像とアップロード済みの storageId を保持する
   const [file, setFile] = useState<File | null>(null);
   const [storageId, setStorageId] = useState<Id<"_storage"> | null>(null);
+  const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [expenseId, setExpenseId] = useState<Id<"expenses"> | null>(null);
   const [draft, setDraft] = useState<ReceiptDraft | null>(null);
   // ExpenseEditor は初期値をマウント時にしか読まないので、
@@ -244,6 +246,7 @@ export default function ReceiptExpenseClient() {
   async function upload(target: File): Promise<Id<"_storage">> {
     setWorkingStep("compress");
     const blob = await compressReceiptImage(target);
+    setImageBlob(blob);
     setWorkingStep("upload");
     const uploadUrl = await generateUploadUrl();
     let response: Response;
@@ -421,6 +424,7 @@ export default function ReceiptExpenseClient() {
     }
     setFile(selected);
     setStorageId(null);
+    setImageBlob(null);
     void start(selected, null);
   }
 
@@ -580,6 +584,7 @@ export default function ReceiptExpenseClient() {
               {notice.text}
             </p>
           )}
+          {imageBlob !== null && <ReceiptPeek image={imageBlob} />}
           <ExpenseEditor
             key={editorKey}
             self={household.self}
