@@ -13,6 +13,8 @@ const expiresAtFormatter = new Intl.DateTimeFormat("ja-JP", {
 const neverChanges = () => () => {};
 const getOrigin = () => window.location.origin;
 const getServerOrigin = () => "";
+const canShare = () => typeof navigator.share === "function";
+const cannotShareOnServer = () => false;
 
 export default function InviteCodeCard({
   code,
@@ -22,9 +24,14 @@ export default function InviteCodeCard({
   expiresAt: number;
 }) {
   const origin = useSyncExternalStore(neverChanges, getOrigin, getServerOrigin);
+  const supportsSharing = useSyncExternalStore(
+    neverChanges,
+    canShare,
+    cannotShareOnServer,
+  );
   const [isExpired, setIsExpired] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [copyError, setCopyError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // 期限切れの判定。表示中に期限を迎えたらそのタイミングで切り替わる
   useEffect(() => {
@@ -46,12 +53,28 @@ export default function InviteCodeCard({
   const inviteUrl = origin === "" ? "" : `${origin}/setup?code=${code}`;
 
   async function copy(label: string, text: string) {
-    setCopyError(null);
+    setActionError(null);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(label);
     } catch {
-      setCopyError("コピーできませんでした。手動で選択してコピーしてください");
+      setActionError("コピーできませんでした。手動で選択してコピーしてください");
+    }
+  }
+
+  async function shareInvite() {
+    setActionError(null);
+    try {
+      await navigator.share({
+        title: "warikapp への招待",
+        text: `warikapp で一緒に割り勘を始めましょう。招待コード: ${code}`,
+        url: inviteUrl,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      setActionError("共有できませんでした。招待URLをコピーして送ってください");
     }
   }
 
@@ -71,6 +94,15 @@ export default function InviteCodeCard({
       </p>
 
       <div className="flex flex-wrap gap-2">
+        {supportsSharing && inviteUrl !== "" && (
+          <button
+            type="button"
+            onClick={shareInvite}
+            className="rounded-full bg-me px-3 py-2 text-sm font-medium text-on-accent"
+          >
+            共有する
+          </button>
+        )}
         <button
           type="button"
           onClick={() => copy("code", code)}
@@ -91,8 +123,8 @@ export default function InviteCodeCard({
       {inviteUrl !== "" && (
         <p className="text-xs break-all text-muted">{inviteUrl}</p>
       )}
-      {copyError !== null && (
-        <p className="text-xs text-danger">{copyError}</p>
+      {actionError !== null && (
+        <p className="text-xs text-danger">{actionError}</p>
       )}
     </div>
   );
