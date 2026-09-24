@@ -48,7 +48,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
       >
         {toast !== null && (
-          <div className="rounded-full bg-surface px-4 py-3 text-sm font-bold text-foreground shadow-card">
+          <div className="rounded-full bg-foreground px-4 py-3 text-sm font-bold text-background shadow-card">
             {toast.message}
           </div>
         )}
