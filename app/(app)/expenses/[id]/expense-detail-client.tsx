@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import { useToast } from "@/components/Toast";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   CATEGORIES,
@@ -34,6 +35,7 @@ export default function ExpenseDetailClient({
   expenseId: string;
 }) {
   const router = useRouter();
+  const { show } = useToast();
   // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
   const member = useQuery(
@@ -111,6 +113,7 @@ export default function ExpenseDetailClient({
     setRemoving(true);
     try {
       await removeExpense({ expenseId: expense._id as Id<"expenses"> });
+      show("支出を削除しました");
       router.replace("/");
       // 成功時は removing を解除しない(遷移の完了前に再送信できてしまうため)
     } catch (caught) {

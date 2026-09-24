@@ -3,6 +3,7 @@
 import ExpenseEditor, {
   type ExpenseFormValue,
 } from "@/components/ExpenseEditor";
+import { useToast } from "@/components/Toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toStoredCategory } from "@/lib/category";
@@ -25,6 +26,7 @@ export default function ExpenseEditClient({
   expenseId: string;
 }) {
   const router = useRouter();
+  const { show } = useToast();
   // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
   const member = useQuery(
@@ -65,6 +67,7 @@ export default function ExpenseEditClient({
       status: "confirmed",
       category: toStoredCategory(value.category) ?? null,
     });
+    show("変更を保存しました");
     router.replace(`/expenses/${expense._id}`);
   }
 
