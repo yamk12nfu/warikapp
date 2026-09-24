@@ -73,12 +73,13 @@ describe("reduceViewer", () => {
     expect(twoDown.transform).toEqual(IDENTITY_TRANSFORM);
   });
 
-  test("0本指の pointer-move では transform が変わらない", () => {
+  test("0本指の pointer-move では transform も pointers も変わらない", () => {
     const moved = framed([
       { kind: "pointer-move", pointer: { id: 1, at: { x: 40, y: 10 } } },
     ]);
 
     expect(moved.transform).toEqual(IDENTITY_TRANSFORM);
+    expect(moved.pointers).toEqual([]);
   });
 
   test("3本指の pointer-move では transform が変わらない", () => {

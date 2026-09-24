@@ -160,10 +160,15 @@ export function reduceViewer(
         state.pointers.filter((pointer) => pointer.id !== event.pointerId),
       );
     case "pointer-move": {
+      const previous = state.pointers.find(
+        (pointer) => pointer.id === event.pointer.id,
+      );
+      if (previous === undefined) {
+        return state;
+      }
       const before = pinchOf(state.pointers);
       const pointers = replacePointer(state.pointers, event.pointer);
-      const previous = state.pointers.find((pointer) => pointer.id === event.pointer.id);
-      if (state.pointers.length === 1 && previous !== undefined) {
+      if (state.pointers.length === 1) {
         return withClampedTransform(
           state,
           {

@@ -16,7 +16,7 @@ import {
 } from "react";
 
 export type ReceiptPeekProps = {
-  readonly image: Blob;
+  readonly src: string;
 };
 
 const TOOLBAR_ZOOM_FACTOR = 1.25;
@@ -25,8 +25,7 @@ const WHEEL_ZOOM_GAIN = 0.01;
 const stripChromeClass =
   "flex w-full items-center gap-3 rounded-2xl border border-line bg-surface p-2 shadow-card";
 
-export default function ReceiptPeek({ image }: ReceiptPeekProps) {
-  const src = useObjectUrl(image);
+export default function ReceiptPeek({ src }: ReceiptPeekProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -97,17 +96,16 @@ function ReceiptLightbox({
       return;
     }
     const rect = stage.getBoundingClientRect();
-    const fit = Math.min(
-      rect.width / img.naturalWidth,
-      rect.height / img.naturalHeight,
-    );
+    if (img.offsetWidth === 0 || img.offsetHeight === 0) {
+      return;
+    }
     dispatch({
       kind: "reframe",
       frame: {
         viewportWidth: rect.width,
         viewportHeight: rect.height,
-        contentWidth: img.naturalWidth * fit,
-        contentHeight: img.naturalHeight * fit,
+        contentWidth: img.offsetWidth,
+        contentHeight: img.offsetHeight,
       },
     });
   }
@@ -254,23 +252,4 @@ function ReceiptLightbox({
       </div>
     </dialog>
   );
-}
-
-function useObjectUrl(blob: Blob): string {
-  const [held, setHeld] = useState(() => ({
-    blob,
-    url: URL.createObjectURL(blob),
-  }));
-  let url = held.url;
-  if (held.blob !== blob) {
-    URL.revokeObjectURL(held.url);
-    url = URL.createObjectURL(blob);
-    setHeld({ blob, url });
-  }
-  useEffect(() => {
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [url]);
-  return url;
 }
