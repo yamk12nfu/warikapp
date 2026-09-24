@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { ExpenseItemInput } from "./types";
 
 // 支出金額と立て替え額の計算。純粋関数として置き、仕分けUIの表示・
@@ -49,8 +50,9 @@ export function calcItemAdvance<TMemberId extends string>(
     (share) => share.memberId !== paidBy && share.ratioPercent > 0,
   );
   if (others.length > 1) {
-    throw new Error(
-      "calcItemAdvance: more than one other member with a positive share",
+    // 保存時の検証では作れない行(直接書き込み等)。本番で文言が伏せられないよう ConvexError にする
+    throw new ConvexError(
+      "負担区分を読み取れない支出があります。支出の負担区分を確認してください",
     );
   }
   const other = others[0];
