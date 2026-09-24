@@ -3,6 +3,12 @@
 import { api } from "@/convex/_generated/api";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import {
+  FILTER_EMPTY_STATE,
+  FILTER_LABEL,
+  parseFilter,
+  type Filter,
+} from "@/lib/home-filter";
+import {
   amountClass,
   badgeClass,
   cardClass,
@@ -14,8 +20,8 @@ import {
 } from "@/lib/ui";
 import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 // ホーム(S-003 / F-006)。未精算差額の枠・支出一覧・登録ボタンを置く。
 // 一覧は usePaginatedQuery で20件ずつ読む。queryは自動でリアルタイム更新されるため、
@@ -23,15 +29,10 @@ import { useEffect, useState } from "react";
 
 const PAGE_SIZE = 20;
 
-type Filter = "unsettled" | "all";
-
-const FILTER_LABEL: Record<Filter, string> = {
-  unsettled: "未精算のみ",
-  all: "すべて",
-};
-
 export default function HomeClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const filter = parseFilter(searchParams.get("filter"));
   // Convex側のJWT検証が完了するまでqueryを実行しない(実行すると認証確立前の
   // nullを「世帯未所属」と誤解し、所属済みユーザーを/setupへ誤誘導してしまう)
   const { isLoading, isAuthenticated } = useConvexAuth();
@@ -45,7 +46,6 @@ export default function HomeClient() {
     api.settlements.currentBalance,
     member ? {} : "skip",
   );
-  const [filter, setFilter] = useState<Filter>("unsettled");
   const expenses = usePaginatedQuery(
     api.expenses.list,
     member ? { filter } : "skip",
@@ -58,6 +58,17 @@ export default function HomeClient() {
       router.replace("/setup");
     }
   }, [isAuthenticated, member, router]);
+
+  function setFilter(nextFilter: Filter) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextFilter === "unsettled") {
+      params.delete("filter");
+    } else {
+      params.set("filter", nextFilter);
+    }
+    const query = params.toString();
+    router.replace(query === "" ? "/" : `/?${query}`, { scroll: false });
+  }
 
   if (isLoading) {
     return <main className="p-8 text-muted">読み込み中…</main>;
@@ -213,7 +224,7 @@ export default function HomeClient() {
             role="group"
             aria-label="表示する支出"
           >
-            {(["unsettled", "all"] as const).map((value) => (
+            {(["unsettled", "draft", "all"] as const).map((value) => (
               <button
                 key={value}
                 type="button"
@@ -235,9 +246,7 @@ export default function HomeClient() {
           <p className="text-sm text-muted">読み込み中…</p>
         ) : expenses.results.length === 0 ? (
           <p className="text-sm text-muted">
-            {filter === "unsettled"
-              ? "未精算の支出はまだありません"
-              : "支出はまだありません"}
+            {FILTER_EMPTY_STATE[filter]}
           </p>
         ) : (
           <ul className="space-y-2">

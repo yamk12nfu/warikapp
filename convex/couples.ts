@@ -269,11 +269,13 @@ async function findLeaveBlocker(
   const [draft, unsettled] = await Promise.all([
     ctx.db
       .query("expenses")
-      .withIndex("by_coupleId_and_status_and_deletedAt", (q) =>
-        q
-          .eq("coupleId", member.coupleId)
-          .eq("status", "draft")
-          .eq("deletedAt", undefined),
+      .withIndex(
+        "by_coupleId_and_status_and_deletedAt_and_purchasedAt",
+        (q) =>
+          q
+            .eq("coupleId", member.coupleId)
+            .eq("status", "draft")
+            .eq("deletedAt", undefined),
       )
       .first(),
     ctx.db

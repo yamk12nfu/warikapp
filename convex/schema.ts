@@ -111,11 +111,12 @@ export default defineSchema({
       "deletedAt",
       "purchasedAt",
     ])
-    // 退出ブロッカー(下書きが1件でも残っているか)を1行の読み取りで判定する
-    .index("by_coupleId_and_status_and_deletedAt", [
+    // 退出ブロッカー(下書きが1件でも残っているか)の1行判定と、ホームの「未確定のみ」一覧用
+    .index("by_coupleId_and_status_and_deletedAt_and_purchasedAt", [
       "coupleId",
       "status",
       "deletedAt",
+      "purchasedAt",
     ])
     // 固定費テンプレート×対象月で1行を引く。deletedAt は含めない:
     // 削除した月を再計上しないよう、論理削除済みの行も「計上済みの印」として使う

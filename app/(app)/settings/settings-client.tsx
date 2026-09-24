@@ -5,12 +5,14 @@ import DangerActionConfirm from "@/components/DangerActionConfirm";
 import InviteCodeCard from "@/components/InviteCodeCard";
 import { LEAVE_BLOCKER_MESSAGE } from "@/convex/lib/leave";
 import { toUserMessage } from "@/lib/convex-error";
-import { inputClass } from "@/lib/ui";
+import { inputClass, linkClass } from "@/lib/ui";
 import { deleteAccount } from "./actions";
 import { SignOutButton, useClerk } from "@clerk/nextjs";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 const buttonClass =
   "rounded-full border border-edge bg-surface px-4 py-2 text-sm font-medium disabled:opacity-50";
@@ -116,6 +118,17 @@ export default function SettingsClient() {
   }
 
   const displayNameValue = draftName ?? household.self.displayName;
+  const blockerMessage: ReactNode =
+    household.leaveBlocker === "draft" ? (
+      <>
+        {LEAVE_BLOCKER_MESSAGE.draft}{" "}
+        <Link href="/?filter=draft" className={linkClass}>
+          未確定の支出を見る
+        </Link>
+      </>
+    ) : household.leaveBlocker === null ? null : (
+      LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
+    );
 
   return (
     <main className="mx-auto w-full max-w-md space-y-8 p-6">
@@ -216,11 +229,7 @@ export default function SettingsClient() {
           description="精算済みの支出と精算履歴はパートナーの世帯に残ります。退出後は新しい世帯を作るか、招待コードで参加できます。"
           confirmLabel="退出する"
           pendingLabel="退出中…"
-          blockerMessage={
-            household.leaveBlocker === null
-              ? null
-              : LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
-          }
+          blockerMessage={blockerMessage}
           error={leaveError}
           onConfirm={handleLeave}
         />
@@ -229,11 +238,7 @@ export default function SettingsClient() {
           description="世帯から退出したうえで、Googleアカウントとの連携を解除し、このアプリのアカウントを削除します。パートナーがいない場合は、レシート画像を含む世帯のデータもすべて削除されます。この操作は取り消せません。"
           confirmLabel="削除する"
           pendingLabel="削除中…"
-          blockerMessage={
-            household.leaveBlocker === null
-              ? null
-              : LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
-          }
+          blockerMessage={blockerMessage}
           error={deleteError}
           onConfirm={handleDelete}
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 const buttonClass =
   "rounded-full border border-edge bg-surface px-4 py-2 text-sm font-medium disabled:opacity-50";
@@ -18,7 +19,7 @@ export default function DangerActionConfirm({
   description: string;
   confirmLabel: string;
   pendingLabel: string;
-  blockerMessage: string | null;
+  blockerMessage: ReactNode;
   error: string | null;
   onConfirm: () => Promise<void>;
 }) {

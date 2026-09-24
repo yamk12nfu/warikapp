@@ -3,8 +3,9 @@
 import { api } from "@/convex/_generated/api";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
-import { inputClass } from "@/lib/ui";
+import { inputClass, linkClass } from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -127,7 +128,10 @@ export default function SettlementClient() {
       {hasDraft && (
         <p role="alert" className="text-sm text-warn-strong">
           未確定のレシートが{pending.draftCount}件あります。
-          確定または削除してから精算してください
+          確定または削除してから精算してください{" "}
+          <Link href="/?filter=draft" className={linkClass}>
+            未確定の支出を見る
+          </Link>
         </p>
       )}
 

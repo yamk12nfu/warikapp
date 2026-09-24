@@ -893,12 +893,73 @@ async function markSettled(
 }
 
 const listArgs = (
-  filter: "unsettled" | "all",
+  filter: "unsettled" | "draft" | "all",
   numItems = 20,
   cursor: string | null = null,
 ) => ({ paginationOpts: { numItems, cursor }, filter });
 
 describe("expenses.list", () => {
+  test("draftは自世帯の未削除下書きを購入日の降順で返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const olderDraftId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        storeName: "古い下書き",
+        purchasedAt: jstDate(-3),
+        status: "draft",
+      }),
+    );
+    const newerDraftId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        storeName: "新しい下書き",
+        purchasedAt: jstDate(),
+        status: "draft",
+      }),
+    );
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        storeName: "確定済み",
+        purchasedAt: jstDate(-1),
+      }),
+    );
+    const deletedDraftId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        storeName: "削除済み下書き",
+        purchasedAt: jstDate(-2),
+        status: "draft",
+      }),
+    );
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.remove, { expenseId: deletedDraftId });
+
+    const otherMembers = await setupCouple(t, CAROL, identity("dave"));
+    await t.withIdentity(CAROL).mutation(
+      api.expenses.save,
+      manualArgs(otherMembers, {
+        storeName: "他世帯の下書き",
+        purchasedAt: jstDate(),
+        status: "draft",
+      }),
+    );
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("draft"));
+    expect(result.page.map((row) => row._id)).toEqual([
+      newerDraftId,
+      olderDraftId,
+    ]);
+    expect(result.page.map((row) => row.title)).toEqual([
+      "新しい下書き",
+      "古い下書き",
+    ]);
+  });
+
   test("購入日の降順に返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
