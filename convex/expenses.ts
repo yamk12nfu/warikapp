@@ -286,47 +286,59 @@ function toListRow(
   };
 }
 
-// ホーム(S-003)の支出一覧。購入日の降順で20件ずつページングする。
-// フィルタでインデックスを使い分ける:
-//   "unsettled" = by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt
-//                 (未精算と未削除の両方をインデックス範囲で絞る)
-//   "all"       = by_coupleId_and_purchasedAt(論理削除の除外は .filter())
-// .filter() は両方に掛けたままにする("all" に必要で、"unsettled" では冗長なだけ)。
-// ページを取得したあとに配列から捨てると1ページの件数が削除済みのぶんだけ
-// 目減りするため、除外はページング前に適用する。
-// ドラフト(未確定)も含めて返し、行にバッジを出す(除外すると確定させる導線が
-// 画面から消えてしまう。差額計算からの除外は Phase 7 の精算側で行う)。
+// ホームの支出一覧。購入日の降順で20件ずつページングする。
+// 未精算・未確定はそれぞれの条件と論理削除をインデックス範囲で絞り、
+// 「すべて」だけはページング前に論理削除を除外する。
+// 未精算・すべてにも下書きを含めて返す(除外すると確定させる導線が画面から消える)。
 export const list = query({
   args: {
     paginationOpts: paginationOptsValidator,
-    filter: v.union(v.literal("unsettled"), v.literal("all")),
+    filter: v.union(
+      v.literal("unsettled"),
+      v.literal("draft"),
+      v.literal("all"),
+    ),
   },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
 
-    const scoped =
-      args.filter === "unsettled"
-        ? ctx.db
-            .query("expenses")
-            .withIndex(
-              "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
-              (q) =>
-                q
-                  .eq("coupleId", member.coupleId)
-                  .eq("settlementId", undefined)
-                  .eq("deletedAt", undefined),
-            )
-        : ctx.db
-            .query("expenses")
-            .withIndex("by_coupleId_and_purchasedAt", (q) =>
-              q.eq("coupleId", member.coupleId),
-            );
+    const queryByFilter = {
+      unsettled: () =>
+        ctx.db
+          .query("expenses")
+          .withIndex(
+            "by_coupleId_and_settlementId_and_deletedAt_and_purchasedAt",
+            (q) =>
+              q
+                .eq("coupleId", member.coupleId)
+                .eq("settlementId", undefined)
+                .eq("deletedAt", undefined),
+          )
+          .order("desc"),
+      draft: () =>
+        ctx.db
+          .query("expenses")
+          .withIndex(
+            "by_coupleId_and_status_and_deletedAt_and_purchasedAt",
+            (q) =>
+              q
+                .eq("coupleId", member.coupleId)
+                .eq("status", "draft")
+                .eq("deletedAt", undefined),
+          )
+          .order("desc"),
+      all: () =>
+        ctx.db
+          .query("expenses")
+          .withIndex("by_coupleId_and_purchasedAt", (q) =>
+            q.eq("coupleId", member.coupleId),
+          )
+          .order("desc")
+          .filter((q) => q.eq(q.field("deletedAt"), undefined)),
+    };
 
     const [result, members] = await Promise.all([
-      scoped
-        .order("desc")
-        .filter((q) => q.eq(q.field("deletedAt"), undefined))
-        .paginate(args.paginationOpts),
+      queryByFilter[args.filter]().paginate(args.paginationOpts),
       listAllMembers(ctx, member.coupleId),
     ]);
     const membersById = new Map(members.map((row) => [row._id, row]));
