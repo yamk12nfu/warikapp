@@ -10,16 +10,6 @@
 
 ## 0. 始める前に
 
-### 現在地
-
-| 項目 | 状態 |
-|---|---|
-| Convex 本番デプロイ | `accurate-capybara-527` が作成済み。**テーブル0件・環境変数0件**(まだ何も入っていない) |
-| Convex 開発デプロイ | `benevolent-koala-496`。`CLERK_JWT_ISSUER_DOMAIN` と `GEMINI_API_KEY` を登録済み |
-| Clerk | **本番インスタンス構築済み**(2026-07-31)。Primary domain `warikapp.yamk12nfu.com` = Verified / DNS = Verified / SSL = Issued。Google OAuth は自前の認証情報を登録済み。Issuer は `https://clerk.warikapp.yamk12nfu.com` |
-| Vercel | 未Import |
-| ドメイン | **`yamk12nfu.com` 取得済み**(Cloudflare Registrar)。アプリは `warikapp.yamk12nfu.com` を使う |
-
 ### ⚠️ 先に用意すること: 自分のドメイン
 
 **Clerkの本番インスタンスは、自分が所有するドメインが必須**。Clerkのダッシュボードが指示する
