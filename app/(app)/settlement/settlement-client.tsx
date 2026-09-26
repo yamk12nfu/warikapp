@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import { useToast } from "@/components/Toast";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { inputClass, linkClass } from "@/lib/ui";
@@ -16,6 +17,7 @@ const MAX_MEMO_LENGTH = 100;
 
 export default function SettlementClient() {
   const router = useRouter();
+  const { show } = useToast();
   // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
   const member = useQuery(
@@ -53,6 +55,7 @@ export default function SettlementClient() {
         expectedExpenseCount: pending.expenseCount,
       });
       // 記録できたことが分かるよう履歴へ送る。ホームの差額は0に戻る
+      show("精算を記録しました");
       router.replace("/settlements");
       // 成功時は submitting を解除しない(V-702: 遷移前の二重送信を防ぐ)
     } catch (caught) {

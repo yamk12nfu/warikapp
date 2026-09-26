@@ -1,4 +1,5 @@
 import AppHeader from "@/components/AppHeader";
+import { ToastProvider } from "@/components/Toast";
 import { requireSignedIn } from "@/lib/server-auth";
 import { ReactNode } from "react";
 
@@ -12,9 +13,9 @@ export default async function ProtectedLayout({
 }) {
   await requireSignedIn();
   return (
-    <>
+    <ToastProvider>
       <AppHeader />
       {children}
-    </>
+    </ToastProvider>
   );
 }
