@@ -232,7 +232,7 @@ describe("fixedCosts.save validation", () => {
     ).rejects.toThrow("権限がありません");
   });
 
-  test("変更・停止では不正IDと他世帯IDを同じ文言で拒否する", async () => {
+  test("変更・停止・再開・手動計上では不正IDと他世帯IDを同じ文言で拒否する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     const fixedCostId = await t
@@ -257,6 +257,24 @@ describe("fixedCosts.save validation", () => {
     ).rejects.toThrow("固定費が見つかりません");
     await expect(
       t.withIdentity(ALICE).mutation(api.fixedCosts.stop, {
+        fixedCostId: "bogus",
+      }),
+    ).rejects.toThrow("固定費が見つかりません");
+    await expect(
+      t.withIdentity(CAROL).mutation(api.fixedCosts.resume, { fixedCostId }),
+    ).rejects.toThrow("固定費が見つかりません");
+    await expect(
+      t.withIdentity(ALICE).mutation(api.fixedCosts.resume, {
+        fixedCostId: "bogus",
+      }),
+    ).rejects.toThrow("固定費が見つかりません");
+    await expect(
+      t.withIdentity(CAROL).mutation(api.fixedCosts.postThisMonth, {
+        fixedCostId,
+      }),
+    ).rejects.toThrow("固定費が見つかりません");
+    await expect(
+      t.withIdentity(ALICE).mutation(api.fixedCosts.postThisMonth, {
         fixedCostId: "bogus",
       }),
     ).rejects.toThrow("固定費が見つかりません");
@@ -507,6 +525,182 @@ describe("fixedCosts.save and posting", () => {
     expect(stopped!.stoppedReason).toBe("user");
     expect(rows).toHaveLength(1);
     expect(nextMonthRows).toHaveLength(0);
+  });
+
+  test("再開すると今月分を計上し、cronを繰り返しても二重計上しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await t.withIdentity(ALICE).mutation(api.fixedCosts.stop, { fixedCostId });
+
+    const result = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.resume, { fixedCostId });
+    await t.mutation(internal.fixedCosts.postCurrentMonth, {});
+    await t.mutation(internal.fixedCosts.postCurrentMonth, {});
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", fixedCostId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+    expect(result).toBe("posted");
+    expect(rows).toHaveLength(1);
+  });
+
+  test("再開は冪等で、2回目は active を返し active 一覧に戻る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await t.withIdentity(ALICE).mutation(api.fixedCosts.stop, { fixedCostId });
+
+    const firstResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.resume, { fixedCostId });
+    const secondResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.resume, { fixedCostId });
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", fixedCostId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+    const listed = await t
+      .withIdentity(ALICE)
+      .query(api.fixedCosts.list, { month });
+
+    expect(firstResult).toBe("posted");
+    expect(secondResult).toBe("active");
+    expect(rows).toHaveLength(1);
+    expect(listed.active.map((row) => row._id)).toContain(fixedCostId);
+    expect(listed.stopped.map((row) => row._id)).not.toContain(fixedCostId);
+  });
+
+  test("すでに計上した今月分は再開しても再計上しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await insertExpenseFor(t, coupleId, fixedCostId, members, month);
+    await t.withIdentity(ALICE).mutation(api.fixedCosts.stop, { fixedCostId });
+
+    const result = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.resume, { fixedCostId });
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", fixedCostId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+
+    expect(result).toBe("exists");
+    expect(rows).toHaveLength(1);
+  });
+
+  test("退出済みメンバーによる停止は再開できず停止日時を保つ", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await t.run(async (ctx) =>
+      ctx.db.patch("members", members.partner._id, { leftAt: Date.now() }),
+    );
+    await t.mutation(internal.fixedCosts.postCurrentMonth, {});
+    const firstStopped = await t.run(async (ctx) =>
+      ctx.db.get("fixedCosts", fixedCostId),
+    );
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.fixedCosts.resume, { fixedCostId }),
+    ).rejects.toThrow("パートナーが退出しているため再開できません");
+    const stillStopped = await t.run(async (ctx) =>
+      ctx.db.get("fixedCosts", fixedCostId),
+    );
+
+    expect(firstStopped!.stoppedReason).toBe("memberLeft");
+    expect(stillStopped!.stoppedAt).toBe(firstStopped!.stoppedAt);
+    expect(stillStopped!.stoppedReason).toBe("memberLeft");
+  });
+
+  test("今月分を手動計上し、削除済み月と停止中は再計上しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+
+    const firstResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.postThisMonth, { fixedCostId });
+    const secondResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.postThisMonth, { fixedCostId });
+    const postedRows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", fixedCostId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+
+    const deletedId = await insertFixedCost(t, coupleId, members, {
+      name: "削除済み",
+    });
+    await insertExpenseFor(t, coupleId, deletedId, members, month, {
+      deleted: true,
+    });
+    const deletedResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.postThisMonth, { fixedCostId: deletedId });
+    const deletedRows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", deletedId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+
+    const stoppedId = await insertFixedCost(t, coupleId, members, {
+      name: "停止中",
+    });
+    await t.withIdentity(ALICE).mutation(api.fixedCosts.stop, {
+      fixedCostId: stoppedId,
+    });
+    const stoppedResult = await t
+      .withIdentity(ALICE)
+      .mutation(api.fixedCosts.postThisMonth, { fixedCostId: stoppedId });
+    const stoppedRows = await t.run(async (ctx) =>
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", stoppedId).eq("fixedCost.month", month),
+        )
+        .take(2),
+    );
+
+    expect(firstResult).toBe("posted");
+    expect(secondResult).toBe("exists");
+    expect(postedRows).toHaveLength(1);
+    expect(deletedResult).toBe("exists");
+    expect(deletedRows).toHaveLength(1);
+    expect(stoppedResult).toBe("stopped");
+    expect(stoppedRows).toHaveLength(0);
   });
 
   test("shares に退出済みメンバーがいると memberLeft で自動停止する", async () => {
