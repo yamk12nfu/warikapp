@@ -14,19 +14,20 @@
 // ユーザーが判断できない。TBD-003 の代替案どおり金額比の按分に切り替えた結果、
 // 税は各品目の負担区分にそのまま従うようになり、手直しも判断も要らなくなった。
 
+import {
+  MAX_ITEMS,
+  MAX_ITEM_NAME_LENGTH,
+  MAX_PRICE,
+  MAX_QUANTITY,
+  MAX_STORE_NAME_LENGTH,
+} from "./expense-limits";
+
 // レシートとして読めなかった(風景写真など、品目が1件も取れなかった)ときの文言。
 // convex/receipts.ts が投げ、画面(S-004)は「同じ画像をもう一度AIに投げても
 // 結果は変わらない」ケースの判定にも使う。両側から同じ定数を参照することで、
 // 片方だけ文言を直したときに判定が静かに壊れるのを防ぐ。
 export const ERR_UNREADABLE_RECEIPT =
   "レシートを読み取れませんでした。撮り直してください";
-
-// expenses.save 側の制約に合わせる(convex/expenses.ts と同じ値)
-const MAX_ITEM_NAME_LENGTH = 50;
-const MAX_PRICE = 9_999_999;
-const MAX_QUANTITY = 999;
-// expenses.save の品目上限(V-402)。差額は既存の品目へ配分するので行は増えない
-const MAX_AI_ITEMS = 100;
 
 export type ReceiptDraftItem = {
   name: string;
@@ -98,7 +99,7 @@ function normalizeStoreName(storeName: string | null): string | null {
   if (trimmed.length === 0) {
     return null;
   }
-  return trimmed.slice(0, MAX_ITEM_NAME_LENGTH);
+  return trimmed.slice(0, MAX_STORE_NAME_LENGTH);
 }
 
 // AI由来の1品目を保存可能な形に均す。名前が空・金額が1円未満など
@@ -284,7 +285,7 @@ export function normalizeParsedReceipt(
   const sanitized = parsed.items
     .map(sanitizeItem)
     .filter((item): item is SanitizedItem => item !== null)
-    .slice(0, MAX_AI_ITEMS);
+    .slice(0, MAX_ITEMS);
 
   const rawTotal = Math.round(parsed.total_amount);
   const hasTotal = Number.isFinite(rawTotal) && rawTotal > 0;
