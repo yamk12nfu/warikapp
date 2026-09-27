@@ -1,10 +1,35 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import {
+  noticeFor,
   ReceiptImageInputs,
   ReceiptWorkingSteps,
   workingStepState,
 } from "./receipt-client";
+import type { NormalizedReceipt } from "@/lib/receipt";
+
+const normalizedReceipt = (
+  adjustment: NormalizedReceipt["adjustment"],
+): NormalizedReceipt => ({
+  storeName: null,
+  purchasedAt: null,
+  totalAmount: 1000,
+  items: [],
+  sourceItemCount: 2,
+  adjustment,
+  distributedAmount: 0,
+});
+
+test("合計金額の代用は確認を促す警告を返す", () => {
+  expect(noticeFor(normalizedReceipt("total-fallback"))).toEqual({
+    text: "レシートの合計金額を読み取れませんでした。品目の合計を使っています。金額を確認してください",
+    tone: "warn",
+  });
+});
+
+test("調整がない場合は注記を返さない", () => {
+  expect(noticeFor(normalizedReceipt("none"))).toBeNull();
+});
 
 test("再読み取りは読み取りから始まり、それより前の工程は済になる", () => {
   expect(workingStepState("compress", "parse")).toBe("done");

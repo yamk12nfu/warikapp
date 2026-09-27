@@ -13,6 +13,7 @@ import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import { compressReceiptImage } from "@/lib/image";
 import { ERR_UNREADABLE_RECEIPT } from "@/lib/receipt";
+import type { NormalizedReceipt, ReceiptAdjustment } from "@/lib/receipt";
 import {
   originFromMatched,
   type InitialShareOrigin,
@@ -103,6 +104,29 @@ type FailedStep = "upload" | "parse" | "unreadable";
 // 品目リストの上に出す一言。"warn" は金額を直してほしいとき、
 // "info" は「こう解釈した」と伝えるだけのとき
 type Notice = { text: string; tone: "warn" | "info" };
+
+export function noticeFor(parsed: NormalizedReceipt): Notice | null {
+  const notices: Record<ReceiptAdjustment, Notice | null> = {
+    none: null,
+    distributed: {
+      text:
+        parsed.distributedAmount > 0
+          ? `消費税などの差額 ${formatYen(parsed.distributedAmount)} を各品目に上乗せしました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`
+          : `値引きなどの差額 ${formatYen(-parsed.distributedAmount)} を各品目から差し引きました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`,
+      tone: "info",
+    },
+    skipped: {
+      text: "レシートの合計金額と品目の合計が一致しません。金額を確認してください",
+      tone: "warn",
+    },
+    "total-fallback": {
+      text: "レシートの合計金額を読み取れませんでした。品目の合計を使っています。金額を確認してください",
+      tone: "warn",
+    },
+  };
+
+  return notices[parsed.adjustment];
+}
 
 // info にも背景色を敷く。枠線と灰色の文字だけだと画面上部の説明文と見分けが
 // つかず、「このレシートで今起きたこと」を伝える一言が常設の案内として
@@ -361,28 +385,7 @@ export default function ReceiptExpenseClient() {
     setExpenseId(savedId);
     setDraft({ value, shareOrigins });
     setEditorKey((key) => key + 1);
-    // 税別レシートなどで品目合計と合計金額がずれた場合、差額は各品目へ
-    // 金額比で配分してある(lib/receipt.ts の distributeDifference)。
-    // 品目の金額がレシートの表記と変わるので、黙って変えずに一言添える
-    setNotice(
-      parsed.distributionSkipped
-        ? {
-            text: "レシートの合計金額と品目の合計が一致しません。金額を確認してください",
-            tone: "warn",
-          }
-        : parsed.distributed
-          ? {
-              // 金額を出す。文言だけだと「本当に合っているか」をユーザーが
-              // レシートと突き合わせて確認できない。合計を併記することで、
-              // レシートの支払額と一目で照合できる
-              text:
-                parsed.distributedAmount > 0
-                  ? `消費税などの差額 ${formatYen(parsed.distributedAmount)} を各品目に上乗せしました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`
-                  : `値引きなどの差額 ${formatYen(-parsed.distributedAmount)} を各品目から差し引きました。合計 ${formatYen(parsed.totalAmount)} がレシートの支払額と一致していれば大丈夫です`,
-              tone: "info",
-            }
-          : null,
-    );
+    setNotice(noticeFor(parsed));
     setPhase("editing");
   }
 
