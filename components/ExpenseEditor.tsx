@@ -22,6 +22,7 @@ import { toUserMessage } from "@/lib/convex-error";
 import { amountClass, inputClass } from "@/lib/ui";
 import ShareRatioPicker, {
   isCustomPreset,
+  presetShares,
   ShareRatioInputs,
 } from "@/components/ShareRatioPicker";
 import { FormEvent, useRef, useState } from "react";
@@ -60,6 +61,12 @@ const submitClass =
 
 const chipClass =
   "rounded-full border border-edge px-3 py-2 text-sm font-bold whitespace-nowrap";
+
+const BULK_PRESETS = [
+  { preset: "split", label: "すべて折半" },
+  { preset: "self", label: "すべて自分" },
+  { preset: "partner", label: "すべて相手" },
+] as const;
 
 const yen = formatYen;
 
@@ -177,6 +184,22 @@ export default function ExpenseEditor({
   function updateRow(key: string, patch: Partial<ItemRow>) {
     setRows((current) =>
       current.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+    );
+  }
+
+  function applyPresetToAll(
+    preset: (typeof BULK_PRESETS)[number]["preset"],
+  ) {
+    if (partnerId === null) {
+      return;
+    }
+    setRows((current) =>
+      current.map((row) => ({
+        ...row,
+        shares: presetShares(preset, self._id, partnerId),
+        custom: false,
+        shareOrigin: originAfterShareEdit(row.shareOrigin),
+      })),
     );
   }
 
@@ -365,6 +388,25 @@ export default function ExpenseEditor({
             チップをタップで 折半 → 自分 → 相手
           </p>
         </div>
+
+        {partner !== null && (
+          <div
+            role="group"
+            aria-label="負担区分をまとめて変更"
+            className="flex flex-wrap gap-2"
+          >
+            {BULK_PRESETS.map(({ preset, label }) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => applyPresetToAll(preset)}
+                className="rounded-full border border-edge px-3 py-2 text-xs font-medium whitespace-nowrap"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {rows.length === 0 && (
           <p role="alert" className="text-sm text-danger">

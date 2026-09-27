@@ -5,6 +5,7 @@ import type { ShareRatio } from "@/lib/types";
 
 type Member = { _id: string; displayName: string };
 type Preset = "split" | "self" | "partner" | "custom";
+type SharePreset = Exclude<Preset, "custom">;
 
 function ratioOf(shares: ShareRatio[], memberId: string): number {
   return shares.find((share) => share.memberId === memberId)?.ratioPercent ?? 0;
@@ -47,6 +48,19 @@ const PRESET_LABEL: Record<Preset, string> = {
   custom: "カスタム",
 };
 
+const PRESET_RATIOS: Record<SharePreset, [number, number]> = {
+  split: [50, 50],
+  self: [100, 0],
+  partner: [0, 100],
+};
+
+const NEXT_PRESET: Record<Preset, SharePreset> = {
+  split: "self",
+  self: "partner",
+  partner: "split",
+  custom: "split",
+};
+
 const PRESET_CHIP_CLASS: Record<Preset, string> = {
   split: "border-transparent text-on-accent",
   self: "border-transparent bg-me text-on-accent",
@@ -65,13 +79,19 @@ export function nextPresetShares(
   selfId: string,
   partnerId: string,
 ): ShareRatio[] {
-  const ratios: Record<Preset, [number, number]> = {
-    split: [100, 0],
-    self: [0, 100],
-    partner: [50, 50],
-    custom: [50, 50],
-  };
-  const [selfRatio, partnerRatio] = ratios[presetOf(shares, selfId, partnerId)];
+  return presetShares(
+    NEXT_PRESET[presetOf(shares, selfId, partnerId)],
+    selfId,
+    partnerId,
+  );
+}
+
+export function presetShares(
+  preset: SharePreset,
+  selfId: string,
+  partnerId: string,
+): ShareRatio[] {
+  const [selfRatio, partnerRatio] = PRESET_RATIOS[preset];
   return [
     { memberId: selfId, ratioPercent: selfRatio },
     { memberId: partnerId, ratioPercent: partnerRatio },
