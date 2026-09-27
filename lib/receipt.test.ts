@@ -36,15 +36,13 @@ describe("distributeDifference", () => {
       { name: "牛肉", price: 660, quantity: 1 },
       { name: "にんじん", price: 440, quantity: 1 },
     ]);
-    expect(result.distributed).toBe(true);
-    expect(result.skipped).toBe(false);
+    expect(result.adjustment).toBe("distributed");
   });
 
   test("差額がなければ品目はそのまま", () => {
     const result = distributeDifference(items, 1000);
     expect(result.items).toEqual(items);
-    expect(result.distributed).toBe(false);
-    expect(result.skipped).toBe(false);
+    expect(result.adjustment).toBe("none");
   });
 
   // 品目ごとに割合を掛けて丸めると合計が1円ずれることがある
@@ -83,14 +81,14 @@ describe("distributeDifference", () => {
       9_999_999,
     );
     expect(result.items[0].price).toBe(9_999_999);
-    expect(result.distributed).toBe(true);
+    expect(result.adjustment).toBe("distributed");
   });
 
   test("配分後が上限を超えるときは配分しない", () => {
     const items = [{ name: "A", price: 9_999_999, quantity: 1 }];
     const result = distributeDifference(items, 10_000_000);
     expect(result.items).toEqual(items);
-    expect(result.skipped).toBe(true);
+    expect(result.adjustment).toBe("skipped");
   });
 
   // 総額から値引きされるレシート。調整行方式では「マイナスの品目」が作れず
@@ -101,7 +99,7 @@ describe("distributeDifference", () => {
       { name: "牛肉", price: 540, quantity: 1 },
       { name: "にんじん", price: 360, quantity: 1 },
     ]);
-    expect(result.distributed).toBe(true);
+    expect(result.adjustment).toBe("distributed");
   });
 
   test("1円未満に潰れる品目が出るときは配分せず印を返す", () => {
@@ -118,20 +116,21 @@ describe("distributeDifference", () => {
       { name: "牛肉", price: 600, quantity: 1 },
       { name: "レジ袋", price: 1, quantity: 1 },
     ]);
-    expect(result.skipped).toBe(true);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("skipped");
   });
 
   test("配分先が無い・比率を決められないときは印を返す", () => {
-    expect(distributeDifference([], 1000).skipped).toBe(true);
-    expect(distributeDifference([], 0).skipped).toBe(true);
+    expect(distributeDifference([], 1000).adjustment).toBe("skipped");
+    expect(distributeDifference([], 0).adjustment).toBe("skipped");
     // 品目合計が0円以下だと金額比を決められない
     expect(
-      distributeDifference([{ name: "A", price: 0, quantity: 1 }], 100).skipped,
-    ).toBe(true);
+      distributeDifference([{ name: "A", price: 0, quantity: 1 }], 100)
+        .adjustment,
+    ).toBe("skipped");
     expect(
-      distributeDifference([{ name: "A", price: -1, quantity: 1 }], -1).skipped,
-    ).toBe(true);
+      distributeDifference([{ name: "A", price: -1, quantity: 1 }], -1)
+        .adjustment,
+    ).toBe("skipped");
   });
 
   // 比較演算は NaN に対して常に false を返すので、金額の範囲だけを見ていると
@@ -140,8 +139,7 @@ describe("distributeDifference", () => {
     const huge = [{ name: "A", price: 2, quantity: Number.MAX_VALUE }];
     const result = distributeDifference(huge, 1);
     expect(result.items).toEqual(huge);
-    expect(result.skipped).toBe(true);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("skipped");
   });
 
   // 累積の目標値を丸める前提が崩れ、配分後の合計が totalAmount と一致しなくなる
@@ -149,8 +147,7 @@ describe("distributeDifference", () => {
     const items = [{ name: "A", price: 100, quantity: 1 }];
     const result = distributeDifference(items, 100.4);
     expect(result.items).toEqual(items);
-    expect(result.skipped).toBe(true);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("skipped");
   });
 
   // 入力の検査は「差額0なら何もしない」より**前**に置く必要がある。
@@ -164,19 +161,18 @@ describe("distributeDifference", () => {
     ];
     const result = distributeDifference(fractional, 2);
     expect(result.items).toEqual(fractional);
-    expect(result.skipped).toBe(true);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("skipped");
 
     // 品目合計・合計金額ともに整数でないケース
     const equalFraction = [{ name: "A", price: 100.4, quantity: 1 }];
-    expect(distributeDifference(equalFraction, 100.4).skipped).toBe(true);
+    expect(distributeDifference(equalFraction, 100.4).adjustment).toBe("skipped");
 
     // 0円の品目。合計は一致するが1円以上でなければ保存できない(V-403)
     const zero = [
       { name: "A", price: 0, quantity: 1 },
       { name: "B", price: 100, quantity: 1 },
     ];
-    expect(distributeDifference(zero, 100).skipped).toBe(true);
+    expect(distributeDifference(zero, 100).adjustment).toBe("skipped");
   });
 });
 
@@ -209,9 +205,8 @@ describe("normalizeParsedReceipt", () => {
         { name: "にんじん", price: 400, quantity: 1 },
       ],
       sourceItemCount: 2,
-      distributed: false,
+      adjustment: "none",
       distributedAmount: 0,
-      distributionSkipped: false,
     });
   });
 
@@ -235,7 +230,7 @@ describe("normalizeParsedReceipt", () => {
       { name: "にんじん", price: 432, quantity: 1 },
     ]);
     expect(sumItems(result.items)).toBe(1080);
-    expect(result.distributed).toBe(true);
+    expect(result.adjustment).toBe("distributed");
     // 画面が「消費税などの差額 ¥80 を各品目に上乗せしました」と出すのに使う
     expect(result.distributedAmount).toBe(80);
   });
@@ -244,20 +239,18 @@ describe("normalizeParsedReceipt", () => {
   // 符号で切り替えるので、負の値がそのまま届くことを確かめる
   test("差額がマイナスなら distributedAmount も負になる", () => {
     const result = normalizeParsedReceipt(raw({ total_amount: 900 }), TODAY);
-    expect(result.distributed).toBe(true);
+    expect(result.adjustment).toBe("distributed");
     expect(result.distributedAmount).toBe(-100);
     expect(sumItems(result.items)).toBe(900);
   });
 
   test("配分しなければ distributedAmount は0", () => {
     const result = normalizeParsedReceipt(raw(), TODAY);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("none");
     expect(result.distributedAmount).toBe(0);
   });
 
-  // 配分できなかったことが画面まで伝わる(receipt-client が
-  // 「金額を確認してください」を出す条件)
-  test("配分できないときは distributionSkipped が立ち、品目は元のまま", () => {
+  test("配分できないときは skipped になり、品目は元のまま", () => {
     const result = normalizeParsedReceipt(
       raw({
         items: [
@@ -272,9 +265,27 @@ describe("normalizeParsedReceipt", () => {
       { name: "牛肉", price: 600, quantity: 1 },
       { name: "レジ袋", price: 1, quantity: 1 },
     ]);
-    expect(result.distributionSkipped).toBe(true);
-    expect(result.distributed).toBe(false);
+    expect(result.adjustment).toBe("skipped");
   });
+
+  test.each([0, -500])(
+    "合計金額 %i を読めない場合は品目合計を使い、入力品目を保つ",
+    (totalAmount) => {
+      const items = [
+        { name: "牛肉", price: 600, quantity: 1 },
+        { name: "にんじん", price: 400, quantity: 1 },
+      ];
+      const result = normalizeParsedReceipt(
+        raw({ items, total_amount: totalAmount }),
+        TODAY,
+      );
+
+      expect(result.adjustment).toBe("total-fallback");
+      expect(result.totalAmount).toBe(1000);
+      expect(result.distributedAmount).toBe(0);
+      expect(result.items).toEqual(items);
+    },
+  );
 
   test("保存できない品目を捨てたぶんも残った品目に配分する", () => {
     const result = normalizeParsedReceipt(

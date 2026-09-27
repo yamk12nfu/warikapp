@@ -44,6 +44,12 @@ export type RawParsedReceipt = {
   items: { name: string; price: number; quantity: number }[];
 };
 
+export type ReceiptAdjustment =
+  | "none"
+  | "distributed"
+  | "skipped"
+  | "total-fallback";
+
 export type NormalizedReceipt = {
   storeName: string | null;
   purchasedAt: string | null; // 妥当でなければ null(画面側で当日を既定にする)
@@ -52,17 +58,10 @@ export type NormalizedReceipt = {
   // AI由来の品目数。0なら「レシートとして読めなかった」(convex/receipts.ts が
   // この値で判定して撮り直しを促す)
   sourceItemCount: number;
-  // 品目合計と合計金額の差額を各品目へ配分した場合に true。品目の金額が
-  // レシートの表記(税別レシートなら税抜)と変わるので、画面はその旨を伝える
-  distributed: boolean;
+  adjustment: ReceiptAdjustment;
   // 配分した差額(円)。税別レシートなら消費税ぶんで正、総額からの値引きなら負。
-  // 配分していなければ0。画面が「いくら動かしたか」を出すために使う。
-  // 文言だけだとユーザーはレシートと突き合わせて確認できない
+  // 配分していなければ0
   distributedAmount: number;
-  // 差額を配分できなかった場合に true。金額は「1円以上9,999,999円以下の
-  // 整数」(V-403)なので、配分すると1円未満に潰れる品目が出るときは配分できない。
-  // 画面はこのときだけ「金額を確認してください」と促す
-  distributionSkipped: boolean;
 };
 
 export function sumItems(items: ReceiptDraftItem[]): number {
@@ -227,7 +226,10 @@ function isSavableItem(item: ReceiptDraftItem): boolean {
 export function distributeDifference(
   items: ReceiptDraftItem[],
   totalAmount: number,
-): { items: ReceiptDraftItem[]; distributed: boolean; skipped: boolean } {
+): {
+  items: ReceiptDraftItem[];
+  adjustment: Exclude<ReceiptAdjustment, "total-fallback">;
+} {
   const base = sumItems(items);
   // 配分できない入力は「差額0なら何もしない」より**前**に弾く。等価判定を先に
   // 見ると、1.5円 + 0.5円 = 2円 のような保存できない品目を「差額0だから正常」
@@ -245,10 +247,10 @@ export function distributeDifference(
     !Number.isFinite(base) ||
     !Number.isInteger(totalAmount)
   ) {
-    return { items, distributed: false, skipped: true };
+    return { items, adjustment: "skipped" };
   }
   if (base === totalAmount) {
-    return { items, distributed: false, skipped: false };
+    return { items, adjustment: "none" };
   }
 
   let allocated = 0;
@@ -267,9 +269,9 @@ export function distributeDifference(
   // マイナスの差額が大きく、小さな品目が1円未満に潰れるようなときは配分を
   // 諦めて画面で直してもらう(中途半端に丸めると合計がレシート金額と合わなくなる)
   if (!distributed.every(isSavableItem)) {
-    return { items, distributed: false, skipped: true };
+    return { items, adjustment: "skipped" };
   }
-  return { items: distributed, distributed: true, skipped: false };
+  return { items: distributed, adjustment: "distributed" };
 }
 
 // AI抽出結果 → 画面に流し込める形。today はJST基準の当日("YYYY-MM-DD")。
@@ -293,10 +295,13 @@ export function normalizeParsedReceipt(
     : sanitized;
   const items = lineTotals.map(flattenQuantity);
 
-  // 合計が読めなかった場合は品目合計で代用する(差額0=配分なし)
+  // 合計が読めなかった場合は品目合計で代用する
   const totalAmount = hasTotal ? rawTotal : sumItems(items);
 
   const adjusted = distributeDifference(items, totalAmount);
+  const adjustment: ReceiptAdjustment = hasTotal
+    ? adjusted.adjustment
+    : "total-fallback";
 
   return {
     storeName: normalizeStoreName(parsed.store_name),
@@ -304,9 +309,9 @@ export function normalizeParsedReceipt(
     totalAmount,
     items: adjusted.items,
     sourceItemCount: items.length,
-    distributed: adjusted.distributed,
+    adjustment,
     // 配分「前」の品目合計との差。items は配分前の値なのでここで計算できる
-    distributedAmount: adjusted.distributed ? totalAmount - sumItems(items) : 0,
-    distributionSkipped: adjusted.skipped,
+    distributedAmount:
+      adjustment === "distributed" ? totalAmount - sumItems(items) : 0,
   };
 }
