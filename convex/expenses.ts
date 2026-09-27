@@ -8,6 +8,7 @@ import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator, storedCategoryValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
+import { expenseTitle } from "../lib/expense-title";
 import {
   effectiveItemCategory,
   normalizeCategory,
@@ -301,7 +302,7 @@ function toListRow(
   return {
     _id: expense._id,
     // 店名は任意項目。未設定なら先頭の品目名を見出しに使う
-    title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+    title: expenseTitle(expense.storeName, expense.items[0]?.name),
     itemCount: expense.items.length,
     purchasedAt: expense.purchasedAt,
     totalAmount: expense.totalAmount,

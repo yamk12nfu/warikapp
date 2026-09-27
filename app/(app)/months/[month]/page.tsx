@@ -2,6 +2,7 @@ import { parseBookMonth } from "@/lib/month-book";
 import { requireSignedIn } from "@/lib/server-auth";
 import { linkClass } from "@/lib/ui";
 import Link from "next/link";
+import { Suspense } from "react";
 import MonthBookClient from "./month-book-client";
 
 export default async function MonthBookPage({
@@ -22,5 +23,9 @@ export default async function MonthBookPage({
       </main>
     );
   }
-  return <MonthBookClient month={month} />;
+  return (
+    <Suspense fallback={<main className="p-8 text-muted">読み込み中…</main>}>
+      <MonthBookClient month={month} />
+    </Suspense>
+  );
 }

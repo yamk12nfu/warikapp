@@ -13,6 +13,7 @@ import {
   type SettlementExpenseInput,
 } from "./settlement";
 import type { ExpenseItemInput } from "./types";
+import { expenseTitle } from "./expense-title";
 
 declare const yearMonthBrand: unique symbol;
 
@@ -32,6 +33,7 @@ export type MonthWindow = readonly [
 export const MONTH_BOOK_WINDOW = 6 satisfies MonthWindow["length"];
 
 export type MonthItemFact = {
+  name: string;
   price: number;
   quantity: number;
   category?: StoredCategoryId;
@@ -39,7 +41,11 @@ export type MonthItemFact = {
 };
 
 export type MonthExpenseFact = {
+  expenseId: string;
+  expenseTitle: string;
   purchasedAt: YearMonth;
+  purchasedAtDate: string;
+  deletedAt?: number;
   status: "draft" | "confirmed";
   settled: boolean;
   paidBy: string;
@@ -79,6 +85,14 @@ export type CategorySlice = {
   amount: number;
 };
 
+export type CategoryItemRow = {
+  expenseId: string;
+  expenseTitle: string;
+  itemName: string;
+  amount: number;
+  purchasedAt: string;
+};
+
 const YEAR_MONTH = /^\d{4}-(?:0[1-9]|1[0-2])$/;
 
 export function parseYearMonth(raw: string): YearMonth | null {
@@ -102,6 +116,20 @@ export function parseBookMonth(raw: string): YearMonth | null {
     return null;
   }
   return month;
+}
+
+export function parseMonthCategory(raw: string | null): CategoryId | null {
+  if (raw === null) {
+    return null;
+  }
+  if (raw === "uncategorized") {
+    return "uncategorized";
+  }
+  try {
+    return normalizeCategory(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function nextBookMonth(
@@ -168,7 +196,7 @@ export function formatYearMonthLabel(month: YearMonth): string {
 
 function toShareItem(item: MonthItemFact): ExpenseItemInput {
   return {
-    name: "",
+    name: item.name,
     price: item.price,
     quantity: item.quantity,
     shares: item.shares.map((share) => ({
@@ -238,6 +266,9 @@ export function foldMonth(
         `foldMonth: purchasedAt ${fact.purchasedAt} is not ${month}`,
       );
     }
+    if (fact.deletedAt !== undefined) {
+      continue;
+    }
     if (fact.status === "draft") {
       draftCount += 1;
       continue;
@@ -286,6 +317,50 @@ export function foldMonth(
   return { ...folded, members };
 }
 
+export function categoryItemRows(
+  facts: readonly MonthExpenseFact[],
+  category: CategoryId,
+): CategoryItemRow[] {
+  const rows: Array<
+    CategoryItemRow & { expenseOrder: number; itemOrder: number }
+  > = [];
+
+  for (const [expenseOrder, fact] of facts.entries()) {
+    if (fact.deletedAt !== undefined || fact.status === "draft") {
+      continue;
+    }
+    for (const [itemOrder, item] of fact.items.entries()) {
+      if (effectiveItemCategory(item.category, fact.category) !== category) {
+        continue;
+      }
+      rows.push({
+        expenseId: fact.expenseId,
+        expenseTitle: fact.expenseTitle,
+        itemName: item.name,
+        amount: item.price * item.quantity,
+        purchasedAt: fact.purchasedAtDate,
+        expenseOrder,
+        itemOrder,
+      });
+    }
+  }
+
+  return rows
+    .sort(
+      (a, b) =>
+        b.purchasedAt.localeCompare(a.purchasedAt) ||
+        a.expenseOrder - b.expenseOrder ||
+        a.itemOrder - b.itemOrder,
+    )
+    .map((row) => ({
+      expenseId: row.expenseId,
+      expenseTitle: row.expenseTitle,
+      itemName: row.itemName,
+      amount: row.amount,
+      purchasedAt: row.purchasedAt,
+    }));
+}
+
 export function visibleCategories(
   amounts: CategoryAmounts,
 ): readonly CategorySlice[] {
@@ -315,16 +390,23 @@ export function categoryRatio(amount: number, totalAmount: number): number {
 }
 
 export function toMonthExpenseFact(doc: {
+  _id: string;
   purchasedAt: string;
   status: "draft" | "confirmed";
   settlementId?: string;
   paidBy: string;
   totalAmount: number;
   category?: string;
+  storeName?: string;
+  deletedAt?: number;
   items: ReadonlyArray<MonthItemFact>;
 }): MonthExpenseFact {
   return {
+    expenseId: doc._id,
+    expenseTitle: expenseTitle(doc.storeName, doc.items[0]?.name),
     purchasedAt: requireYearMonth(doc.purchasedAt.slice(0, 7)),
+    purchasedAtDate: doc.purchasedAt,
+    ...(doc.deletedAt === undefined ? {} : { deletedAt: doc.deletedAt }),
     status: doc.status,
     settled: doc.settlementId !== undefined,
     paidBy: doc.paidBy,
