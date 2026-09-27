@@ -1,8 +1,11 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
-import type { CategoryId } from "@/lib/category";
+import { useToast } from "@/components/Toast";
+import { CATEGORIES, type CategoryId, type StoredCategoryId } from "@/lib/category";
+import { toUserMessage } from "@/lib/convex-error";
 import { todayInJst } from "@/lib/date";
+import { budgetRatio, type BudgetMap } from "@/lib/budget";
 import { formatYen } from "@/lib/format";
 import {
   categoryRatio,
@@ -11,20 +14,29 @@ import {
   parseBookMonth,
   parseMonthCategory,
   requireYearMonth,
+  type CategorySlice,
   type YearMonth,
 } from "@/lib/month-book";
-import { amountClass, cardClass, linkClass, memberColorClass } from "@/lib/ui";
+import {
+  amountClass,
+  cardClass,
+  inputClass,
+  linkClass,
+  memberColorClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "@/lib/ui";
 import {
   useMonthBook,
   type MonthPoint,
   type MonthPointWindow,
   type MonthSlice,
 } from "@/lib/use-month-book";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type CategoryItemsResult = FunctionReturnType<typeof api.monthBook.categoryItems>;
 
@@ -39,6 +51,10 @@ export default function MonthBookClient({ month }: { month: YearMonth }) {
   );
   const todayMonth = requireYearMonth(todayInJst().slice(0, 7));
   const book = useMonthBook(month, todayMonth, member != null);
+  const budgets = useQuery(
+    api.budgets.forMonth,
+    member ? { month } : "skip",
+  );
   const categoryItems = useQuery(
     api.monthBook.categoryItems,
     openCategory !== null && member
@@ -101,6 +117,8 @@ export default function MonthBookClient({ month }: { month: YearMonth }) {
 
       <Focus
         point={book.focus}
+        month={month}
+        budgets={budgets}
         openCategory={openCategory}
         categoryItems={categoryItems}
         onToggleCategory={toggleCategory}
@@ -112,11 +130,15 @@ export default function MonthBookClient({ month }: { month: YearMonth }) {
 
 function Focus({
   point,
+  month,
+  budgets,
   openCategory,
   categoryItems,
   onToggleCategory,
 }: {
   point: MonthPoint;
+  month: YearMonth;
+  budgets: BudgetMap | undefined;
   openCategory: CategoryId | null;
   categoryItems: CategoryItemsResult | undefined;
   onToggleCategory: (category: CategoryId) => void;
@@ -126,17 +148,14 @@ function Focus({
   }
   if (point.kind === "overflow") {
     return (
-      <section className={`${cardClass} space-y-2 p-5`}>
-        <h2 className="text-sm font-semibold">この月の合計</h2>
-        <p className="text-sm">
-          支出が多すぎてこの月は集計できません。上限は{point.limit}件です。
-        </p>
-      </section>
+      <OverflowMonth month={month} budgets={budgets} limit={point.limit} />
     );
   }
   return (
     <ExactMonth
       slice={point.slice}
+      month={month}
+      budgets={budgets}
       openCategory={openCategory}
       categoryItems={categoryItems}
       onToggleCategory={onToggleCategory}
@@ -146,15 +165,33 @@ function Focus({
 
 function ExactMonth({
   slice,
+  month,
+  budgets,
   openCategory,
   categoryItems,
   onToggleCategory,
 }: {
   slice: MonthSlice;
+  month: YearMonth;
+  budgets: BudgetMap | undefined;
   openCategory: CategoryId | null;
   categoryItems: CategoryItemsResult | undefined;
   onToggleCategory: (category: CategoryId) => void;
 }) {
+  const categories: CategorySlice[] = CATEGORIES.flatMap(({ id, label }) => {
+    const current = slice.categories.find((row) => row.id === id);
+    const budget = budgets?.categories[id];
+    return current === undefined && budget === undefined
+      ? []
+      : [{ id, label, amount: current?.amount ?? 0 }];
+  });
+  const uncategorized = slice.categories.find(
+    (category) => category.id === "uncategorized",
+  );
+  if (uncategorized !== undefined) {
+    categories.push(uncategorized);
+  }
+
   return (
     <section className={`${cardClass} space-y-4 p-5`}>
       <div>
@@ -162,6 +199,9 @@ function ExactMonth({
         <p className={`mt-1 text-3xl ${amountClass}`}>
           {formatYen(slice.totalAmount)}
         </p>
+        {budgets?.overall !== null && budgets !== undefined && (
+          <BudgetComparison spent={slice.totalAmount} budget={budgets.overall} />
+        )}
         {slice.unsettledAmount > 0 && (
           <p className="mt-1 text-sm text-muted">
             未精算 {formatYen(slice.unsettledAmount)}
@@ -191,17 +231,24 @@ function ExactMonth({
         ))}
       </ul>
 
-      {slice.categories.length === 0 ? (
+      {categories.length === 0 ? (
         <p className="text-sm text-muted">確定した支出はありません</p>
       ) : (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">分類</h3>
           <ul className="space-y-3">
-            {slice.categories.map((category) => {
-              const width = Math.min(
-                100,
-                categoryRatio(category.amount, slice.totalAmount) * 100,
-              );
+            {categories.map((category) => {
+              const categoryBudget =
+                category.id === "uncategorized"
+                  ? undefined
+                  : budgets?.categories[category.id];
+              const hasBudget = categoryBudget !== undefined;
+              const ratio = hasBudget
+                ? budgetRatio(category.amount, categoryBudget)
+                : categoryRatio(category.amount, slice.totalAmount);
+              const width = Math.min(100, ratio * 100);
+              const overBudget =
+                hasBudget && category.amount > categoryBudget;
               const isOpen = openCategory === category.id;
               const panelId = `category-items-${category.id}`;
               return (
@@ -224,12 +271,18 @@ function ExactMonth({
                         </span>
                       </span>
                     </span>
+                    {hasBudget && (
+                      <BudgetComparison
+                        spent={category.amount}
+                        budget={categoryBudget}
+                      />
+                    )}
                     <span
                       aria-hidden
                       className="block h-2 overflow-hidden rounded-full bg-line"
                     >
                       <span
-                        className="block h-full rounded-full bg-me"
+                        className={`block h-full rounded-full ${overBudget ? "bg-danger" : "bg-me"}`}
                         style={{ width: `${width}%` }}
                       />
                     </span>
@@ -243,7 +296,216 @@ function ExactMonth({
           </ul>
         </div>
       )}
+      <BudgetEditor month={month} budgets={budgets} />
     </section>
+  );
+}
+
+function BudgetComparison({
+  spent,
+  budget,
+}: {
+  spent: number;
+  budget: number;
+}) {
+  const difference = budget - spent;
+  const percentage = Math.round(budgetRatio(spent, budget) * 100);
+  return (
+    <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+      <span className="text-muted">
+        予算 {formatYen(budget)}（{percentage}%）
+      </span>
+      <span className={difference < 0 ? "text-danger" : "text-muted"}>
+        {difference < 0 ? "超過" : "残り"} {formatYen(Math.abs(difference))}
+      </span>
+    </p>
+  );
+}
+
+function OverflowMonth({
+  month,
+  budgets,
+  limit,
+}: {
+  month: YearMonth;
+  budgets: BudgetMap | undefined;
+  limit: number;
+}) {
+  const hasBudget =
+    budgets !== undefined &&
+    (budgets.overall !== null || Object.keys(budgets.categories).length > 0);
+
+  return (
+    <section className={`${cardClass} space-y-4 p-5`}>
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold">この月の合計</h2>
+        <p className="text-sm">
+          支出が多すぎてこの月は集計できません。上限は{limit}件です。
+        </p>
+        <p className="text-sm text-muted">
+          この月は支出が多すぎて集計できないため、予算と比べられません
+        </p>
+      </div>
+      {hasBudget && budgets !== undefined && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold">設定中の予算</h3>
+          <ul className="space-y-1 text-sm">
+            {budgets.overall !== null && (
+              <li className="flex justify-between gap-3">
+                <span>月全体</span>
+                <span className={amountClass}>{formatYen(budgets.overall)}</span>
+              </li>
+            )}
+            {CATEGORIES.map(({ id, label }) => {
+              const budget = budgets.categories[id];
+              return budget === undefined ? null : (
+                <li key={id} className="flex justify-between gap-3">
+                  <span>{label}</span>
+                  <span className={amountClass}>{formatYen(budget)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      <BudgetEditor month={month} budgets={budgets} />
+    </section>
+  );
+}
+
+function emptyCategoryInputs(
+  budgets: BudgetMap | undefined,
+): Record<StoredCategoryId, string> {
+  return Object.fromEntries(
+    CATEGORIES.map(({ id }) => [
+      id,
+      budgets?.categories[id]?.toString() ?? "",
+    ]),
+  ) as Record<StoredCategoryId, string>;
+}
+
+function budgetInputValue(value: string): number | null {
+  return value.trim() === "" ? null : Number(value);
+}
+
+function BudgetEditor({
+  month,
+  budgets,
+}: {
+  month: YearMonth;
+  budgets: BudgetMap | undefined;
+}) {
+  const saveForMonth = useMutation(api.budgets.setForMonth);
+  const { show } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [overall, setOverall] = useState("");
+  const [categories, setCategories] = useState(() => emptyCategoryInputs(budgets));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function startEditing() {
+    setOverall(budgets?.overall?.toString() ?? "");
+    setCategories(emptyCategoryInputs(budgets));
+    setError(null);
+    setEditing(true);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      await saveForMonth({
+        month,
+        overall: budgetInputValue(overall),
+        categories: CATEGORIES.map(({ id }) => ({
+          category: id,
+          amount: budgetInputValue(categories[id]),
+        })),
+      });
+      setEditing(false);
+      show("予算を保存しました");
+    } catch (caught) {
+      setError(toUserMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-line pt-4">
+      {!editing ? (
+        <button
+          type="button"
+          className={secondaryButtonClass}
+          disabled={budgets === undefined}
+          onClick={startEditing}
+        >
+          予算を編集
+        </button>
+      ) : (
+        <form className="space-y-3" onSubmit={handleSubmit}>
+          <h3 className="text-sm font-semibold">予算を編集</h3>
+          <p className="text-xs text-muted">空欄にするとその月から予算なしになります</p>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span>月全体</span>
+            <input
+              className={`${inputClass} max-w-36`}
+              type="text"
+              inputMode="numeric"
+              value={overall}
+              onChange={(event) => setOverall(event.target.value)}
+            />
+          </label>
+          <ul className="space-y-2">
+            {CATEGORIES.map(({ id, label }) => (
+              <li key={id}>
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span>{label}</span>
+                  <input
+                    className={`${inputClass} max-w-36`}
+                    type="text"
+                    inputMode="numeric"
+                    value={categories[id]}
+                    onChange={(event) =>
+                      setCategories((current) => ({
+                        ...current,
+                        [id]: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </li>
+            ))}
+          </ul>
+          {error !== null && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className={`${primaryButtonClass} flex-1 py-2`}
+              disabled={saving}
+            >
+              {saving ? "保存中…" : "保存"}
+            </button>
+            <button
+              type="button"
+              className={`${secondaryButtonClass} flex-1 py-2`}
+              disabled={saving}
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+            >
+              キャンセル
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }
 
