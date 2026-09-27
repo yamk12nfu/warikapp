@@ -37,6 +37,9 @@ const VALID_SUMMARY = {
   total_amount: 84210,
   settled_amount: 30000,
   unsettled_amount: 54210,
+  category_amounts: [
+    { category_id: "food", category_label: "食費", amount: 84210 },
+  ],
   unsettled_balance: { amount: 3210, direction: "partner_pays_self" as const },
   members: [
     {
@@ -109,6 +112,10 @@ describe("registerMonthlySummaryTool", () => {
 
     expect(result.isError).toBeUndefined();
     expect(monthlySummaryOutputSchema.safeParse(result.structuredContent).success).toBe(true);
+    const summary = result.structuredContent as typeof VALID_SUMMARY;
+    expect(
+      summary.category_amounts.reduce((sum, row) => sum + row.amount, 0),
+    ).toBe(summary.total_amount);
     expect(result.content[0].text).toContain("get_unsettled_balance");
   });
 

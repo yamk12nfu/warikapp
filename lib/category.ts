@@ -12,6 +12,23 @@ export type StoredCategoryId = (typeof CATEGORIES)[number]["id"];
 
 export type CategoryId = StoredCategoryId | "uncategorized";
 
+// 品目の分類が未設定なら支出の分類を使う。品目では「未分類」を明示的に
+// 上書きできない(未設定は常に支出から継承するため)。
+export function effectiveItemCategory(
+  itemCategory: StoredCategoryId | undefined,
+  expenseCategory: CategoryId,
+): CategoryId {
+  return itemCategory ?? expenseCategory;
+}
+
+// 支出の分類と同じ品目分類は保存せず、支出の変更に追従させる。
+export function normalizeItemCategory(
+  itemCategory: StoredCategoryId | undefined,
+  expenseCategory: CategoryId,
+): StoredCategoryId | undefined {
+  return itemCategory === expenseCategory ? undefined : itemCategory;
+}
+
 export const UNCATEGORIZED_LABEL = "未分類";
 
 export const STORED_CATEGORY_IDS: readonly StoredCategoryId[] = CATEGORIES.map(

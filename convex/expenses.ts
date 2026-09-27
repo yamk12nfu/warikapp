@@ -8,7 +8,13 @@ import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator, storedCategoryValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
-import { normalizeCategory, type StoredCategoryId } from "../lib/category";
+import {
+  effectiveItemCategory,
+  normalizeCategory,
+  normalizeItemCategory,
+  type CategoryId,
+  type StoredCategoryId,
+} from "../lib/category";
 import { suggestReceiptItemSharesFromHistory } from "../lib/share-memory";
 
 // 支出の保存。クライアント由来の member ID(paidBy / shares[].memberId)は
@@ -88,6 +94,7 @@ type ItemInput = {
   name: string;
   price: number;
   quantity: number;
+  category?: StoredCategoryId;
   shares: { memberId: Id<"members">; ratioPercent: number }[];
 };
 
@@ -177,7 +184,16 @@ export const save = mutation({
 
     const storeName = normalizeStoreName(args.storeName);
     assertPurchasedAt(args.purchasedAt);
-    const items = normalizeItems(args.items);
+    const expenseCategory: CategoryId =
+      args.category !== undefined
+        ? normalizeCategory(args.category)
+        : existing === null
+          ? "uncategorized"
+          : normalizeCategory(existing.category);
+    const items = normalizeItems(args.items).map((item) => ({
+      ...item,
+      category: normalizeItemCategory(item.category, expenseCategory),
+    }));
 
     // paidBy と全 shares[].memberId が自世帯のメンバーであることを検証する
     await assertCoupleMemberIds(ctx, member.coupleId, [
@@ -259,7 +275,19 @@ export const setCategory = mutation({
     if (expense === null) {
       throw new ConvexError(ERR_NOT_FOUND);
     }
-    await ctx.db.patch("expenses", expense._id, categoryFieldPatch(args.category));
+    const nextCategory = normalizeCategory(args.category);
+    const categoryChanged = normalizeCategory(expense.category) !== nextCategory;
+    await ctx.db.patch("expenses", expense._id, {
+      ...categoryFieldPatch(args.category),
+      ...(categoryChanged
+        ? {
+            items: expense.items.map((item) => ({
+              ...item,
+              category: normalizeItemCategory(item.category, nextCategory),
+            })),
+          }
+        : {}),
+    });
     return null;
   },
 });
@@ -370,6 +398,7 @@ export const get = query({
     const membersById = new Map(members.map((row) => [row._id, row]));
     const displayNameOf = (memberId: Id<"members">) =>
       membersById.get(memberId)?.displayName ?? "メンバー";
+    const expenseCategory = normalizeCategory(expense.category);
     return {
       _id: expense._id,
       paidBy: expense.paidBy,
@@ -377,13 +406,21 @@ export const get = query({
       storeName: expense.storeName,
       purchasedAt: expense.purchasedAt,
       totalAmount: expense.totalAmount,
-      items: expense.items.map((item) => ({
-        ...item,
-        shares: item.shares.map((share) => ({
-          ...share,
-          displayName: displayNameOf(share.memberId),
-        })),
-      })),
+      items: expense.items.map((item) => {
+        const category = effectiveItemCategory(
+          item.category,
+          expenseCategory,
+        );
+        return {
+          ...item,
+          category,
+          categoryOverridden: item.category !== undefined,
+          shares: item.shares.map((share) => ({
+            ...share,
+            displayName: displayNameOf(share.memberId),
+          })),
+        };
+      }),
       source: expense.source,
       status: expense.status,
       settled: expense.settlementId !== undefined,

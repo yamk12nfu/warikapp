@@ -3,8 +3,10 @@
 import {
   CATEGORIES,
   UNCATEGORIZED_LABEL,
+  categoryLabel,
   isStoredCategoryId,
   type CategoryId,
+  type StoredCategoryId,
 } from "@/lib/category";
 import { todayLocalDate } from "@/lib/date";
 import { formatYen } from "@/lib/format";
@@ -41,7 +43,7 @@ export type ExpenseFormValue = {
   storeName: string;
   purchasedAt: string;
   category: CategoryId;
-  items: ExpenseItemInput[];
+  items: (ExpenseItemInput & { category?: StoredCategoryId })[];
 };
 
 type ItemRow = {
@@ -49,6 +51,7 @@ type ItemRow = {
   name: string;
   priceText: string;
   quantity: number;
+  category?: StoredCategoryId;
   shares: ShareRatio[]; // 常に [自分, 相手] の順(相手がいなければ自分のみ)
   custom: boolean; // カスタム割合の入力欄を開いているか
   // 一度でも編集された行か。まだ触っていない空行を赤枠にしないための判定
@@ -154,6 +157,7 @@ export default function ExpenseEditor({
         name: item.name,
         priceText: item.price === 0 ? "" : String(item.price),
         quantity: item.quantity,
+        category: item.category,
         shares,
         custom: isCustomPreset(shares, self._id, partnerId),
         // 既存の支出を読み込んだ行は最初から検証結果を出す(空の新規行だけ抑える)
@@ -214,6 +218,7 @@ export default function ExpenseEditor({
         name: "",
         priceText: "",
         quantity: item.quantity,
+        category: undefined,
         shares: item.shares,
         custom: false,
         touched: false,
@@ -291,6 +296,9 @@ export default function ExpenseEditor({
           name: item.row.name.trim(),
           price: item.price as number,
           quantity: item.row.quantity,
+          ...(item.row.category === undefined
+            ? {}
+            : { category: item.row.category }),
           // 0%の相手は保存しない(「自分100:相手0」は自分のみのsharesになる)
           shares: item.row.shares.filter((share) => share.ratioPercent > 0),
         })),
@@ -367,6 +375,11 @@ export default function ExpenseEditor({
               const next = event.target.value;
               if (next === "uncategorized" || isStoredCategoryId(next)) {
                 setCategory(next);
+                setRows((current) =>
+                  current.map((row) =>
+                    row.category === next ? { ...row, category: undefined } : row,
+                  ),
+                );
               }
             }}
             className={inputClass}
@@ -446,6 +459,35 @@ export default function ExpenseEditor({
                 >
                   ×
                 </button>
+              </div>
+
+              <div className="flex">
+                <select
+                  aria-label={`品目の分類: ${row.category === undefined ? "支出と同じ" : categoryLabel(row.category)}`}
+                  value={row.category ?? "same"}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (next === "same") {
+                      updateRow(row.key, { category: undefined });
+                    } else if (isStoredCategoryId(next)) {
+                      updateRow(row.key, {
+                        category: next === category ? undefined : next,
+                      });
+                    }
+                  }}
+                  className={
+                    row.category === undefined
+                      ? "min-h-11 max-w-full rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-muted"
+                      : "min-h-11 max-w-full rounded-full border border-edge bg-me-soft px-3 py-1 text-sm font-semibold text-me-strong"
+                  }
+                >
+                  <option value="same">支出と同じ</option>
+                  {CATEGORIES.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center gap-2">

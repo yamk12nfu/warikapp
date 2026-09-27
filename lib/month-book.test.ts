@@ -241,6 +241,31 @@ describe("foldMonth", () => {
     });
   });
 
+  test("品目分類で集計し、支出分類の変更は継承品目だけを移す", () => {
+    const foodItem = { ...item(300, split()), category: "food" as const };
+    const inheritedItem = item(200, split());
+    const expense = fact({
+      totalAmount: 500,
+      category: "daily",
+      items: [foodItem, inheritedItem],
+    });
+
+    const before = foldMonth(month, [expense], SELF, PARTNER);
+    expect(before.categoryAmounts.food).toBe(300);
+    expect(before.categoryAmounts.daily).toBe(200);
+
+    const after = foldMonth(
+      month,
+      [{ ...expense, category: "other" }],
+      SELF,
+      PARTNER,
+    );
+    expect(after.categoryAmounts.food).toBe(300);
+    expect(after.categoryAmounts.daily).toBe(0);
+    expect(after.categoryAmounts.other).toBe(200);
+    expect(after.totalAmount).toBe(500);
+  });
+
   test("負担額は品目ごとの四捨五入を足す", () => {
     const folded = foldMonth(
       month,
@@ -453,6 +478,19 @@ describe("toMonthExpenseFact", () => {
     expect(stored.settled).toBe(true);
     expect(stored.status).toBe("draft");
     expect(stored.paidBy).toBe(PARTNER);
+  });
+
+  test("保存済み品目の分類を fact に引き継ぐ", () => {
+    const stored = toMonthExpenseFact({
+      purchasedAt: "2026-09-01",
+      status: "confirmed",
+      paidBy: SELF,
+      totalAmount: 300,
+      category: "daily",
+      items: [{ ...item(300, split()), category: "food" }],
+    });
+
+    expect(stored.items[0].category).toBe("food");
   });
 
   test("未知のカテゴリは拒否する", () => {

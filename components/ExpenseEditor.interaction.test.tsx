@@ -162,3 +162,150 @@ it("一括で自分にした負担割合を送信する", async () => {
     }),
   );
 });
+
+it("品目分類を上書きするとその品目だけチップ表示され送信される", async () => {
+  const onSubmit = vi.fn<(value: ExpenseFormValue) => Promise<void>>(
+    async () => {},
+  );
+  const initialValue = makeInitialValue();
+  initialValue.category = "daily";
+  render(
+    <ExpenseEditor
+      self={self}
+      partner={partner}
+      initialValue={initialValue}
+      submitLabel="確定"
+      submittingLabel="確定中"
+      onSubmit={onSubmit}
+    />,
+  );
+
+  const inheritedControls = screen.getAllByRole("combobox", {
+    name: "品目の分類: 支出と同じ",
+  });
+  fireEvent.change(inheritedControls[0]!, { target: { value: "food" } });
+
+  const foodChip = screen.getByRole("combobox", {
+    name: "品目の分類: 食費",
+  }) as HTMLSelectElement;
+  expect(foodChip.value).toBe("food");
+  expect(foodChip.className).toContain("bg-me-soft");
+  expect(
+    screen.getAllByRole("combobox", {
+      name: "品目の分類: 支出と同じ",
+    }),
+  ).toHaveLength(2);
+
+  fireEvent.click(screen.getByRole("button", { name: "確定" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+  expect(onSubmit.mock.calls[0]![0].items.map((item) => item.category)).toEqual([
+    "food",
+    undefined,
+    undefined,
+  ]);
+});
+
+it("品目分類で支出と同じを選ぶと上書きを外して送信する", async () => {
+  const onSubmit = vi.fn<(value: ExpenseFormValue) => Promise<void>>(
+    async () => {},
+  );
+  const initialValue = makeInitialValue();
+  initialValue.category = "daily";
+  render(
+    <ExpenseEditor
+      self={self}
+      partner={partner}
+      initialValue={initialValue}
+      submitLabel="確定"
+      submittingLabel="確定中"
+      onSubmit={onSubmit}
+    />,
+  );
+
+  fireEvent.change(
+    screen.getAllByRole("combobox", {
+      name: "品目の分類: 支出と同じ",
+    })[0]!,
+    { target: { value: "food" } },
+  );
+  fireEvent.change(
+    screen.getByRole("combobox", { name: "品目の分類: 食費" }),
+    { target: { value: "same" } },
+  );
+
+  expect(
+    screen.queryByRole("combobox", { name: "品目の分類: 食費" }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "確定" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+  expect(onSubmit.mock.calls[0]![0].items.map((item) => item.category)).toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ]);
+});
+
+it("品目分類で支出自身の分類を選ぶと上書きを外す", () => {
+  const initialValue = makeInitialValue();
+  initialValue.category = "daily";
+  render(
+    <ExpenseEditor
+      self={self}
+      partner={partner}
+      initialValue={initialValue}
+      submitLabel="確定"
+      submittingLabel="確定中"
+      onSubmit={async () => {}}
+    />,
+  );
+
+  fireEvent.change(
+    screen.getAllByRole("combobox", {
+      name: "品目の分類: 支出と同じ",
+    })[0]!,
+    { target: { value: "food" } },
+  );
+  fireEvent.change(
+    screen.getByRole("combobox", { name: "品目の分類: 食費" }),
+    { target: { value: "daily" } },
+  );
+
+  expect(
+    screen.queryByRole("combobox", { name: "品目の分類: 食費" }),
+  ).toBeNull();
+  expect(
+    screen.getAllByRole("combobox", {
+      name: "品目の分類: 支出と同じ",
+    }),
+  ).toHaveLength(3);
+});
+
+it("支出の分類を品目の上書きと同じ値にすると、その上書きは消えて以後は支出に追従する", () => {
+  const initialValue = makeInitialValue();
+  initialValue.category = "daily";
+  render(
+    <ExpenseEditor
+      self={self}
+      partner={partner}
+      initialValue={initialValue}
+      submitLabel="確定"
+      submittingLabel="確定中"
+      onSubmit={async () => {}}
+    />,
+  );
+
+  fireEvent.change(
+    screen.getAllByRole("combobox", { name: "品目の分類: 支出と同じ" })[0]!,
+    { target: { value: "food" } },
+  );
+  const expenseCategory = screen.getByLabelText("分類");
+  fireEvent.change(expenseCategory, { target: { value: "food" } });
+  fireEvent.change(expenseCategory, { target: { value: "other" } });
+
+  expect(
+    screen.queryByRole("combobox", { name: "品目の分類: 食費" }),
+  ).toBeNull();
+  expect(
+    screen.getAllByRole("combobox", { name: "品目の分類: 支出と同じ" }),
+  ).toHaveLength(3);
+});

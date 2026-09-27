@@ -1,8 +1,10 @@
 import {
   CATEGORIES,
   categoryLabel,
+  effectiveItemCategory,
   normalizeCategory,
   type CategoryId,
+  type StoredCategoryId,
 } from "./category";
 import {
   calcItemShareAmount,
@@ -32,6 +34,7 @@ export const MONTH_BOOK_WINDOW = 6 satisfies MonthWindow["length"];
 export type MonthItemFact = {
   price: number;
   quantity: number;
+  category?: StoredCategoryId;
   shares: ReadonlyArray<{ memberId: string; ratioPercent: number }>;
 };
 
@@ -242,7 +245,10 @@ export function foldMonth(
 
     confirmedCount += 1;
     totalAmount += fact.totalAmount;
-    categoryAmounts[fact.category] += fact.totalAmount;
+    for (const item of fact.items) {
+      const category = effectiveItemCategory(item.category, fact.category);
+      categoryAmounts[category] += item.price * item.quantity;
+    }
     const items = fact.items.map(toShareItem);
     if (fact.settled) {
       settledAmount += fact.totalAmount;

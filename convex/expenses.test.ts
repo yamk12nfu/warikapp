@@ -72,6 +72,7 @@ function manualArgs(
       name: string;
       price: number;
       quantity: number;
+      category?: StoredCategoryId;
       shares: { memberId: Id<"members">; ratioPercent: number }[];
     }[];
     source: "receipt" | "manual";
@@ -209,6 +210,59 @@ describe("expenses.save(新規作成)", () => {
       .mutation(api.expenses.save, manualArgs(members, { category: null }));
     const cleared = await t.run(async (ctx) => ctx.db.get("expenses", clearedId));
     expect(cleared!.category).toBeUndefined();
+  });
+
+  test("品目分類が支出分類と同じなら保存時に上書きを正規化する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        category: "daily",
+        items: [
+          {
+            name: "洗剤",
+            price: 500,
+            quantity: 1,
+            category: "daily",
+            shares: split(members),
+          },
+        ],
+      }),
+    );
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.items[0].category).toBeUndefined();
+  });
+
+  test("更新時に支出分類を省略したら既存分類を基準に品目を正規化する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, { category: "daily" }),
+    );
+
+    await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        expenseId,
+        category: undefined,
+        items: [
+          {
+            name: "洗剤",
+            price: 500,
+            quantity: 1,
+            category: "daily",
+            shares: split(members),
+          },
+        ],
+      }),
+    );
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.category).toBe("daily");
+    expect(expense!.items[0].category).toBeUndefined();
   });
 
   test("パートナーも同じ世帯の支出を登録できる", async () => {
@@ -1152,6 +1206,44 @@ describe("expenses.get", () => {
     expect(expense!.items[0].shares).toHaveLength(2);
   });
 
+  test("各品目の有効な分類と上書き状態を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        category: "daily",
+        items: [
+          {
+            name: "パン",
+            price: 300,
+            quantity: 1,
+            category: "food",
+            shares: split(members),
+          },
+          {
+            name: "洗剤",
+            price: 200,
+            quantity: 1,
+            shares: split(members),
+          },
+        ],
+      }),
+    );
+
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect(expense!.items.map(({ category, categoryOverridden }) => ({
+      category,
+      categoryOverridden,
+    }))).toEqual([
+      { category: "food", categoryOverridden: true },
+      { category: "daily", categoryOverridden: false },
+    ]);
+  });
+
   test("精算済みは settled: true になる", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1461,6 +1553,33 @@ describe("expenses.setCategory", () => {
     expect(detail!.category).toBe("food");
     expect(detail!.totalAmount).toBe(5000);
     expect(detail!.items[0].name).toBe("焼肉");
+  });
+
+  test("支出分類を品目の上書きと同じ値にすると上書きが消える", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(
+      api.expenses.save,
+      manualArgs(members, {
+        category: "daily",
+        items: [
+          {
+            name: "パン",
+            price: 300,
+            quantity: 1,
+            category: "food",
+            shares: split(members),
+          },
+        ],
+      }),
+    );
+
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.setCategory, { expenseId, category: "food" });
+
+    const expense = await t.run(async (ctx) => ctx.db.get("expenses", expenseId));
+    expect(expense!.items[0].category).toBeUndefined();
   });
 
   test("精算済みでも分類だけ変えられ、null で未分類に戻せる", async () => {

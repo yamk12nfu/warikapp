@@ -139,6 +139,73 @@ describe("monthBook.month", () => {
     });
   });
 
+  test("品目分類で月次集計し、支出分類の変更は継承品目だけを移す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    if (members.partner === null) {
+      throw new Error("パートナーが参加できていない");
+    }
+    const expenseId = await t.run(async (ctx) =>
+      ctx.db.insert("expenses", {
+        coupleId: members.coupleId,
+        paidBy: members.self._id,
+        purchasedAt: "2026-08-10",
+        totalAmount: 500,
+        category: "daily",
+        items: [
+          {
+            name: "パン",
+            price: 300,
+            quantity: 1,
+            category: "food",
+            shares: split(members),
+          },
+          {
+            name: "洗剤",
+            price: 200,
+            quantity: 1,
+            shares: split(members),
+          },
+        ],
+        source: "manual",
+        status: "confirmed",
+      }),
+    );
+
+    const before = await t
+      .withIdentity(ALICE)
+      .query(api.monthBook.month, { month: "2026-08" });
+    expect(before).toMatchObject({
+      kind: "exact",
+      slice: {
+        totalAmount: 500,
+        categories: [
+          { id: "food", label: "食費", amount: 300 },
+          { id: "daily", label: "日用品", amount: 200 },
+        ],
+      },
+    });
+
+    await t.withIdentity(ALICE).mutation(api.expenses.setCategory, {
+      expenseId,
+      category: "other",
+    });
+
+    const after = await t
+      .withIdentity(ALICE)
+      .query(api.monthBook.month, { month: "2026-08" });
+    expect(after).toMatchObject({
+      kind: "exact",
+      slice: {
+        totalAmount: 500,
+        categories: [
+          { id: "food", label: "食費", amount: 300 },
+          { id: "other", label: "その他", amount: 200 },
+        ],
+      },
+    });
+  });
+
   test("確定の食費と未分類、精算済み、下書き、削除、隣の月を分けて返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

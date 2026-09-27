@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   categoryLabel,
+  effectiveItemCategory,
   isStoredCategoryId,
   normalizeCategory,
+  normalizeItemCategory,
   toStoredCategory,
 } from "./category";
 
@@ -56,4 +58,39 @@ describe("isStoredCategoryId", () => {
     expect(isStoredCategoryId("other")).toBe(true);
     expect(isStoredCategoryId("uncategorized")).toBe(false);
   });
+});
+
+describe("item category inheritance", () => {
+  test("uses the expense category when the item has no override", () => {
+    expect(effectiveItemCategory(undefined, "daily")).toBe("daily");
+  });
+
+  test("uses the item category when it overrides the expense", () => {
+    expect(effectiveItemCategory("food", "daily")).toBe("food");
+  });
+
+  test("keeps an uncategorized expense uncategorized for an inherited item", () => {
+    expect(effectiveItemCategory(undefined, "uncategorized")).toBe(
+      "uncategorized",
+    );
+  });
+
+  test("normalizes an override equal to the expense category to undefined", () => {
+    expect(normalizeItemCategory("food", "food")).toBeUndefined();
+  });
+
+  test("keeps an override that differs from the expense category", () => {
+    expect(normalizeItemCategory("food", "daily")).toBe("food");
+  });
+
+  test("keeps an uncategorized expense and inherited item undefined", () => {
+    expect(normalizeItemCategory(undefined, "uncategorized")).toBeUndefined();
+  });
+
+  test(
+    "支出に分類があると、品目は「未分類」にできない(undefined は分類を継承)",
+    () => {
+      expect(effectiveItemCategory(undefined, "daily")).toBe("daily");
+    },
+  );
 });

@@ -143,7 +143,12 @@ export default function ExpenseEditClient({
           storeName: expense.storeName ?? "",
           purchasedAt: expense.purchasedAt,
           category: expense.category,
-          items: expense.items,
+          items: expense.items.map((item) => ({
+            ...item,
+            category: item.categoryOverridden
+              ? toStoredCategory(item.category)
+              : undefined,
+          })),
         }}
         submitLabel={
           expense.status === "draft" ? "この支出を確定する" : "変更を保存する"

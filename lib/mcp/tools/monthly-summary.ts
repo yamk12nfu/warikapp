@@ -23,6 +23,8 @@ const DESCRIPTION = `指定した月の支出サマリー(合計・メンバー�
   (draftは件数のみで金額には含まれない)。
 - unsettled_balance: 月内の未精算(confirmed)支出だけを対象にした「誰が誰にいくら」
   (amount, direction)。get_unsettled_balance との違いは説明のとおり。
+- category_amounts: category_id / category_label / amount の配列。確定済み品目を有効な
+  分類ごとに集計した金額で、amount の合計は total_amount と一致する。
 - members: メンバーごとの paid_amount(支払合計) / share_amount(負担合計) /
   unsettled_paid_amount(未精算分の支払額)。
 - truncated: true のとき上記は部分集計値(該当月の対象支出が上限200件を超えた場合)。

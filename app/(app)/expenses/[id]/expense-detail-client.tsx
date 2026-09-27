@@ -14,7 +14,12 @@ import {
 import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcItemShareAmount } from "@/lib/settlement";
-import { inputClass, memberColorClass, secondaryButtonClass } from "@/lib/ui";
+import {
+  badgeClass,
+  inputClass,
+  memberColorClass,
+  secondaryButtonClass,
+} from "@/lib/ui";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,9 +27,6 @@ import { useEffect, useState } from "react";
 
 // 支出詳細(S-005 / F-006)。品目・仕分け内訳・立て替え額・レシート画像を表示し、
 // 編集(/expenses/[id]/edit)と削除の導線を置く。
-
-const badgeClass =
-  "rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap";
 
 const buttonClass =
   "flex-1 rounded-full border border-edge bg-surface px-4 py-3 text-center text-sm font-medium disabled:opacity-50";
@@ -254,6 +256,11 @@ export default function ExpenseDetailClient({
                   {formatYen(item.price * item.quantity)}
                 </span>
               </div>
+              {item.categoryOverridden && (
+                <span className={`${badgeClass} mt-1 inline-block bg-me-soft text-me-strong`}>
+                  {categoryLabel(item.category)}
+                </span>
+              )}
               <ul className="mt-1 space-y-0.5 text-xs text-muted">
                 {item.shares.map((share) => (
                   <li key={share.memberId} className="flex items-center gap-1.5">
