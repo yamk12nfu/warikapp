@@ -192,7 +192,7 @@ function shareOriginsFromMatched(
   return matchedHistory.map((matched) => originFromMatched(matched));
 }
 
-function toSaveItems(items: ExpenseItemInput[]) {
+function toSaveItems(items: ExpenseFormValue["items"]) {
   return items.map((item) => ({
     ...item,
     shares: item.shares.map((share) => ({

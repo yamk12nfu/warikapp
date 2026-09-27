@@ -886,6 +886,49 @@ describe("GET /mcp/summary", () => {
     expect(settled).toBeDefined();
   });
 
+  test("品目分類額を返し、分類額の合計はtotal_amountと一致する", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    const { thisMonth, thisMonthFirstDay } = monthBoundary();
+    await t.withIdentity(ALICE).mutation(api.expenses.save, {
+      paidBy: members.self._id,
+      purchasedAt: thisMonthFirstDay,
+      category: "daily",
+      items: [
+        {
+          name: "パン",
+          price: 300,
+          quantity: 1,
+          category: "food",
+          shares: split(members),
+        },
+        {
+          name: "洗剤",
+          price: 200,
+          quantity: 1,
+          shares: split(members),
+        },
+      ],
+      source: "manual",
+      status: "confirmed",
+    });
+
+    const { body } = await fetchMcp(t, `/mcp/summary?month=${thisMonth}`, {
+      clerkUserId: "alice",
+    });
+
+    expect(body.category_amounts).toEqual([
+      { category_id: "food", category_label: "食費", amount: 300 },
+      { category_id: "daily", category_label: "日用品", amount: 200 },
+    ]);
+    expect(
+      body.category_amounts.reduce(
+        (sum: number, row: { amount: number }) => sum + row.amount,
+        0,
+      ),
+    ).toBe(body.total_amount);
+  });
+
   test("先月の支出は当月サマリーに含まれない(月境界)", async () => {
     const t = setup();
     const members = await setupCouple(t);
@@ -932,6 +975,45 @@ describe("GET /mcp/summary", () => {
 // ==========================================================================
 
 describe("GET /mcp/expense", () => {
+  test("品目ごとの有効分類IDとラベルを返す", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    const expenseId = await t.withIdentity(ALICE).mutation(api.expenses.save, {
+      paidBy: members.self._id,
+      purchasedAt: jstDate(),
+      category: "daily",
+      items: [
+        {
+          name: "パン",
+          price: 300,
+          quantity: 1,
+          category: "food",
+          shares: split(members),
+        },
+        {
+          name: "洗剤",
+          price: 200,
+          quantity: 1,
+          shares: split(members),
+        },
+      ],
+      source: "manual",
+      status: "confirmed",
+    });
+
+    const { body } = await fetchMcp(t, `/mcp/expense?id=${expenseId}`, {
+      clerkUserId: "alice",
+    });
+
+    expect(body.items.map((item: { category_id: string; category_label: string }) => ({
+      category_id: item.category_id,
+      category_label: item.category_label,
+    }))).toEqual([
+      { category_id: "food", category_label: "食費" },
+      { category_id: "daily", category_label: "日用品" },
+    ]);
+  });
+
   test("品目内訳・負担額(丸め込み)を返し、Web側の計算と一致する", async () => {
     const t = setup();
     const members = await setupCouple(t);

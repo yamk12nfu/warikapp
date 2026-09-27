@@ -46,6 +46,8 @@ const VALID_BREAKDOWN = {
       price: 258,
       quantity: 2,
       subtotal: 516,
+      category_id: "food",
+      category_label: "食費",
       shares: [{ member_id: "m1", display_name: "かえで", ratio_percent: 50, amount: 258 }],
     },
   ],
@@ -82,6 +84,10 @@ describe("registerGetItemBreakdownTool", () => {
     expect(mock).toHaveBeenCalledWith("e1", "user_1");
     expect(result.isError).toBeUndefined();
     expect(getItemBreakdownOutputSchema.safeParse(result.structuredContent).success).toBe(true);
+    expect(VALID_BREAKDOWN.items[0]).toMatchObject({
+      category_id: "food",
+      category_label: "食費",
+    });
     expect(result.content[0].text).toContain("牛乳");
   });
 

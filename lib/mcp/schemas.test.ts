@@ -148,6 +148,9 @@ describe("monthlySummaryOutputSchema", () => {
       total_amount: 84210,
       settled_amount: 30000,
       unsettled_amount: 54210,
+      category_amounts: [
+        { category_id: "food", category_label: "食費", amount: 84210 },
+      ],
       unsettled_balance: { amount: 3210, direction: "partner_pays_self" },
       members: [
         {
@@ -192,6 +195,8 @@ describe("getItemBreakdownOutputSchema", () => {
           price: 258,
           quantity: 2,
           subtotal: 516,
+          category_id: "food",
+          category_label: "食費",
           shares: [{ member_id: "m1", display_name: "かえで", ratio_percent: 50, amount: 258 }],
         },
       ],

@@ -16,6 +16,22 @@ export const directionEnum = z.enum(["self_pays_partner", "partner_pays_self", "
 
 export const sourceEnum = z.enum(["receipt", "manual"]);
 export const statusEnum = z.enum(["draft", "confirmed"]);
+export const categoryIdEnum = z.enum([
+  "food",
+  "daily",
+  "transport",
+  "housing",
+  "medical",
+  "leisure",
+  "other",
+  "uncategorized",
+]);
+
+const categoryAmountSchema = z.object({
+  category_id: categoryIdEnum,
+  category_label: z.string(),
+  amount: z.number().int(),
+});
 
 // メンバー参照(自分/相手/支払者/負担者で共通)
 export const memberRefSchema = z.object({
@@ -152,6 +168,9 @@ export const monthlySummaryOutputShape = {
   total_amount: z.number().int(),
   settled_amount: z.number().int(),
   unsettled_amount: z.number().int(),
+  category_amounts: z
+    .array(categoryAmountSchema)
+    .describe("確定済み品目を有効な分類ごとに合計した金額。合計はtotal_amountと一致する"),
   unsettled_balance: unsettledBalanceSchema.describe(
     "その月の未精算(confirmed)支出だけを対象にした「誰が誰にいくら」。" +
       "get_unsettled_balance(全期間の現在残高)とは異なり月をまたぐ未精算は含まない",
@@ -184,6 +203,8 @@ const expenseItemSchema = z.object({
   price: z.number().int(),
   quantity: z.number().int(),
   subtotal: z.number().int(),
+  category_id: categoryIdEnum,
+  category_label: z.string(),
   shares: z.array(itemShareSchema),
 });
 

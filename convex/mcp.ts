@@ -18,10 +18,16 @@ import { listAllMembers } from "./lib/members";
 import { calcAdvanceAmount, calcItemShareAmount } from "../lib/settlement";
 import type { SettlementBalance } from "../lib/settlement";
 import {
+  categoryLabel,
+  effectiveItemCategory,
+  normalizeCategory,
+} from "../lib/category";
+import {
   foldMonth,
   monthDateRange,
   requireYearMonth,
   toMonthExpenseFact,
+  visibleCategories,
 } from "../lib/month-book";
 import { rateLimiter, MCP_READ_LIMIT_NAME } from "./rateLimits";
 
@@ -398,6 +404,7 @@ export const monthlySummary = internalQuery({
         folded.unsettledBalance,
       ),
       members,
+      categoryAmounts: visibleCategories(folded.categoryAmounts),
       truncated,
     };
   },
@@ -427,6 +434,7 @@ export const expenseDetail = internalQuery({
       return null;
     }
 
+    const expenseCategory = normalizeCategory(expense.category);
     return {
       id: expense._id,
       storeName: expense.storeName ?? null,
@@ -440,18 +448,23 @@ export const expenseDetail = internalQuery({
         displayName: displayNameOf(membersById, expense.paidBy),
       },
       advanceAmount: calcAdvanceAmount(expense.paidBy, expense.items),
-      items: expense.items.map((item) => ({
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        subtotal: item.price * item.quantity,
-        shares: item.shares.map((share) => ({
-          memberId: share.memberId,
-          displayName: displayNameOf(membersById, share.memberId),
-          ratioPercent: share.ratioPercent,
-          amount: calcItemShareAmount(item, share.memberId),
-        })),
-      })),
+      items: expense.items.map((item) => {
+        const categoryId = effectiveItemCategory(item.category, expenseCategory);
+        return {
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          subtotal: item.price * item.quantity,
+          categoryId,
+          categoryLabel: categoryLabel(categoryId),
+          shares: item.shares.map((share) => ({
+            memberId: share.memberId,
+            displayName: displayNameOf(membersById, share.memberId),
+            ratioPercent: share.ratioPercent,
+            amount: calcItemShareAmount(item, share.memberId),
+          })),
+        };
+      }),
     };
   },
 });

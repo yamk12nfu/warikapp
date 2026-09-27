@@ -563,6 +563,11 @@ http.route({
               ? "even"
               : directionOf(result.unsettledBalance.fromMemberId, selfMemberId),
         },
+        category_amounts: result.categoryAmounts.map((category) => ({
+          category_id: category.id,
+          category_label: category.label,
+          amount: category.amount,
+        })),
         members: result.members.map((m) => ({
           member_id: m.memberId,
           display_name: m.displayName,
@@ -621,6 +626,8 @@ http.route({
           price: item.price,
           quantity: item.quantity,
           subtotal: item.subtotal,
+          category_id: item.categoryId,
+          category_label: item.categoryLabel,
           shares: item.shares.map((share) => ({
             member_id: share.memberId,
             display_name: share.displayName,

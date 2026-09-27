@@ -17,8 +17,8 @@ const DESCRIPTION = `1件の支出の品目・数量・金額・メンバーご�
 - store_name(未設定の支出はnull) / purchased_at / total_amount / status("draft"|"confirmed") /
   settled / source("receipt"|"manual") / paid_by / advance_amount(支払者が相手の分を
   立て替えた金額)。
-- items: 各品目の name / price / quantity / subtotal / shares(メンバーごとの
-  ratio_percent と負担金額 amount)。
+- items: 各品目の name / price / quantity / subtotal / category_id / category_label /
+  shares(メンバーごとの ratio_percent と負担金額 amount)。分類は支出分類の継承後の値。
 
 エラー時の扱い:
 - 存在しないID・他世帯のID・削除済みの支出はいずれも404として返る(存在を漏らさないため)。

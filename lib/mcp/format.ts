@@ -110,6 +110,11 @@ export function buildMonthlySummaryText(data: MonthlySummaryResponse): string {
   lines.push(
     `${data.month}の合計: ${formatYenText(data.total_amount)}(確定${data.included_expense_count}件・未確定${data.draft_count}件)`,
   );
+  for (const category of data.category_amounts) {
+    lines.push(
+      `- ${category.category_label}: ${formatYenText(category.amount)} (${category.category_id})`,
+    );
+  }
   lines.push(`精算済み ${formatYenText(data.settled_amount)} / 未精算 ${formatYenText(data.unsettled_amount)}`);
   const ub = data.unsettled_balance;
   if (ub.direction === "even") {
@@ -146,6 +151,7 @@ export function buildItemBreakdownSummaryText(data: ExpenseBreakdownResponse): s
       .join(", ");
     lines.push(
       `- ${item.name} ${formatYenText(item.price)} × ${item.quantity} = ${formatYenText(item.subtotal)}` +
+        ` (${item.category_label})` +
         `(負担: ${shareText})`,
     );
   }

@@ -27,6 +27,7 @@ export const itemValidator = v.object({
   name: v.string(), // 1〜50文字
   price: v.number(), // 税込・円・整数(1〜9,999,999)
   quantity: v.number(), // 1〜999の整数
+  category: v.optional(storedCategoryValidator), // 未設定なら支出の分類を継承
   shares: v.array(shareValidator),
 });
 
