@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import type { CategoryId } from "@/lib/category";
 import { todayInJst } from "@/lib/date";
 import { formatYen } from "@/lib/format";
 import {
@@ -8,6 +9,7 @@ import {
   formatYearMonthLabel,
   monthHref,
   parseBookMonth,
+  parseMonthCategory,
   requireYearMonth,
   type YearMonth,
 } from "@/lib/month-book";
@@ -19,12 +21,17 @@ import {
   type MonthSlice,
 } from "@/lib/use-month-book";
 import { useConvexAuth, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+
+type CategoryItemsResult = FunctionReturnType<typeof api.monthBook.categoryItems>;
 
 export default function MonthBookClient({ month }: { month: YearMonth }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const openCategory = parseMonthCategory(searchParams.get("category"));
   const { isLoading, isAuthenticated } = useConvexAuth();
   const member = useQuery(
     api.couples.currentMember,
@@ -32,12 +39,32 @@ export default function MonthBookClient({ month }: { month: YearMonth }) {
   );
   const todayMonth = requireYearMonth(todayInJst().slice(0, 7));
   const book = useMonthBook(month, todayMonth, member != null);
+  const categoryItems = useQuery(
+    api.monthBook.categoryItems,
+    openCategory !== null && member
+      ? { month, category: openCategory }
+      : "skip",
+  );
 
   useEffect(() => {
     if (isAuthenticated && member === null) {
       router.replace("/setup");
     }
   }, [isAuthenticated, member, router]);
+
+  function toggleCategory(category: CategoryId) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (openCategory === category) {
+      params.delete("category");
+    } else {
+      params.set("category", category);
+    }
+    const query = params.toString();
+    router.replace(
+      query === "" ? monthHref(month) : `${monthHref(month)}?${query}`,
+      { scroll: false },
+    );
+  }
 
   if (isLoading) {
     return <main className="p-8 text-muted">読み込み中…</main>;
@@ -72,13 +99,28 @@ export default function MonthBookClient({ month }: { month: YearMonth }) {
         )}
       </div>
 
-      <Focus point={book.focus} />
+      <Focus
+        point={book.focus}
+        openCategory={openCategory}
+        categoryItems={categoryItems}
+        onToggleCategory={toggleCategory}
+      />
       <Trend months={book.months} points={book.points} anchor={month} />
     </main>
   );
 }
 
-function Focus({ point }: { point: MonthPoint }) {
+function Focus({
+  point,
+  openCategory,
+  categoryItems,
+  onToggleCategory,
+}: {
+  point: MonthPoint;
+  openCategory: CategoryId | null;
+  categoryItems: CategoryItemsResult | undefined;
+  onToggleCategory: (category: CategoryId) => void;
+}) {
   if (point.kind === "loading") {
     return <p className="text-sm text-muted">読み込み中…</p>;
   }
@@ -92,10 +134,27 @@ function Focus({ point }: { point: MonthPoint }) {
       </section>
     );
   }
-  return <ExactMonth slice={point.slice} />;
+  return (
+    <ExactMonth
+      slice={point.slice}
+      openCategory={openCategory}
+      categoryItems={categoryItems}
+      onToggleCategory={onToggleCategory}
+    />
+  );
 }
 
-function ExactMonth({ slice }: { slice: MonthSlice }) {
+function ExactMonth({
+  slice,
+  openCategory,
+  categoryItems,
+  onToggleCategory,
+}: {
+  slice: MonthSlice;
+  openCategory: CategoryId | null;
+  categoryItems: CategoryItemsResult | undefined;
+  onToggleCategory: (category: CategoryId) => void;
+}) {
   return (
     <section className={`${cardClass} space-y-4 p-5`}>
       <div>
@@ -143,20 +202,40 @@ function ExactMonth({ slice }: { slice: MonthSlice }) {
                 100,
                 categoryRatio(category.amount, slice.totalAmount) * 100,
               );
+              const isOpen = openCategory === category.id;
+              const panelId = `category-items-${category.id}`;
               return (
                 <li key={category.id} className="space-y-1">
-                  <p className="flex items-baseline justify-between gap-3 text-sm">
-                    <span>{category.label}</span>
-                    <span className={amountClass}>{formatYen(category.amount)}</span>
-                  </p>
-                  <div
-                    aria-hidden
-                    className="h-2 overflow-hidden rounded-full bg-line"
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
+                    onClick={() => onToggleCategory(category.id)}
+                    className="w-full space-y-1 rounded text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-me-strong"
                   >
-                    <div
-                      className="h-full rounded-full bg-me"
-                      style={{ width: `${width}%` }}
-                    />
+                    <span className="flex items-baseline justify-between gap-3 text-sm">
+                      <span>{category.label}</span>
+                      <span className="flex items-baseline gap-2">
+                        <span className={amountClass}>
+                          {formatYen(category.amount)}
+                        </span>
+                        <span aria-hidden className="text-xs text-muted">
+                          {isOpen ? "−" : "+"}
+                        </span>
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden
+                      className="block h-2 overflow-hidden rounded-full bg-line"
+                    >
+                      <span
+                        className="block h-full rounded-full bg-me"
+                        style={{ width: `${width}%` }}
+                      />
+                    </span>
+                  </button>
+                  <div id={panelId} hidden={!isOpen} className="border-t border-line pt-2">
+                    {isOpen && <CategoryItemList result={categoryItems} />}
                   </div>
                 </li>
               );
@@ -165,6 +244,48 @@ function ExactMonth({ slice }: { slice: MonthSlice }) {
         </div>
       )}
     </section>
+  );
+}
+
+function CategoryItemList({
+  result,
+}: {
+  result: CategoryItemsResult | undefined;
+}) {
+  if (result === undefined) {
+    return <p className="p-2 text-sm text-muted">読み込み中…</p>;
+  }
+  if (result.kind === "overflow") {
+    return (
+      <p className="p-2 text-sm text-muted">
+        支出が多すぎて一覧を表示できません。上限は{result.limit}件です。
+      </p>
+    );
+  }
+  if (result.rows.length === 0) {
+    return <p className="p-2 text-sm text-muted">この分類の品目はありません</p>;
+  }
+  return (
+    <ul className="divide-y divide-line">
+      {result.rows.map((row, index) => (
+        <li key={`${row.expenseId}-${index}`}>
+          <Link
+            href={`/expenses/${row.expenseId}`}
+            className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-2"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs text-muted">
+                {row.expenseTitle}
+              </span>
+              <span className="block break-words text-sm">{row.itemName}</span>
+            </span>
+            <span className={`${amountClass} shrink-0 text-sm`}>
+              {formatYen(row.amount)}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 

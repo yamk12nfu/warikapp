@@ -1,12 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
   categoryRatio,
+  categoryItemRows,
   foldMonth,
   formatYearMonthLabel,
   monthDateRange,
   monthHref,
   nextBookMonth,
   parseBookMonth,
+  parseMonthCategory,
   parseYearMonth,
   requireYearMonth,
   shiftYearMonth,
@@ -17,6 +19,7 @@ import {
   type MonthExpenseFact,
   type MonthItemFact,
 } from "./month-book";
+import { expenseTitle } from "./expense-title";
 
 const SELF = "self";
 const PARTNER = "partner";
@@ -34,14 +37,18 @@ const item = (
   price: number,
   shares: MonthItemFact["shares"],
   quantity = 1,
-): MonthItemFact => ({ price, quantity, shares });
+  name = "品目",
+): MonthItemFact => ({ name, price, quantity, shares });
 
 function fact(
   overrides: Partial<MonthExpenseFact> &
     Pick<MonthExpenseFact, "totalAmount" | "category" | "items">,
 ): MonthExpenseFact {
   return {
+    expenseId: "expense",
+    expenseTitle: "支出",
     purchasedAt: month,
+    purchasedAtDate: "2026-09-01",
     status: "confirmed",
     settled: false,
     paidBy: SELF,
@@ -417,6 +424,98 @@ describe("foldMonth", () => {
   });
 });
 
+describe("categoryItemRows", () => {
+  test("確定済み品目を分類別に返し、月次分類金額と一致させる", () => {
+    const facts = [
+      fact({
+        expenseId: "mixed",
+        expenseTitle: "スーパー",
+        purchasedAtDate: "2026-09-20",
+        totalAmount: 500,
+        category: "daily",
+        items: [
+          { ...item(300, split(), 1, "パン"), category: "food" },
+          item(200, split(), 1, "洗剤"),
+        ],
+      }),
+      fact({
+        expenseId: "draft",
+        expenseTitle: "下書き店",
+        purchasedAtDate: "2026-09-18",
+        status: "draft",
+        totalAmount: 700,
+        category: "food",
+        items: [item(700, split(), 1, "下書き品目")],
+      }),
+      fact({
+        expenseId: "food",
+        expenseTitle: "八百屋",
+        purchasedAtDate: "2026-09-12",
+        totalAmount: 300,
+        category: "food",
+        items: [item(150, split(), 2, "りんご")],
+      }),
+      fact({
+        expenseId: "deleted",
+        expenseTitle: "削除済み店",
+        purchasedAtDate: "2026-09-25",
+        deletedAt: 1,
+        totalAmount: 800,
+        category: "food",
+        items: [item(800, split(), 1, "削除済み品目")],
+      }),
+    ];
+
+    const foodRows = categoryItemRows(facts, "food");
+    expect(foodRows).toEqual([
+      {
+        expenseId: "mixed",
+        expenseTitle: "スーパー",
+        itemName: "パン",
+        amount: 300,
+        purchasedAt: "2026-09-20",
+      },
+      {
+        expenseId: "food",
+        expenseTitle: "八百屋",
+        itemName: "りんご",
+        amount: 300,
+        purchasedAt: "2026-09-12",
+      },
+    ]);
+    const folded = foldMonth(month, facts, SELF, PARTNER);
+    expect(foodRows.reduce((sum, row) => sum + row.amount, 0)).toBe(
+      folded.categoryAmounts.food,
+    );
+    expect(categoryItemRows(facts, "daily")).toEqual([
+      {
+        expenseId: "mixed",
+        expenseTitle: "スーパー",
+        itemName: "洗剤",
+        amount: 200,
+        purchasedAt: "2026-09-20",
+      },
+    ]);
+  });
+});
+
+describe("parseMonthCategory", () => {
+  test("保存済み分類と未分類だけを受け、未知の値は閉じた状態にする", () => {
+    expect(parseMonthCategory("food")).toBe("food");
+    expect(parseMonthCategory("uncategorized")).toBe("uncategorized");
+    expect(parseMonthCategory(null)).toBeNull();
+    expect(parseMonthCategory("unknown")).toBeNull();
+  });
+});
+
+describe("expenseTitle", () => {
+  test("店名、先頭品目名、名称なしの順にホームと同じタイトルを返す", () => {
+    expect(expenseTitle("スーパー", "パン")).toBe("スーパー");
+    expect(expenseTitle(undefined, "パン")).toBe("パン");
+    expect(expenseTitle(undefined, undefined)).toBe("(名称なし)");
+  });
+});
+
 describe("visibleCategories", () => {
   test("0円を除き、未分類を最後に置く", () => {
     expect(
@@ -455,33 +554,42 @@ describe("toMonthExpenseFact", () => {
   test("日付は月に切り、カテゴリ欠落は未分類、精算idの有無が settled", () => {
     const items = [item(1200, split())];
     const missing = toMonthExpenseFact({
+      _id: "expense-1",
       purchasedAt: "2026-09-15",
       status: "confirmed",
       paidBy: SELF,
       totalAmount: 1200,
+      storeName: "スーパー",
       items,
     });
     expect(missing.purchasedAt).toBe("2026-09");
     expect(missing.category).toBe("uncategorized");
     expect(missing.settled).toBe(false);
+    expect(missing.purchasedAtDate).toBe("2026-09-15");
+    expect(missing.expenseId).toBe("expense-1");
+    expect(missing.expenseTitle).toBe("スーパー");
 
     const stored = toMonthExpenseFact({
+      _id: "expense-2",
       purchasedAt: "2026-09-01",
       status: "draft",
       settlementId: "settlement-1",
       paidBy: PARTNER,
       totalAmount: 400,
       category: "leisure",
+      storeName: undefined,
       items,
     });
     expect(stored.category).toBe("leisure");
     expect(stored.settled).toBe(true);
     expect(stored.status).toBe("draft");
     expect(stored.paidBy).toBe(PARTNER);
+    expect(stored.expenseTitle).toBe("品目");
   });
 
   test("保存済み品目の分類を fact に引き継ぐ", () => {
     const stored = toMonthExpenseFact({
+      _id: "expense-3",
       purchasedAt: "2026-09-01",
       status: "confirmed",
       paidBy: SELF,
@@ -496,6 +604,7 @@ describe("toMonthExpenseFact", () => {
   test("未知のカテゴリは拒否する", () => {
     expect(() =>
       toMonthExpenseFact({
+        _id: "expense-4",
         purchasedAt: "2026-09-01",
         status: "confirmed",
         paidBy: SELF,

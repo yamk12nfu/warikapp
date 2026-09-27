@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { query } from "./_generated/server";
+import { query, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
 import { listActiveMembers, listAllMembers } from "./lib/members";
@@ -7,9 +7,11 @@ import { MAX_UNSETTLED_EXPENSES } from "./settlements";
 import type { SettlementBalance } from "../lib/settlement";
 import {
   foldMonth,
+  categoryItemRows,
   MAX_MONTH_EXPENSES,
   monthDateRange,
   parseBookMonth,
+  parseMonthCategory,
   toMonthExpenseFact,
   visibleCategories,
   type CategorySlice,
@@ -18,6 +20,38 @@ import {
 } from "../lib/month-book";
 
 const ERR_MONTH = "月の指定が正しくありません";
+const ERR_CATEGORY = "分類の指定が正しくありません";
+
+type MonthExpenseRead =
+  | { kind: "overflow"; limit: number }
+  | { kind: "rows"; rows: Doc<"expenses">[] };
+
+async function readMonthExpenses(
+  ctx: QueryCtx,
+  coupleId: Doc<"members">["coupleId"],
+  monthValue: YearMonth,
+): Promise<MonthExpenseRead> {
+  const { from, to } = monthDateRange(monthValue);
+  const rows = await ctx.db
+    .query("expenses")
+    .withIndex("by_coupleId_and_deletedAt_and_purchasedAt", (q) =>
+      q
+        .eq("coupleId", coupleId)
+        .eq("deletedAt", undefined)
+        .gte("purchasedAt", from)
+        .lte("purchasedAt", to),
+    )
+    .order("desc")
+    .take((MAX_UNSETTLED_EXPENSES satisfies typeof MAX_MONTH_EXPENSES) + 1);
+
+  if (rows.length > MAX_UNSETTLED_EXPENSES) {
+    return {
+      kind: "overflow",
+      limit: MAX_MONTH_EXPENSES satisfies typeof MAX_UNSETTLED_EXPENSES,
+    };
+  }
+  return { kind: "rows", rows };
+}
 
 export type SliceMember = {
   memberId: string;
@@ -87,30 +121,18 @@ export const month = query({
       activeMembers.find((row) => row._id !== member._id) ??
       allMembers.find((row) => row._id !== member._id) ??
       null;
-    const { from, to } = monthDateRange(monthValue);
-
-    const rows = await ctx.db
-      .query("expenses")
-      .withIndex("by_coupleId_and_deletedAt_and_purchasedAt", (q) =>
-        q
-          .eq("coupleId", member.coupleId)
-          .eq("deletedAt", undefined)
-          .gte("purchasedAt", from)
-          .lte("purchasedAt", to),
-      )
-      .take((MAX_UNSETTLED_EXPENSES satisfies typeof MAX_MONTH_EXPENSES) + 1);
-
-    if (rows.length > MAX_UNSETTLED_EXPENSES) {
+    const read = await readMonthExpenses(ctx, member.coupleId, monthValue);
+    if (read.kind === "overflow") {
       return {
         kind: "overflow" as const,
         month: monthValue,
-        limit: MAX_MONTH_EXPENSES satisfies typeof MAX_UNSETTLED_EXPENSES,
+        limit: read.limit,
       };
     }
 
     const folded = foldMonth(
       monthValue,
-      rows.map((row) => toMonthExpenseFact(row)),
+      read.rows.map((row) => toMonthExpenseFact(row)),
       member._id,
       partner?._id ?? null,
     );
@@ -127,6 +149,36 @@ export const month = query({
         members: namedMembers(folded, member, partner),
         categories: visibleCategories(folded.categoryAmounts),
       },
+    };
+  },
+});
+
+export const categoryItems = query({
+  args: { month: v.string(), category: v.string() },
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const monthValue = parseBookMonth(args.month);
+    if (monthValue === null) {
+      throw new ConvexError(ERR_MONTH);
+    }
+    const category = parseMonthCategory(args.category);
+    if (category === null) {
+      throw new ConvexError(ERR_CATEGORY);
+    }
+
+    const read = await readMonthExpenses(ctx, member.coupleId, monthValue);
+    if (read.kind === "overflow") {
+      return { kind: "overflow" as const, limit: read.limit };
+    }
+
+    const rows = categoryItemRows(
+      read.rows.map((row) => toMonthExpenseFact(row)),
+      category,
+    );
+    return {
+      kind: "rows" as const,
+      rows,
+      totalAmount: rows.reduce((sum, row) => sum + row.amount, 0),
     };
   },
 });

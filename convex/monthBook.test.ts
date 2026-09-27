@@ -71,7 +71,7 @@ async function insertExpense(
     shares?: { memberId: Id<"members">; ratioPercent: number }[];
   },
 ) {
-  await t.run(async (ctx) => {
+  return t.run(async (ctx) => {
     let settlementId: Id<"settlements"> | undefined;
     if (args.settled) {
       const partnerId = members.partner?._id ?? members.self._id;
@@ -84,7 +84,7 @@ async function insertExpense(
         expenseCount: 1,
       });
     }
-    await ctx.db.insert("expenses", {
+    return ctx.db.insert("expenses", {
       coupleId: members.coupleId,
       paidBy: args.paidBy ?? members.self._id,
       purchasedAt: args.purchasedAt,
@@ -481,5 +481,131 @@ describe("monthBook.month", () => {
         });
       }),
     ).rejects.toThrow("nope");
+  });
+});
+
+describe("monthBook.categoryItems", () => {
+  test("returns only the caller's household items in the requested category", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const other = await setupCouple(t, CAROL, null);
+    const expenseId = await t.run(async (ctx) =>
+      ctx.db.insert("expenses", {
+        coupleId: members.coupleId,
+        paidBy: members.self._id,
+        storeName: "スーパー",
+        purchasedAt: "2026-08-10",
+        totalAmount: 500,
+        category: "daily",
+        items: [
+          {
+            name: "パン",
+            price: 300,
+            quantity: 1,
+            category: "food",
+            shares: split(members),
+          },
+          {
+            name: "洗剤",
+            price: 200,
+            quantity: 1,
+            shares: split(members),
+          },
+        ],
+        source: "manual",
+        status: "confirmed",
+      }),
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("expenses", {
+        coupleId: other.coupleId,
+        paidBy: other.self._id,
+        storeName: "他世帯",
+        purchasedAt: "2026-08-09",
+        totalAmount: 900,
+        category: "food",
+        items: [
+          {
+            name: "他世帯の食材",
+            price: 900,
+            quantity: 1,
+            shares: split(other),
+          },
+        ],
+        source: "manual",
+        status: "confirmed",
+      });
+    });
+
+    const result = await t.withIdentity(ALICE).query(
+      api.monthBook.categoryItems,
+      { month: "2026-08", category: "food" },
+    );
+    expect(result).toEqual({
+      kind: "rows",
+      rows: [
+        {
+          expenseId,
+          expenseTitle: "スーパー",
+          itemName: "パン",
+          amount: 300,
+          purchasedAt: "2026-08-10",
+        },
+      ],
+      totalAmount: 300,
+    });
+  });
+
+  test("rejects an unknown category with the boundary error", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    await expect(
+      t.withIdentity(ALICE).query(api.monthBook.categoryItems, {
+        month: "2026-08",
+        category: "groceries",
+      }),
+    ).rejects.toThrow("分類の指定が正しくありません");
+  });
+
+  test("uses the same 200 expense overflow limit as the month query", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t, ALICE, null);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 201; i++) {
+        await ctx.db.insert("expenses", {
+          coupleId: members.coupleId,
+          paidBy: members.self._id,
+          purchasedAt: `2026-01-${String((i % 28) + 1).padStart(2, "0")}`,
+          totalAmount: 100,
+          items: [
+            {
+              name: "食材",
+              price: 100,
+              quantity: 1,
+              shares: split(members),
+            },
+          ],
+          source: "manual",
+          status: "confirmed",
+          category: "food",
+        });
+      }
+    });
+
+    const monthResult = await t.withIdentity(ALICE).query(api.monthBook.month, {
+      month: "2026-01",
+    });
+    const categoryResult = await t
+      .withIdentity(ALICE)
+      .query(api.monthBook.categoryItems, {
+        month: "2026-01",
+        category: "food",
+      });
+    expect(monthResult).toEqual({
+      kind: "overflow",
+      month: "2026-01",
+      limit: 200,
+    });
+    expect(categoryResult).toEqual({ kind: "overflow", limit: 200 });
   });
 });
