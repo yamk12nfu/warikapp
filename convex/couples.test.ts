@@ -651,6 +651,19 @@ describe("leaveCouple", () => {
       throw new Error("自分のメンバーが見つからない");
     }
     const coupleId = currentMember.coupleId;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("budgets", {
+        coupleId,
+        month: "2026-07",
+        amount: 90000,
+      });
+      await ctx.db.insert("budgets", {
+        coupleId,
+        month: "2026-07",
+        category: "food",
+        amount: 30000,
+      });
+    });
     await t.run(async (ctx) =>
       ctx.db.insert("fixedCosts", {
         coupleId,
@@ -708,7 +721,7 @@ describe("leaveCouple", () => {
     }
 
     const afterPurge = await t.run(async (ctx) => {
-      const [couple, expenses, fixedCosts, uploads, settlements, invitations, members, storage] =
+      const [couple, expenses, fixedCosts, budgets, uploads, settlements, invitations, members, storage] =
         await Promise.all([
           ctx.db.get("couples", coupleId),
           ctx.db
@@ -723,6 +736,12 @@ describe("leaveCouple", () => {
               q.eq("coupleId", coupleId),
             )
             .take(10),
+          ctx.db
+            .query("budgets")
+            .withIndex("by_coupleId_and_month", (q) =>
+              q.eq("coupleId", coupleId),
+            )
+            .collect(),
           ctx.db
             .query("uploads")
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
@@ -745,6 +764,7 @@ describe("leaveCouple", () => {
         couple,
         expenses,
         fixedCosts,
+        budgets,
         uploads,
         settlements,
         invitations,
@@ -755,6 +775,7 @@ describe("leaveCouple", () => {
     expect(afterPurge.couple).toBeNull();
     expect(afterPurge.expenses).toHaveLength(0);
     expect(afterPurge.fixedCosts).toHaveLength(0);
+    expect(afterPurge.budgets).toHaveLength(0);
     expect(afterPurge.uploads).toHaveLength(0);
     expect(afterPurge.settlements).toHaveLength(0);
     expect(afterPurge.invitations).toHaveLength(0);
@@ -835,6 +856,13 @@ describe("leaveCouple", () => {
           settlementId: undefined,
           deletedAt: i % 2 === 0 ? Date.now() : undefined,
         });
+        const month = `${2000 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+        await ctx.db.insert("budgets", {
+          coupleId,
+          month,
+          category: "food",
+          amount: 30000,
+        });
       }
     });
     await t.run(async (ctx) => {
@@ -858,9 +886,16 @@ describe("leaveCouple", () => {
           q.eq("coupleId", coupleId),
         )
         .collect(),
+      budgets: await ctx.db
+        .query("budgets")
+        .withIndex("by_coupleId_and_month", (q) =>
+          q.eq("coupleId", coupleId),
+        )
+        .collect(),
     }));
     expect(remaining.couple).toBeNull();
     expect(remaining.expenses).toHaveLength(0);
+    expect(remaining.budgets).toHaveLength(0);
   });
 
   test("世帯に所属していないユーザーの退出はnullを返す", async () => {

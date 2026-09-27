@@ -63,6 +63,13 @@ export default defineSchema({
     .index("by_coupleId_and_stoppedAt", ["coupleId", "stoppedAt"])
     .index("by_stoppedAt", ["stoppedAt"]),
 
+  budgets: defineTable({
+    coupleId: v.id("couples"),
+    month: v.string(), // YYYY-MM。以降の月に引き継ぐ
+    category: v.optional(storedCategoryValidator), // 未設定は月全体の予算
+    amount: v.number(), // 整数円 0〜99,999,999。0 は解除
+  }).index("by_coupleId_and_month", ["coupleId", "month"]),
+
   invitations: defineTable({
     coupleId: v.id("couples"),
     code: v.string(), // 8文字英数字

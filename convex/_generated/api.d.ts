@@ -13,6 +13,7 @@ import type * as ai_config from "../ai/config.js";
 import type * as ai_gemini from "../ai/gemini.js";
 import type * as ai_index from "../ai/index.js";
 import type * as ai_types from "../ai/types.js";
+import type * as budgets from "../budgets.js";
 import type * as couples from "../couples.js";
 import type * as crons from "../crons.js";
 import type * as expenses from "../expenses.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "ai/gemini": typeof ai_gemini;
   "ai/index": typeof ai_index;
   "ai/types": typeof ai_types;
+  budgets: typeof budgets;
   couples: typeof couples;
   crons: typeof crons;
   expenses: typeof expenses;
