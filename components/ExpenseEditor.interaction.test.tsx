@@ -15,14 +15,14 @@ const self: EditorMember = { _id: "self", displayName: "あなた" };
 const partner: EditorMember = { _id: "partner", displayName: "相手" };
 const itemNames = ["牛乳", "パン", "米"];
 
-function makeInitialValue(): ExpenseFormValue {
+function makeInitialValue(itemCount = itemNames.length): ExpenseFormValue {
   return {
     paidBy: self._id,
     storeName: "",
     purchasedAt: "2026-09-23",
     category: "uncategorized",
-    items: itemNames.map((name, index) => ({
-      name,
+    items: Array.from({ length: itemCount }, (_, index) => ({
+      name: itemNames[index] ?? `品目${index + 1}`,
       price: (index + 1) * 100,
       quantity: 1,
       shares: [
@@ -36,17 +36,19 @@ function makeInitialValue(): ExpenseFormValue {
 function renderEditor({
   selectedPartner = partner,
   initialShareOrigins,
+  initialValue = makeInitialValue(),
   onSubmit = async () => {},
 }: {
   selectedPartner?: EditorMember | null;
   initialShareOrigins?: readonly ("history" | "default")[];
+  initialValue?: ExpenseFormValue;
   onSubmit?: (value: ExpenseFormValue) => Promise<void>;
 } = {}) {
   return render(
     <ExpenseEditor
       self={self}
       partner={selectedPartner}
-      initialValue={makeInitialValue()}
+      initialValue={initialValue}
       initialShareOrigins={initialShareOrigins}
       submitLabel="確定"
       submittingLabel="確定中"
@@ -308,4 +310,38 @@ it("支出の分類を品目の上書きと同じ値にすると、その上書�
   expect(
     screen.getAllByRole("combobox", { name: "品目の分類: 支出と同じ" }),
   ).toHaveLength(3);
+});
+
+it("品目が100件あると追加できない", () => {
+  renderEditor({ initialValue: makeInitialValue(100) });
+
+  const addButton = screen.getByRole("button", { name: "品目は100件までです" });
+  expect(addButton.hasAttribute("disabled")).toBe(true);
+  expect(screen.getAllByRole("textbox", { name: "品目名" })).toHaveLength(100);
+
+  fireEvent.click(addButton);
+  expect(screen.getAllByRole("textbox", { name: "品目名" })).toHaveLength(100);
+});
+
+it("品目が99件なら1件追加でき、100件で上限に達する", () => {
+  renderEditor({ initialValue: makeInitialValue(99) });
+
+  const addButton = screen.getByRole("button", { name: "+ 品目を追加" });
+  expect(addButton.hasAttribute("disabled")).toBe(false);
+
+  fireEvent.click(addButton);
+
+  expect(screen.getAllByRole("textbox", { name: "品目名" })).toHaveLength(100);
+  const limitButton = screen.getByRole("button", { name: "品目は100件までです" });
+  expect(limitButton.hasAttribute("disabled")).toBe(true);
+});
+
+it("品目が101件あると確定できず上限の案内を表示する", () => {
+  renderEditor({ initialValue: makeInitialValue(101) });
+
+  const submitButton = screen.getByRole("button", { name: "確定" });
+  expect(submitButton.hasAttribute("disabled")).toBe(true);
+  expect(screen.getByText("品目は100件までです", { selector: "p" }).tagName).toBe(
+    "P",
+  );
 });

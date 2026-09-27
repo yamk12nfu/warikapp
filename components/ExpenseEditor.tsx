@@ -9,6 +9,11 @@ import {
   type StoredCategoryId,
 } from "@/lib/category";
 import { todayLocalDate } from "@/lib/date";
+import {
+  MAX_ITEMS,
+  MAX_ITEM_NAME_LENGTH,
+  MAX_PRICE,
+} from "@/lib/expense-limits";
 import { formatYen } from "@/lib/format";
 import { calcAdvanceAmount, calcTotalAmount } from "@/lib/settlement";
 import {
@@ -32,9 +37,6 @@ import { FormEvent, useRef, useState } from "react";
 // 品目仕分けUI(F-004)。手入力(S-006)・レシート確認・編集(S-005)の3画面で共用する。
 // 負担区分チップはタップで 折半 → 自分 → 相手 → 折半 と循環し、
 // 「%」ボタンでカスタム割合(例 70:30)に切り替える。
-
-const MAX_PRICE = 9_999_999;
-const MAX_ITEM_NAME_LENGTH = 50;
 
 export type EditorMember = { _id: string; displayName: string };
 
@@ -208,6 +210,9 @@ export default function ExpenseEditor({
   }
 
   function addRow() {
+    if (rows.length >= MAX_ITEMS) {
+      return;
+    }
     const key = `row-${nextRowIndex.current}`;
     nextRowIndex.current += 1;
     const item = createInitialItem(self._id, partnerId);
@@ -263,7 +268,8 @@ export default function ExpenseEditor({
   const hasRowError = checked.some((item) => item.errors.length > 0);
   // 割合が100%でない行があるあいだ立て替え額は確定できない
   const shareIncomplete = checked.some((item) => item.shareTotal !== 100);
-  const canSubmit = rows.length > 0 && !hasRowError && !submitting;
+  const canSubmit =
+    rows.length > 0 && rows.length <= MAX_ITEMS && !hasRowError && !submitting;
 
   // フッターの表示は金額が読める行だけで計算する(入力途中でも壊れないように)
   const previewItems: ExpenseItemInput[] = checked
@@ -561,9 +567,12 @@ export default function ExpenseEditor({
         <button
           type="button"
           onClick={addRow}
+          disabled={rows.length >= MAX_ITEMS}
           className="w-full rounded-full border border-dashed border-edge px-4 py-3 text-sm font-medium text-muted"
         >
-          + 品目を追加
+          {rows.length >= MAX_ITEMS
+            ? `品目は${MAX_ITEMS}件までです`
+            : "+ 品目を追加"}
         </button>
       </div>
 
@@ -594,9 +603,11 @@ export default function ExpenseEditor({
             <p className="text-xs text-muted">
               {rows.length === 0
                 ? "品目を1件以上入力してください"
-                : shareIncomplete
-                  ? "負担割合の合計を100%にしてください"
-                  : "品目名と金額を入力すると登録できます"}
+                : rows.length > MAX_ITEMS
+                  ? `品目は${MAX_ITEMS}件までです`
+                  : shareIncomplete
+                    ? "負担割合の合計を100%にしてください"
+                    : "品目名と金額を入力すると登録できます"}
             </p>
           )}
           <button type="submit" disabled={!canSubmit} className={submitClass}>
