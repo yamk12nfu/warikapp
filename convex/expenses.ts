@@ -10,6 +10,13 @@ import { calcTotalAmount } from "../lib/settlement";
 import { todayInJst } from "../lib/date";
 import { expenseTitle } from "../lib/expense-title";
 import {
+  MAX_ITEMS,
+  MAX_ITEM_NAME_LENGTH,
+  MAX_PRICE,
+  MAX_QUANTITY,
+  MAX_STORE_NAME_LENGTH,
+} from "../lib/expense-limits";
+import {
   effectiveItemCategory,
   normalizeCategory,
   normalizeItemCategory,
@@ -22,11 +29,6 @@ import { suggestReceiptItemSharesFromHistory } from "../lib/share-memory";
 // 必ず assertCoupleMemberIds を通してから保存する(他世帯IDの混入=テナント境界破りを防ぐ)。
 // 画面に出すエラーは ConvexError で投げる(本番でもメッセージがクライアントに届く)。
 
-const MAX_STORE_NAME_LENGTH = 50;
-const MAX_ITEM_NAME_LENGTH = 50;
-const MAX_PRICE = 9_999_999; // 要件 V-403
-const MAX_QUANTITY = 999; // 総額が非現実的な桁にならないための上限
-const MAX_ITEMS = 100; // レシート1枚の想定(数十品目)に対する安全弁
 const SHARE_SUGGEST_UNDELETED_TAKE = 100;
 
 // 他世帯の支出を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
