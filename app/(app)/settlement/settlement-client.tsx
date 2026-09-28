@@ -16,16 +16,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+// 精算(S-007 / F-007)。確認待ちが無ければ対象を確認して開始し、あれば
+// 開始者は取り下げ、相手は確認か差し戻しを選ぶ。
+// 差額はサーバー側(settlements.start)で計算し直すため、ここの表示は確認用。
+
 const MAX_MEMO_LENGTH = 100;
 
 export default function SettlementClient() {
   const router = useRouter();
   const { show } = useToast();
+  // Convex側のJWT検証が完了するまでqueryを実行しない(Phase 3と同じ理由)
   const { isLoading, isAuthenticated } = useConvexAuth();
   const member = useQuery(
     api.couples.currentMember,
     isAuthenticated ? {} : "skip",
   );
+  // current / household は requireMember で throw するため、所属確定後に呼ぶ
   const screen = useQuery(api.settlements.current, member ? {} : "skip");
   const household = useQuery(api.couples.household, member ? {} : "skip");
   const start = useMutation(api.settlements.start);

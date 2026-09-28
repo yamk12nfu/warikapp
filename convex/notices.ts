@@ -3,8 +3,10 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
 
+// 差し戻し・取り消しは精算の行ごと消えるので、相手に見せる記録はここに残す。
+// 確認依頼は pending の行そのものが依頼なので、お知らせの行は作らない
 export type SettlementEvent = {
-  kind: "settlementRequested" | "settlementRejected" | "settlementCancelled";
+  kind: "settlementRejected" | "settlementCancelled";
   settlement: Doc<"settlements">;
   actor: Doc<"members">;
   recipientId: Id<"members">;
@@ -16,10 +18,6 @@ export async function emitSettlementEvent(
   ctx: MutationCtx,
   event: SettlementEvent,
 ): Promise<void> {
-  if (event.kind === "settlementRequested") {
-    return;
-  }
-
   const existing = await ctx.db
     .query("notices")
     .withIndex("by_recipientId", (q) =>

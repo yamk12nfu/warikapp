@@ -289,16 +289,14 @@ async function findLeaveBlocker(
       .first(),
     loadSettlementScope(ctx, member.coupleId),
   ]);
-  if (scope.pending !== null) {
-    return "pending";
-  }
-  if (partner === null) {
+  // 1人だけの世帯は未精算があっても退出できる(貸し借りの相手がいない)
+  if (partner === null && scope.pending === null) {
     return null;
   }
   return getLeaveBlocker({
     hasDraft: draft !== null,
     hasUnsettled: unsettled !== null,
-    hasPending: false,
+    hasPending: scope.pending !== null,
   });
 }
 

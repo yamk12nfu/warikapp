@@ -18,6 +18,8 @@ import {
 } from "./lib/settlementScope";
 import { emitSettlementEvent } from "./notices";
 
+// 精算(F-007)。未精算支出から世帯全体の差額を出し、開始 → 相手の確認の2段階で区切る。
+// 開始時に対象支出を固定するので、確認する側は開始者が見たのと同じ金額を見る。
 // 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
 // クライアントに届かず「Server Error」に伏せられるため)。
 
@@ -494,18 +496,6 @@ export const start = mutation({
     });
     for (const expense of expenses) {
       await ctx.db.patch("expenses", expense._id, { settlementId });
-    }
-
-    if (status === "pending") {
-      const settlement = await ctx.db.get("settlements", settlementId);
-      if (settlement !== null) {
-        await emitSettlementEvent(ctx, {
-          kind: "settlementRequested",
-          settlement,
-          actor: member,
-          recipientId: partner._id,
-        });
-      }
     }
 
     return { kind: status, settlementId };
