@@ -165,12 +165,6 @@ export default function SettlementClient() {
     expenseCount > 0 &&
     draftCount === 0 &&
     household.partner !== null;
-  const starterName =
-    !isOpen && screen.pending.viewerRole === "starter"
-      ? household.self.displayName
-      : !isOpen
-        ? household.partner?.displayName ?? "メンバー"
-        : "";
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
@@ -194,7 +188,8 @@ export default function SettlementClient() {
         </p>
         {!isOpen && (
           <p className="mt-2 text-xs text-muted">
-            {expenseCount}件の支出を対象に {starterName} が開始
+            {expenseCount}件の支出を対象に {memberName(screen.pending.startedBy)}
+            が開始
           </p>
         )}
       </section>
