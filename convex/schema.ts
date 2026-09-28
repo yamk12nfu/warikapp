@@ -151,6 +151,20 @@ export default defineSchema({
     .index("by_coupleId", ["coupleId"])
     .index("by_coupleId_and_status", ["coupleId", "status"]),
 
+  notices: defineTable({
+    coupleId: v.id("couples"),
+    recipientId: v.id("members"),
+    actorId: v.id("members"),
+    kind: v.union(
+      v.literal("settlementRejected"),
+      v.literal("settlementCancelled"),
+    ),
+    amount: v.number(),
+    expenseCount: v.number(),
+  })
+    .index("by_recipientId", ["recipientId"])
+    .index("by_coupleId", ["coupleId"]),
+
   // アップロードした画像の世帯帰属台帳(Phase 8)。
   // Convexのstorage IDはURLを知っていれば誰でも指定できてしまうため、
   // 「このstorageIdはどの世帯がアップロードしたか」をここに記録し、

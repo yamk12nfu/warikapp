@@ -534,6 +534,16 @@ describe("leaveCouple", () => {
       throw new Error("自分のメンバーが見つからない");
     }
     const coupleId = currentMember.coupleId;
+    await t.run(async (ctx) =>
+      ctx.db.insert("notices", {
+        coupleId,
+        recipientId: household.self._id,
+        actorId: household.partner!._id,
+        kind: "settlementCancelled",
+        amount: 1500,
+        expenseCount: 1,
+      }),
+    );
     const expenseId = await t.withIdentity(ALICE).mutation(api.expenses.save, {
       paidBy: household.self._id,
       purchasedAt: "2026-07-20",
@@ -721,7 +731,7 @@ describe("leaveCouple", () => {
     }
 
     const afterPurge = await t.run(async (ctx) => {
-      const [couple, expenses, fixedCosts, budgets, uploads, settlements, invitations, members, storage] =
+      const [couple, expenses, fixedCosts, budgets, uploads, settlements, notices, invitations, members, storage] =
         await Promise.all([
           ctx.db.get("couples", coupleId),
           ctx.db
@@ -751,6 +761,10 @@ describe("leaveCouple", () => {
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
             .collect(),
           ctx.db
+            .query("notices")
+            .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+            .collect(),
+          ctx.db
             .query("invitations")
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
             .collect(),
@@ -767,6 +781,7 @@ describe("leaveCouple", () => {
         budgets,
         uploads,
         settlements,
+        notices,
         invitations,
         members,
         storage,
@@ -778,6 +793,7 @@ describe("leaveCouple", () => {
     expect(afterPurge.budgets).toHaveLength(0);
     expect(afterPurge.uploads).toHaveLength(0);
     expect(afterPurge.settlements).toHaveLength(0);
+    expect(afterPurge.notices).toHaveLength(0);
     expect(afterPurge.invitations).toHaveLength(0);
     expect(afterPurge.members).toHaveLength(0);
     expect(afterPurge.storage).toBeNull();

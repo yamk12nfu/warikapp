@@ -24,6 +24,7 @@ import type * as lib_leave from "../lib/leave.js";
 import type * as lib_members from "../lib/members.js";
 import type * as mcp from "../mcp.js";
 import type * as monthBook from "../monthBook.js";
+import type * as notices from "../notices.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as receipts from "../receipts.js";
 import type * as settlements from "../settlements.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   "lib/members": typeof lib_members;
   mcp: typeof mcp;
   monthBook: typeof monthBook;
+  notices: typeof notices;
   rateLimits: typeof rateLimits;
   receipts: typeof receipts;
   settlements: typeof settlements;
