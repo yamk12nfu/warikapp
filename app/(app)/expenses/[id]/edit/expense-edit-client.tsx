@@ -97,10 +97,14 @@ export default function ExpenseEditClient({
       </main>
     );
   }
-  if (expense.settled) {
+  if (expense.settlementState !== "unsettled") {
     return (
       <main className="mx-auto w-full max-w-md space-y-4 p-6">
-        <p className="text-sm">精算済みの記録は変更できません</p>
+        <p className="text-sm">
+          {expense.settlementState === "pending"
+            ? "確認待ちの精算に含まれているため、金額と品目は変更できません。分類だけ直せます。"
+            : "精算済みの記録は変更できません"}
+        </p>
         <Link
           href={`/expenses/${expense._id}`}
           className="block text-sm font-medium text-me-strong underline underline-offset-4"

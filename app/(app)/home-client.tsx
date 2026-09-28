@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import { toUserMessage } from "@/lib/convex-error";
 import { formatDateLabel, formatYen } from "@/lib/format";
 import {
   FILTER_EMPTY_STATE,
@@ -18,10 +19,15 @@ import {
   rowCardClass,
   secondaryButtonClass,
 } from "@/lib/ui";
-import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useConvexAuth,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // ホーム(S-003 / F-006)。未精算差額の枠・支出一覧・登録ボタンを置く。
 // 一覧は usePaginatedQuery で20件ずつ読む。queryは自動でリアルタイム更新されるため、
@@ -46,11 +52,14 @@ export default function HomeClient() {
     api.settlements.currentBalance,
     member ? {} : "skip",
   );
+  const notices = useQuery(api.notices.mine, member ? {} : "skip");
+  const dismissNotice = useMutation(api.notices.dismiss);
   const expenses = usePaginatedQuery(
     api.expenses.list,
     member ? { filter } : "skip",
     { initialNumItems: PAGE_SIZE },
   );
+  const [noticeError, setNoticeError] = useState<string | null>(null);
 
   useEffect(() => {
     // 認証確立後にnull = 本当に世帯未所属
@@ -82,6 +91,7 @@ export default function HomeClient() {
   if (member === null) {
     return null; // 世帯未所属: /setupへ誘導中
   }
+  const pending = balance?.pending ?? null;
 
   // 差額の説明文。「あなたが ○○さんに 支払います」の形にする(要件 F-007)。
   // 呼び出し側で balance / household が揃ってから使う
@@ -182,6 +192,59 @@ export default function HomeClient() {
         </h1>
       </header>
 
+      {notices !== undefined && notices.length > 0 && (
+        <section aria-label="お知らせ" className="space-y-2">
+          {notices.map((notice) => (
+            <div
+              key={notice._id}
+              role="status"
+              className={`${cardClass} flex items-center justify-between gap-3 p-3`}
+            >
+              <p className="min-w-0 text-sm">
+                {notice.actorName}さんが精算({formatYen(notice.amount)})を
+                {notice.kind === "settlementRejected"
+                  ? "差し戻しました"
+                  : "取り消しました"}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setNoticeError(null);
+                  void dismissNotice({ noticeId: notice._id }).catch((caught) =>
+                    setNoticeError(toUserMessage(caught)),
+                  );
+                }}
+                className="shrink-0 text-sm font-medium text-muted underline underline-offset-4"
+              >
+                閉じる
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {noticeError !== null && (
+        <p role="alert" className="text-sm text-danger">
+          {noticeError}
+        </p>
+      )}
+
+      {pending !== null && household !== undefined && (
+        <Link href="/settlement" className={`block ${cardClass} p-4`}>
+          <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
+            確認待ち
+          </span>
+          <p className={`mt-2 text-2xl ${amountClass}`}>
+            {formatYen(pending.amount)}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {pending.viewerRole === "confirmer"
+              ? "あなたの確認待ちです。内容を確認してください"
+              : `${household.partner?.displayName ?? "相手"}さんの確認待ちです`}
+          </p>
+        </Link>
+      )}
+
       {/* 未精算差額(F-007)。常時表示し、タップで精算画面へ */}
       <Link href="/settlement" className={`block ${cardClass} p-5`}>
         <p className="text-xs font-bold text-muted">未精算差額</p>
@@ -270,7 +333,14 @@ export default function HomeClient() {
                           未確定
                         </span>
                       )}
-                      {expense.settled && (
+                      {expense.settlementState === "pending" && (
+                        <span
+                          className={`${badgeClass} bg-warn-soft text-warn-strong`}
+                        >
+                          確認待ち
+                        </span>
+                      )}
+                      {expense.settlementState === "settled" && (
                         <span className={`${badgeClass} bg-line text-muted`}>
                           精算済み
                         </span>
