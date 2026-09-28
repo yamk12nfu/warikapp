@@ -13,6 +13,7 @@ import {
 } from "../lib/settlement";
 import {
   findPendingSettlement,
+  loadSettlementScope,
   phaseOf,
 } from "./lib/settlementScope";
 import { emitSettlementEvent } from "./notices";
@@ -160,7 +161,10 @@ export type SettlementDetail = {
   participants: SettlementParticipant[];
   settlement: {
     settlementId: Id<"settlements">;
+    status: "pending" | "completed";
     settledAt: number;
+    startedBy: Id<"members">;
+    confirmedBy: Id<"members"> | null;
     fromMemberId: Id<"members">;
     toMemberId: Id<"members">;
     amount: number;
@@ -239,7 +243,10 @@ function projectSettlementDetail(input: {
     participants,
     settlement: {
       settlementId: input.settlement._id,
-      settledAt: input.settlement._creationTime,
+      status: phaseOf(input.settlement),
+      settledAt: input.settlement.confirmedAt ?? input.settlement._creationTime,
+      startedBy: input.settlement.settledBy,
+      confirmedBy: input.settlement.confirmedBy ?? null,
       fromMemberId: input.settlement.fromMemberId,
       toMemberId: input.settlement.toMemberId,
       amount: input.settlement.amount,
@@ -297,16 +304,56 @@ export function summarize(
 
 // ホーム(S-003)に常時表示する未精算差額。
 // 「誰が誰にいくら」を返し、amount が0なら精算不要(from/to は null)。
+export type PendingSettlement = {
+  settlementId: Id<"settlements">;
+  amount: number;
+  fromMemberId: Id<"members">;
+  toMemberId: Id<"members">;
+  expenseCount: number;
+  startedBy: Id<"members">;
+  startedAt: number;
+  viewerRole: "starter" | "confirmer";
+};
+
+function toPendingSettlement(
+  settlement: Doc<"settlements">,
+  viewer: Doc<"members">,
+): PendingSettlement {
+  return {
+    settlementId: settlement._id,
+    amount: settlement.amount,
+    fromMemberId: settlement.fromMemberId,
+    toMemberId: settlement.toMemberId,
+    expenseCount: settlement.expenseCount,
+    startedBy: settlement.settledBy,
+    startedAt: settlement._creationTime,
+    viewerRole: settlement.settledBy === viewer._id ? "starter" : "confirmer",
+  };
+}
+
+export type CurrentBalance = Summary & { pending: PendingSettlement | null };
+
 export const currentBalance = query({
   args: {},
-  handler: async (ctx): Promise<Summary> => {
+  handler: async (ctx): Promise<CurrentBalance> => {
     const member = await requireMember(ctx);
-    const partner = await findPartner(ctx, member);
-    const { expenses, truncated } = await collectUnsettled(
-      ctx,
-      member.coupleId,
-    );
-    return summarize(member._id, partner?._id ?? null, expenses, truncated);
+    const [partner, collected, scope] = await Promise.all([
+      findPartner(ctx, member),
+      collectUnsettled(ctx, member.coupleId),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
+    return {
+      ...summarize(
+        member._id,
+        partner?._id ?? null,
+        collected.expenses,
+        collected.truncated,
+      ),
+      pending:
+        scope.pending === null
+          ? null
+          : toPendingSettlement(scope.pending, member),
+    };
   },
 });
 
@@ -343,6 +390,82 @@ export const pending = query({
           // この支出で支払者が相手のぶんを立て替えた額
           advanceAmount: calcAdvanceAmount(expense.paidBy, expense.items),
         })),
+    };
+  },
+});
+
+export type TargetRow = {
+  _id: Id<"expenses">;
+  title: string;
+  purchasedAt: string;
+  totalAmount: number;
+  paidBy: Id<"members">;
+  advanceAmount: number;
+};
+
+function targetRows(expenses: Doc<"expenses">[]): TargetRow[] {
+  return expenses
+    .filter((expense) => expense.status === "confirmed")
+    .reverse()
+    .map((expense) => ({
+      _id: expense._id,
+      title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+      purchasedAt: expense.purchasedAt,
+      totalAmount: expense.totalAmount,
+      paidBy: expense.paidBy,
+      advanceAmount: calcAdvanceAmount(expense.paidBy, expense.items),
+    }));
+}
+
+export type SettlementScreen =
+  | { phase: "open"; summary: Summary; expenses: TargetRow[] }
+  | {
+      phase: "pending";
+      pending: PendingSettlement;
+      expenses: TargetRow[];
+      countMismatch: boolean;
+      next: Summary;
+    };
+
+export const current = query({
+  args: {},
+  handler: async (ctx): Promise<SettlementScreen> => {
+    const member = await requireMember(ctx);
+    const [partner, scope] = await Promise.all([
+      findPartner(ctx, member),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
+    if (scope.pending === null) {
+      const collected = await collectUnsettled(ctx, member.coupleId);
+      const summary = summarize(
+        member._id,
+        partner?._id ?? null,
+        collected.expenses,
+        collected.truncated,
+      );
+      return {
+        phase: "open",
+        summary,
+        expenses: targetRows(collected.expenses),
+      };
+    }
+
+    const [target, nextTargets] = await Promise.all([
+      collectSettled(ctx, member.coupleId, scope.pending._id),
+      collectUnsettled(ctx, member.coupleId),
+    ]);
+    return {
+      phase: "pending",
+      pending: toPendingSettlement(scope.pending, member),
+      expenses: targetRows(target.expenses),
+      countMismatch:
+        target.overflow || target.expenses.length !== scope.pending.expenseCount,
+      next: summarize(
+        member._id,
+        partner?._id ?? null,
+        nextTargets.expenses,
+        nextTargets.truncated,
+      ),
     };
   },
 });
@@ -577,23 +700,45 @@ export const list = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
-    const [result, members] = await Promise.all([
+    const [result, members, latest] = await Promise.all([
       ctx.db
         .query("settlements")
         .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
         .order("desc")
         .paginate(args.paginationOpts),
       listAllMembers(ctx, member.coupleId),
+      ctx.db
+        .query("settlements")
+        .withIndex("by_coupleId", (q) => q.eq("coupleId", member.coupleId))
+        .order("desc")
+        .first(),
     ]);
     const membersById = new Map(members.map((row) => [row._id, row]));
     const displayNameOf = (memberId: Id<"members">) =>
       membersById.get(memberId)?.displayName ?? "メンバー";
+    const latestCounterpartId =
+      latest === null
+        ? null
+        : latest.fromMemberId === member._id
+          ? latest.toMemberId
+          : latest.fromMemberId;
+    const latestCounterpart =
+      latestCounterpartId === null
+        ? null
+        : await ctx.db.get("members", latestCounterpartId);
+    const latestCanCancel =
+      latestCounterpart !== null && latestCounterpart.leftAt === undefined;
 
     return {
       ...result,
       page: result.page.map((settlement) => ({
         _id: settlement._id,
-        settledAt: settlement._creationTime,
+        status: phaseOf(settlement),
+        settledAt: settlement.confirmedAt ?? settlement._creationTime,
+        canCancel:
+          settlement._id === latest?._id &&
+          phaseOf(settlement) === "completed" &&
+          latestCanCancel,
         fromMemberId: settlement.fromMemberId,
         toMemberId: settlement.toMemberId,
         fromMemberName: displayNameOf(settlement.fromMemberId),

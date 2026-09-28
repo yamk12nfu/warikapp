@@ -426,6 +426,71 @@ describe("settlements.pending", () => {
   });
 });
 
+describe("settlements.currentBalance / current", () => {
+  test("currentBalance は開始後の未精算額と pending を分ける", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+
+    expect([balance.amount, balance.pending?.amount]).toEqual([0, 2500]);
+  });
+
+  test("pending の viewerRole は開始者 starter・相手 confirmer", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+
+    const [alice, bob] = await Promise.all([
+      t.withIdentity(ALICE).query(api.settlements.currentBalance, {}),
+      t.withIdentity(BOB).query(api.settlements.currentBalance, {}),
+    ]);
+
+    expect([alice.pending?.viewerRole, bob.pending?.viewerRole]).toEqual([
+      "starter",
+      "confirmer",
+    ]);
+  });
+
+  test("current は pending が無ければ open と対象一覧を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 2000,
+    });
+
+    const screen = await t.withIdentity(ALICE).query(api.settlements.current, {});
+
+    expect([screen.phase, screen.expenses.length]).toEqual(["open", 2]);
+  });
+
+  test("current は固定した pending 対象と次回分を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 2000,
+    });
+
+    const screen = await t.withIdentity(ALICE).query(api.settlements.current, {});
+
+    expect(
+      screen.phase === "pending"
+        ? [screen.expenses.length, screen.next.expenseCount]
+        : [],
+    ).toEqual([1, 1]);
+  });
+});
+
 describe("settlements.execute", () => {
   test("精算レコードを作り、対象支出すべてに settlementId を付ける", async () => {
     const t = convexTest(schema, modules);
@@ -795,6 +860,27 @@ describe("settlements.start / confirm / release", () => {
     expect(started.kind).toBe("completed");
   });
 
+  test("差額0の即時完了は confirmedBy を持たない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 4000 });
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 4000,
+    });
+    const started = await startSettlement(t, ALICE);
+
+    const detail = await t.withIdentity(ALICE).query(api.settlements.detail, {
+      settlementId: started.settlementId,
+    });
+
+    const confirmedBy =
+      detail.kind === "found"
+        ? detail.detail.settlement.confirmedBy
+        : "missing";
+    expect(confirmedBy).toBeNull();
+  });
+
   test("相手の確認で completed になり支出も settled になる", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1007,6 +1093,52 @@ describe("settlements.start / confirm / release", () => {
 });
 
 describe("settlements.list", () => {
+  test("pending 行が先頭に出て canCancel は false", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.list, listArgs());
+
+    expect([result.page[0].status, result.page[0].canCancel]).toEqual([
+      "pending",
+      false,
+    ]);
+  });
+
+  test("status 未設定の旧行は completed で canCancel true", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await settle(t, ALICE);
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.list, listArgs());
+
+    expect([result.page[0].status, result.page[0].canCancel]).toEqual([
+      "completed",
+      true,
+    ]);
+  });
+
+  test("相手が退出済みなら canCancel false", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await settle(t, ALICE);
+    await t.withIdentity(BOB).mutation(api.couples.leaveCouple, {});
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.list, listArgs());
+
+    expect(result.page[0].canCancel).toBe(false);
+  });
+
   test("新しい順に、方向・金額・メモ・対象件数を返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1082,6 +1214,37 @@ describe("settlements.list", () => {
 });
 
 describe("settlements.detail", () => {
+  test("確認後は status・startedBy・confirmedBy と確認時刻を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    const beforeConfirm = Date.now();
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+
+    const result = await t.withIdentity(ALICE).query(api.settlements.detail, {
+      settlementId: started.settlementId,
+    });
+
+    expect(
+      result.kind === "found"
+        ? {
+            status: result.detail.settlement.status,
+            startedBy: result.detail.settlement.startedBy,
+            confirmedBy: result.detail.settlement.confirmedBy,
+            settledAtAfterConfirm: result.detail.settlement.settledAt >= beforeConfirm,
+          }
+        : null,
+    ).toEqual({
+      status: "completed",
+      startedBy: members.self._id,
+      confirmedBy: members.partner._id,
+      settledAtAfterConfirm: true,
+    });
+  });
+
   test("自世帯の精算は found で、支出は新しい順、品目の立て替えを含む", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
