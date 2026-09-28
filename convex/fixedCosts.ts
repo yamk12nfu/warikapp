@@ -201,7 +201,6 @@ export const get = query({
         expenseId: expense._id,
         totalAmount: expense.totalAmount,
         deleted: expense.deletedAt !== undefined,
-        settled: scope.stateOf(expense) !== "unsettled",
         settlementState: scope.stateOf(expense),
       })),
     };

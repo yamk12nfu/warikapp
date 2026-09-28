@@ -983,6 +983,20 @@ const listArgs = (
 ) => ({ paginationOpts: { numItems, cursor }, filter });
 
 describe("expenses.list", () => {
+  test("一覧行は settled boolean を返さない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("all"));
+
+    expect("settled" in result.page[0]).toBe(false);
+  });
+
   test("一覧行は settlementState を返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1101,7 +1115,7 @@ describe("expenses.list", () => {
       totalAmount: 6500,
       paidBy: members.self._id,
       status: "confirmed",
-      settled: false,
+      settlementState: "unsettled",
       category: "uncategorized",
     });
   });
@@ -1141,7 +1155,9 @@ describe("expenses.list", () => {
       "未精算",
       "精算済み",
     ]);
-    expect(all.page.find((row) => row.title === "精算済み")!.settled).toBe(true);
+    expect(
+      all.page.find((row) => row.title === "精算済み")!.settlementState,
+    ).toBe("settled");
   });
 
   test("論理削除された支出はどちらのフィルタでも出さない", async () => {
@@ -1226,6 +1242,20 @@ describe("expenses.list", () => {
 });
 
 describe("expenses.get", () => {
+  test("詳細は settled boolean を返さない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect("settled" in expense!).toBe(false);
+  });
+
   test("自世帯の支出を品目つきで返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1243,7 +1273,7 @@ describe("expenses.get", () => {
       paidBy: members.self._id,
       status: "confirmed",
       source: "manual",
-      settled: false,
+      settlementState: "unsettled",
       hasImage: false,
       category: "uncategorized",
     });
@@ -1288,7 +1318,7 @@ describe("expenses.get", () => {
     ]);
   });
 
-  test("精算済みは settled: true になる", async () => {
+  test("精算済みは settlementState settled になる", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
     const expenseId = await t
@@ -1298,7 +1328,7 @@ describe("expenses.get", () => {
     const expense = await t
       .withIdentity(ALICE)
       .query(api.expenses.get, { expenseId });
-    expect(expense!.settled).toBe(true);
+    expect(expense!.settlementState).toBe("settled");
   });
 
   test("他世帯・削除済み・不正なIDはすべて null", async () => {
@@ -1660,7 +1690,7 @@ describe("expenses.setCategory", () => {
       .withIdentity(ALICE)
       .query(api.expenses.get, { expenseId });
     expect(detail!.category).toBe("daily");
-    expect(detail!.settled).toBe(true);
+    expect(detail!.settlementState).toBe("settled");
 
     await t
       .withIdentity(ALICE)

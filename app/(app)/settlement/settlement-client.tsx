@@ -217,7 +217,7 @@ export default function SettlementClient() {
 
       {!isOpen && screen.countMismatch && (
         <p role="alert" className="text-sm text-warn-strong">
-          対象の支出を確認できません。差し戻してからやり直してください
+          精算の対象が変わっているため完了できません。差し戻してからやり直してください
         </p>
       )}
 

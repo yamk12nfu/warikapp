@@ -91,8 +91,7 @@ async function addExpense(
   });
 }
 
-// 精算を実行する。画面と同じく「いま表示されている差額」を expectedAmount として
-// 渡す(V-702のガード)。ずれを試したいテストは expectedAmount を明示する
+// 完了状態を作るテスト用ヘルパー。精算開始・確認はいずれも公開 mutation を使う。
 async function settle(
   t: ReturnType<typeof convexTest>,
   who: typeof ALICE,
@@ -103,19 +102,30 @@ async function settle(
     expectedExpenseCount?: number;
   } = {},
 ) {
-  const balance = await t
-    .withIdentity(who)
-    .query(api.settlements.currentBalance, {});
-  return await t.withIdentity(who).mutation(api.settlements.execute, {
-    memo: overrides.memo,
-    expectedAmount: overrides.expectedAmount ?? balance.amount,
-    expectedFromMemberId:
-      overrides.expectedFromMemberId === undefined
-        ? balance.fromMemberId
-        : overrides.expectedFromMemberId,
-    expectedExpenseCount:
-      overrides.expectedExpenseCount ?? balance.expenseCount,
-  });
+  const started = await startSettlement(t, who, overrides);
+  if (started.kind === "pending") {
+    const household = await t.withIdentity(who).query(api.couples.household, {});
+    if (household.partner === null) {
+      throw new Error("パートナーが参加できていない");
+    }
+    const tokenIdentifier = await t.run(async (ctx) => {
+      const partner = await ctx.db.get("members", household.partner!._id);
+      return partner?.tokenIdentifier;
+    });
+    if (tokenIdentifier === undefined) {
+      throw new Error("確認者のログイン情報が見つからない");
+    }
+    const separatorIndex = tokenIdentifier.indexOf("|");
+    const confirmer = {
+      issuer: tokenIdentifier.slice(0, separatorIndex),
+      subject: tokenIdentifier.slice(separatorIndex + 1),
+      tokenIdentifier,
+    };
+    await t.withIdentity(confirmer).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+  }
+  return started.settlementId;
 }
 
 async function startSettlement(
@@ -365,67 +375,6 @@ describe("settlements.currentBalance", () => {
   });
 });
 
-describe("settlements.pending", () => {
-  test("対象支出を新しい順に、立て替え額つきで返す", async () => {
-    const t = convexTest(schema, modules);
-    const members = await setupCouple(t);
-    await addExpense(t, members, ALICE, {
-      price: 5000,
-      storeName: "古い",
-      purchasedAt: jstDate(-3),
-    });
-    await addExpense(t, members, BOB, {
-      paidBy: members.partner._id,
-      price: 2000,
-      storeName: "新しい",
-    });
-
-    const pending = await t
-      .withIdentity(ALICE)
-      .query(api.settlements.pending, {});
-    expect(pending.amount).toBe(1500);
-    expect(pending.expenses.map((e) => e.title)).toEqual(["新しい", "古い"]);
-    expect(pending.expenses[0]).toMatchObject({
-      totalAmount: 2000,
-      paidBy: members.partner._id,
-      advanceAmount: 1000, // 相手が支払い、自分のぶん1,000円を立て替え
-    });
-    expect(pending.expenses[1].advanceAmount).toBe(2500);
-  });
-
-  test("店名が無ければ先頭の品目名を見出しにする", async () => {
-    const t = convexTest(schema, modules);
-    const members = await setupCouple(t);
-    await addExpense(t, members, ALICE);
-    const pending = await t
-      .withIdentity(ALICE)
-      .query(api.settlements.pending, {});
-    expect(pending.expenses[0].title).toBe("食材");
-  });
-
-  test("ドラフトは対象一覧に出さない", async () => {
-    const t = convexTest(schema, modules);
-    const members = await setupCouple(t);
-    await addExpense(t, members, ALICE, { status: "draft" });
-    const pending = await t
-      .withIdentity(ALICE)
-      .query(api.settlements.pending, {});
-    expect(pending.expenses).toHaveLength(0);
-    expect(pending.draftCount).toBe(1);
-  });
-
-  test("未ログイン・世帯未所属では読めない", async () => {
-    const t = convexTest(schema, modules);
-    await setupCouple(t);
-    await expect(t.query(api.settlements.pending, {})).rejects.toThrow(
-      "ログインしてください",
-    );
-    await expect(
-      t.withIdentity(CAROL).query(api.settlements.pending, {}),
-    ).rejects.toThrow("世帯に参加してください");
-  });
-});
-
 describe("settlements.currentBalance / current", () => {
   test("currentBalance は開始後の未精算額と pending を分ける", async () => {
     const t = convexTest(schema, modules);
@@ -489,9 +438,27 @@ describe("settlements.currentBalance / current", () => {
         : [],
     ).toEqual([1, 1]);
   });
+
+  test("current は未ログインでは読めない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+
+    await expect(t.query(api.settlements.current, {})).rejects.toThrow(
+      "ログインしてください",
+    );
+  });
+
+  test("current は世帯未所属では読めない", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+
+    await expect(
+      t.withIdentity(CAROL).query(api.settlements.current, {}),
+    ).rejects.toThrow("世帯に参加してください");
+  });
 });
 
-describe("settlements.execute", () => {
+describe("settlements.start", () => {
   test("精算レコードを作り、対象支出すべてに settlementId を付ける", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -768,10 +735,10 @@ describe("settlements.execute", () => {
       expectedExpenseCount: 0,
     };
     await expect(
-      t.mutation(api.settlements.execute, noop),
+      t.mutation(api.settlements.start, noop),
     ).rejects.toThrow("ログインしてください");
     await expect(
-      t.withIdentity(CAROL).mutation(api.settlements.execute, noop),
+      t.withIdentity(CAROL).mutation(api.settlements.start, noop),
     ).rejects.toThrow("世帯に参加してください");
   });
 });

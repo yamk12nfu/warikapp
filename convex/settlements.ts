@@ -18,7 +18,6 @@ import {
 } from "./lib/settlementScope";
 import { emitSettlementEvent } from "./notices";
 
-// 精算(F-007)。未精算支出から世帯全体の差額を出し、精算実行で区切る。
 // 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
 // クライアントに届かず「Server Error」に伏せられるため)。
 
@@ -357,43 +356,6 @@ export const currentBalance = query({
   },
 });
 
-// 精算画面(S-007)。差額に加えて、今回の対象になる支出の一覧と内訳を返す。
-// 一覧は購入日の新しい順(collectUnsettled は古い順に読むので反転する)。
-export const pending = query({
-  args: {},
-  handler: async (ctx) => {
-    const member = await requireMember(ctx);
-    const partner = await findPartner(ctx, member);
-    const { expenses, truncated } = await collectUnsettled(
-      ctx,
-      member.coupleId,
-    );
-    const summary = summarize(
-      member._id,
-      partner?._id ?? null,
-      expenses,
-      truncated,
-    );
-
-    return {
-      ...summary,
-      expenses: expenses
-        .filter((e) => e.status === "confirmed")
-        .reverse()
-        .map((expense) => ({
-          _id: expense._id,
-          // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.list と同じ)
-          title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
-          purchasedAt: expense.purchasedAt,
-          totalAmount: expense.totalAmount,
-          paidBy: expense.paidBy,
-          // この支出で支払者が相手のぶんを立て替えた額
-          advanceAmount: calcAdvanceAmount(expense.paidBy, expense.items),
-        })),
-    };
-  },
-});
-
 export type TargetRow = {
   _id: Id<"expenses">;
   title: string;
@@ -480,75 +442,6 @@ function normalizeMemo(raw: string | undefined): string | undefined {
   }
   return memo;
 }
-
-// 精算の実行(S-007)。mutationは自動でトランザクションなので、
-// 「対象の確定 → 精算レコード作成 → 支出への紐付け」を1つの関数に素直に書ける。
-// V-702(二重実行防止): 先に走ったほうが対象支出すべてに settlementId を付けるため、
-// 後続は対象0件になって ERR_NO_TARGET で失敗する(UI側でもボタンを無効化する)。
-//
-// expected* は「確認画面に出ていた内容」。金額の決定には一切使わず(差額は必ず
-// サーバー側で計算し直す)、食い違ったら実行を中止するためだけに使う。
-// 確認直後にパートナーが支出を追加・変更した場合に、ユーザーが見ていない内容で
-// 精算してしまうのを防ぐ(要件 V-702「競合時は再計算して確認画面を再表示」)。
-// 金額だけでなく向きと件数も見る: 金額が同じまま支払う側が入れ替わるケースや、
-// 対象が差し替わって偶然同額になるケースを金額の比較だけでは検出できないため。
-export const execute = mutation({
-  args: {
-    memo: v.optional(v.string()),
-    expectedAmount: v.number(),
-    expectedFromMemberId: v.union(v.id("members"), v.null()),
-    expectedExpenseCount: v.number(),
-  },
-  handler: async (ctx, args): Promise<Id<"settlements">> => {
-    const member = await requireMember(ctx);
-    const memo = normalizeMemo(args.memo);
-
-    const partner = await findPartner(ctx, member);
-    if (partner === null) {
-      // 相手がいなければ立て替えも差額も発生しない
-      throw new ConvexError(ERR_NO_PARTNER);
-    }
-
-    const { expenses } = await collectUnsettled(ctx, member.coupleId);
-
-    // V-701: 未確定のレシートが残っていたら拒否する(金額が変わりうるため)
-    if (expenses.some((e) => e.status === "draft")) {
-      throw new ConvexError(ERR_DRAFT_REMAINS);
-    }
-    if (expenses.length === 0) {
-      throw new ConvexError(ERR_NO_TARGET);
-    }
-
-    // クライアントの表示値は信用せず、サーバー側で差額を計算し直す
-    const balance = calcNetBalance(member._id, partner._id, expenses);
-
-    // 計算し直した結果が確認画面の表示と違う = 確認後に対象が変わった(V-702)
-    if (
-      balance.amount !== args.expectedAmount ||
-      balance.fromMemberId !== args.expectedFromMemberId ||
-      expenses.length !== args.expectedExpenseCount
-    ) {
-      throw new ConvexError(ERR_AMOUNT_CHANGED);
-    }
-
-    // 差額0でも「ここで区切る」ことに意味があるので実行を許す。方向に意味が
-    // ないため、実行者 → パートナー の向きで記録する
-    const settlementId = await ctx.db.insert("settlements", {
-      coupleId: member.coupleId,
-      fromMemberId: balance.fromMemberId ?? member._id,
-      toMemberId: balance.toMemberId ?? partner._id,
-      amount: balance.amount,
-      memo,
-      settledBy: member._id,
-      expenseCount: expenses.length,
-    });
-
-    for (const expense of expenses) {
-      await ctx.db.patch("expenses", expense._id, { settlementId });
-    }
-    return settlementId;
-  },
-});
 
 export const start = mutation({
   args: {

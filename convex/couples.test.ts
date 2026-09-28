@@ -645,14 +645,16 @@ describe("leaveCouple", () => {
     const balance = await t
       .withIdentity(ALICE)
       .query(api.settlements.currentBalance, {});
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {
-        memo: undefined,
-        expectedAmount: balance.amount,
-        expectedFromMemberId: balance.fromMemberId,
-        expectedExpenseCount: balance.expenseCount,
-      });
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
+      memo: undefined,
+      expectedAmount: balance.amount,
+      expectedFromMemberId: balance.fromMemberId,
+      expectedExpenseCount: balance.expenseCount,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+    const settlementId = started.settlementId;
 
     await t.withIdentity(ALICE).mutation(api.couples.leaveCouple, {});
 
@@ -795,11 +797,14 @@ describe("leaveCouple", () => {
     const balance = await t
       .withIdentity(ALICE)
       .query(api.settlements.currentBalance, {});
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
       memo: undefined,
       expectedAmount: balance.amount,
       expectedFromMemberId: balance.fromMemberId,
       expectedExpenseCount: balance.expenseCount,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
     });
 
     vi.useFakeTimers();

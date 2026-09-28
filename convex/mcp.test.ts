@@ -539,11 +539,14 @@ describe("GET /mcp/expenses", () => {
     const t = setup();
     const members = await setupCouple(t);
     await addExpense(t, members, ALICE, { price: 5000 });
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
       memo: undefined,
       expectedAmount: 2500,
       expectedFromMemberId: members.partner._id,
       expectedExpenseCount: 1,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
     });
     const unsettled = await addExpense(t, members, ALICE, { price: 1000 });
 
@@ -894,11 +897,14 @@ describe("GET /mcp/summary", () => {
       price: 5000,
       purchasedAt: thisMonthFirstDay,
     });
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
       memo: undefined,
       expectedAmount: 2500,
       expectedFromMemberId: members.partner._id,
       expectedExpenseCount: 1,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
     });
     // パートナーが2,000円折半で支払い、未精算のまま
     await addExpense(t, members, BOB, {
