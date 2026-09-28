@@ -801,6 +801,7 @@ describe("fixedCosts.list and get", () => {
         totalAmount: 120000,
         deleted: true,
         settled: true,
+        settlementState: "settled",
       },
     ]);
     await expect(

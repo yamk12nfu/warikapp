@@ -953,6 +953,20 @@ const listArgs = (
 ) => ({ paginationOpts: { numItems, cursor }, filter });
 
 describe("expenses.list", () => {
+  test("一覧行は settlementState を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+
+    const result = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.list, listArgs("all"));
+
+    expect(result.page[0].settlementState).toBe("unsettled");
+  });
+
   test("draftは自世帯の未削除下書きを購入日の降順で返す", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

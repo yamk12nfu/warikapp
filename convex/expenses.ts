@@ -7,6 +7,8 @@ import { listActiveMembers, listAllMembers } from "./lib/members";
 import { attachUpload, releaseUpload } from "./uploads";
 import { itemValidator, storedCategoryValidator } from "./schema";
 import { calcTotalAmount } from "../lib/settlement";
+import type { ExpenseSettlementState } from "../lib/settlement";
+import { loadSettlementScope } from "./lib/settlementScope";
 import { todayInJst } from "../lib/date";
 import { expenseTitle } from "../lib/expense-title";
 import {
@@ -33,7 +35,10 @@ const SHARE_SUGGEST_UNDELETED_TAKE = 100;
 
 // 他世帯の支出を指定された場合も「存在しない」と同じ文言にする(存在を漏らさない)
 const ERR_NOT_FOUND = "支出が見つかりません";
-const ERR_SETTLED = "精算済みの支出は変更できません";
+const ERR_LOCKED: Record<Exclude<ExpenseSettlementState, "unsettled">, string> = {
+  pending: "確認待ちの精算に含まれている支出は変更できません",
+  settled: "精算済みの支出は変更できません",
+};
 const ERR_ITEMS_REQUIRED = "品目を1件以上入力してください"; // V-402
 const ERR_SHARE_TOTAL = "負担割合の合計が100%になるようにしてください"; // V-401
 const ERR_PRICE = "金額は1円以上9,999,999円以下の整数で入力してください"; // V-403
@@ -180,8 +185,10 @@ export const save = mutation({
       if (existing === null) {
         throw new ConvexError(ERR_NOT_FOUND);
       }
-      if (existing.settlementId !== undefined) {
-        throw new ConvexError(ERR_SETTLED);
+      const scope = await loadSettlementScope(ctx, member.coupleId);
+      const settlementState = scope.stateOf(existing);
+      if (settlementState !== "unsettled") {
+        throw new ConvexError(ERR_LOCKED[settlementState]);
       }
     }
 
@@ -300,6 +307,7 @@ export const setCategory = mutation({
 function toListRow(
   expense: Doc<"expenses">,
   membersById: Map<Id<"members">, Doc<"members">>,
+  settlementState: ExpenseSettlementState,
 ) {
   return {
     _id: expense._id,
@@ -311,7 +319,8 @@ function toListRow(
     paidBy: expense.paidBy,
     paidByName: membersById.get(expense.paidBy)?.displayName ?? "メンバー",
     status: expense.status,
-    settled: expense.settlementId !== undefined,
+    settled: settlementState !== "unsettled",
+    settlementState,
     category: normalizeCategory(expense.category),
     fixedCost: expense.fixedCost,
   };
@@ -368,15 +377,18 @@ export const list = query({
           .filter((q) => q.eq(q.field("deletedAt"), undefined)),
     };
 
-    const [result, members] = await Promise.all([
+    const [result, members, scope] = await Promise.all([
       queryByFilter[args.filter]().paginate(args.paginationOpts),
       listAllMembers(ctx, member.coupleId),
+      loadSettlementScope(ctx, member.coupleId),
     ]);
     const membersById = new Map(members.map((row) => [row._id, row]));
 
     return {
       ...result,
-      page: result.page.map((expense) => toListRow(expense, membersById)),
+      page: result.page.map((expense) =>
+        toListRow(expense, membersById, scope.stateOf(expense)),
+      ),
     };
   },
 });
@@ -397,7 +409,10 @@ export const get = query({
     if (expense === null) {
       return null;
     }
-    const members = await listAllMembers(ctx, member.coupleId);
+    const [members, scope] = await Promise.all([
+      listAllMembers(ctx, member.coupleId),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
     const membersById = new Map(members.map((row) => [row._id, row]));
     const displayNameOf = (memberId: Id<"members">) =>
       membersById.get(memberId)?.displayName ?? "メンバー";
@@ -426,7 +441,8 @@ export const get = query({
       }),
       source: expense.source,
       status: expense.status,
-      settled: expense.settlementId !== undefined,
+      settled: scope.stateOf(expense) !== "unsettled",
+      settlementState: scope.stateOf(expense),
       hasImage: expense.imageStorageId !== undefined,
       category: normalizeCategory(expense.category),
       fixedCost: expense.fixedCost,
@@ -462,8 +478,10 @@ export const remove = mutation({
     if (expense === null) {
       throw new ConvexError(ERR_NOT_FOUND);
     }
-    if (expense.settlementId !== undefined) {
-      throw new ConvexError(ERR_SETTLED);
+    const scope = await loadSettlementScope(ctx, member.coupleId);
+    const settlementState = scope.stateOf(expense);
+    if (settlementState !== "unsettled") {
+      throw new ConvexError(ERR_LOCKED[settlementState]);
     }
     await ctx.db.patch("expenses", expense._id, { deletedAt: Date.now() });
     return null;
