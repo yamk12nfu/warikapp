@@ -42,6 +42,7 @@ const VALID_BALANCE = {
   included_expense_count: 12,
   draft_count: 0,
   truncated: false,
+  pending_settlement: null,
 };
 
 describe("registerGetUnsettledBalanceTool", () => {

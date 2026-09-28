@@ -22,6 +22,7 @@ describe("balanceOutputSchema", () => {
       included_expense_count: 12,
       draft_count: 1,
       truncated: false,
+      pending_settlement: null,
     });
     expect(result.success).toBe(true);
   });
@@ -38,6 +39,32 @@ describe("balanceOutputSchema", () => {
       included_expense_count: 0,
       draft_count: 0,
       truncated: false,
+      pending_settlement: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("pending_settlement の固定対象フィールドを受ける", () => {
+    const result = balanceOutputSchema.safeParse({
+      currency: "JPY",
+      amount: 0,
+      direction: "even",
+      self: { member_id: "m1", display_name: "かえで" },
+      partner: { member_id: "m2", display_name: "ぼぶ" },
+      paid_by_self: 0,
+      paid_by_partner: 0,
+      included_expense_count: 0,
+      draft_count: 0,
+      truncated: false,
+      pending_settlement: {
+        settlement_id: "s1",
+        amount: 1500,
+        direction: "partner_pays_self",
+        started_by: { member_id: "m1", display_name: "かえで" },
+        started_at: "2026-09-28T03:12:00.000Z",
+        expense_count: 2,
+        awaiting: "partner",
+      },
     });
     expect(result.success).toBe(true);
   });
@@ -105,6 +132,7 @@ describe("listExpensesOutputSchema", () => {
           paid_by: { member_id: "m1", display_name: "かえで" },
           status: "confirmed",
           settled: false,
+          settlement_state: "unsettled",
         },
       ],
       returned_count: 20,
@@ -186,6 +214,7 @@ describe("getItemBreakdownOutputSchema", () => {
       total_amount: 4321,
       status: "confirmed",
       settled: true,
+      settlement_state: "settled",
       source: "receipt",
       paid_by: { member_id: "m1", display_name: "かえで" },
       advance_amount: 2100,
@@ -213,6 +242,7 @@ describe("getItemBreakdownOutputSchema", () => {
       total_amount: 100,
       status: "draft",
       settled: false,
+      settlement_state: "unsettled",
       source: "manual",
       paid_by: { member_id: "m1", display_name: "かえで" },
       advance_amount: 0,

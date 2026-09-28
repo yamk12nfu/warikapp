@@ -383,6 +383,26 @@ http.route({
         included_expense_count: result.includedExpenseCount,
         draft_count: result.draftCount,
         truncated: result.truncated,
+        pending_settlement:
+          result.pendingSettlement === null
+            ? null
+            : {
+                settlement_id: result.pendingSettlement.settlementId,
+                amount: result.pendingSettlement.amount,
+                direction: directionOf(
+                  result.pendingSettlement.fromMemberId,
+                  result.self.memberId,
+                ),
+                started_by: {
+                  member_id: result.pendingSettlement.startedBy.memberId,
+                  display_name: result.pendingSettlement.startedBy.displayName,
+                },
+                started_at: new Date(
+                  result.pendingSettlement.startedAt,
+                ).toISOString(),
+                expense_count: result.pendingSettlement.expenseCount,
+                awaiting: result.pendingSettlement.awaiting,
+              },
       });
     });
   }),
@@ -511,6 +531,7 @@ http.route({
           },
           status: expense.status,
           settled: expense.settled,
+          settlement_state: expense.settlementState,
         })),
         // .paginate()のnumItemsにlimitをそのまま渡し、返却後の切り詰めはしていない
         // ため「通常limit件だが前後しうる」契約(計画書 D13)
@@ -615,6 +636,7 @@ http.route({
         total_amount: result.totalAmount,
         status: result.status,
         settled: result.settled,
+        settlement_state: result.settlementState,
         source: result.source,
         paid_by: {
           member_id: result.paidBy.memberId,

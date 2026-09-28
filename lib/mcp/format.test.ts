@@ -75,6 +75,7 @@ describe("buildBalanceSummaryText", () => {
     included_expense_count: 12,
     draft_count: 0,
     truncated: false,
+    pending_settlement: null,
   };
 
   test("direction: partner_pays_selfのとき相手→自分の文言になる", () => {
@@ -102,6 +103,25 @@ describe("buildBalanceSummaryText", () => {
     const text = buildBalanceSummaryText({ ...base, draft_count: 2 });
     expect(text).toContain("未確定(draft)のレシートが2件");
   });
+
+  test("確認待ちの精算の1行を含む", () => {
+    const text = buildBalanceSummaryText({
+      ...base,
+      pending_settlement: {
+        settlement_id: "s1",
+        amount: 1500,
+        direction: "partner_pays_self",
+        started_by: { member_id: "m2", display_name: "ぼぶ" },
+        started_at: "2026-09-28T03:12:00.000Z",
+        expense_count: 2,
+        awaiting: "self",
+      },
+    });
+
+    expect(text).toContain(
+      "確認待ちの精算: たろうがかえでに¥1,500(あなたの確認待ち、対象 2件)。",
+    );
+  });
 });
 
 describe("buildExpenseListSummaryText", () => {
@@ -118,6 +138,7 @@ describe("buildExpenseListSummaryText", () => {
         paid_by: { member_id: "m1", display_name: "かえで" },
         status: "confirmed",
         settled: false,
+        settlement_state: "unsettled",
       },
     ],
     returned_count: 1,
@@ -207,6 +228,7 @@ describe("buildItemBreakdownSummaryText", () => {
     total_amount: 4321,
     status: "confirmed",
     settled: true,
+    settlement_state: "settled",
     source: "receipt",
     paid_by: { member_id: "m1", display_name: "かえで" },
     advance_amount: 2100,

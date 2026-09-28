@@ -42,6 +42,7 @@ const VALID_LIST = {
       paid_by: { member_id: "m1", display_name: "かえで" },
       status: "confirmed" as const,
       settled: false,
+      settlement_state: "unsettled" as const,
     },
   ],
   returned_count: 1,

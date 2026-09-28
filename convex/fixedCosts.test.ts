@@ -811,6 +811,29 @@ describe("fixedCosts.list and get", () => {
       t.withIdentity(ALICE).query(api.fixedCosts.get, { fixedCostId: "bogus" }),
     ).resolves.toBeNull();
   });
+
+  test("確認待ちの計上履歴は settlementState pending", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await insertExpenseFor(t, coupleId, fixedCostId, members, month);
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    await t.withIdentity(ALICE).mutation(api.settlements.start, {
+      expectedAmount: balance.amount,
+      expectedFromMemberId: balance.fromMemberId,
+      expectedExpenseCount: balance.expenseCount,
+    });
+
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.fixedCosts.get, { fixedCostId });
+
+    expect(detail!.history[0].settlementState).toBe("pending");
+  });
 });
 
 test("26件以上の active 固定費は継続スケジュールされてすべて計上する", async () => {

@@ -184,6 +184,20 @@ async function addExpense(
   });
 }
 
+async function startPendingSettlement(
+  t: ReturnType<typeof convexTest>,
+  who: typeof ALICE,
+) {
+  const balance = await t
+    .withIdentity(who)
+    .query(api.settlements.currentBalance, {});
+  return await t.withIdentity(who).mutation(api.settlements.start, {
+    expectedAmount: balance.amount,
+    expectedFromMemberId: balance.fromMemberId,
+    expectedExpenseCount: balance.expenseCount,
+  });
+}
+
 // ==========================================================================
 // 認証: 内部シークレット
 // ==========================================================================
@@ -416,6 +430,7 @@ describe("GET /mcp/balance", () => {
     expect(body.draft_count).toBe(reference.draftCount);
     expect(body.self.member_id).toBe(members.self._id);
     expect(body.partner.member_id).toBe(members.partner._id);
+    expect(body.pending_settlement).toBeNull();
   });
 
   test("向きが逆なら self_pays_partner", async () => {
@@ -460,6 +475,30 @@ describe("GET /mcp/balance", () => {
     const { body } = await fetchMcp(t, "/mcp/balance", { clerkUserId: "alice" });
     expect(body.amount).toBe(0);
     expect(body.direction).toBe("even");
+  });
+
+  test("確認待ちの精算をpending_settlementとして返す", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    await t.withIdentity(ALICE).mutation(api.settlements.start, {
+      expectedAmount: balance.amount,
+      expectedFromMemberId: balance.fromMemberId,
+      expectedExpenseCount: balance.expenseCount,
+    });
+
+    const { body } = await fetchMcp(t, "/mcp/balance", {
+      clerkUserId: "bob",
+    });
+
+    expect(body.pending_settlement).toMatchObject({
+      amount: 2500,
+      awaiting: "self",
+      expense_count: 1,
+    });
   });
 
   test("上限超過時はtruncated:trueでincluded_expense_countが部分集計件数になる", async () => {
@@ -529,6 +568,22 @@ describe("GET /mcp/expenses", () => {
     const ids = body.expenses.map((e: { id: string }) => e.id);
     expect(ids).not.toContain(removed);
     expect(body.expenses).toHaveLength(1);
+  });
+
+  test("行に settlement_state を返し pending の settled は false", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startPendingSettlement(t, ALICE);
+
+    const { body } = await fetchMcp(t, "/mcp/expenses?filter=all", {
+      clerkUserId: "alice",
+    });
+
+    expect([body.expenses[0].settlement_state, body.expenses[0].settled]).toEqual([
+      "pending",
+      false,
+    ]);
   });
 
   test("date_from/date_toで購入日を絞り込む(境界日を含み、隣接日は含まない)", async () => {
@@ -950,6 +1005,23 @@ describe("GET /mcp/summary", () => {
     expect(body.total_amount).toBe(1000);
   });
 
+  test("確認待ちの支出は unsettled_amount に含める", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    const { thisMonth, thisMonthFirstDay } = monthBoundary();
+    await addExpense(t, members, ALICE, {
+      price: 5000,
+      purchasedAt: thisMonthFirstDay,
+    });
+    await startPendingSettlement(t, ALICE);
+
+    const { body } = await fetchMcp(t, `/mcp/summary?month=${thisMonth}`, {
+      clerkUserId: "alice",
+    });
+
+    expect([body.unsettled_amount, body.settled_amount]).toEqual([5000, 0]);
+  });
+
   test("削除済み支出は範囲除外される", async () => {
     const t = setup();
     const members = await setupCouple(t);
@@ -975,6 +1047,19 @@ describe("GET /mcp/summary", () => {
 // ==========================================================================
 
 describe("GET /mcp/expense", () => {
+  test("pending の詳細は settlement_state pending と settled false", async () => {
+    const t = setup();
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+    await startPendingSettlement(t, ALICE);
+
+    const { body } = await fetchMcp(t, `/mcp/expense?id=${expenseId}`, {
+      clerkUserId: "alice",
+    });
+
+    expect([body.settlement_state, body.settled]).toEqual(["pending", false]);
+  });
+
   test("品目ごとの有効分類IDとラベルを返す", async () => {
     const t = setup();
     const members = await setupCouple(t);

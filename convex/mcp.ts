@@ -175,12 +175,18 @@ export const balance = internalQuery({
   args: { clerkUserId: v.string() },
   handler: async (ctx, args) => {
     const member = await requireMcpMember(ctx, args.clerkUserId);
-    const partner = await findPartner(ctx, member);
-    const { expenses, truncated } = await collectUnsettled(
-      ctx,
-      member.coupleId,
+    const [partner, collected, scope] = await Promise.all([
+      findPartner(ctx, member),
+      collectUnsettled(ctx, member.coupleId),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
+    const summary = summarize(
+      member._id,
+      partner?._id ?? null,
+      collected.expenses,
+      collected.truncated,
     );
-    const summary = summarize(member._id, partner?._id ?? null, expenses, truncated);
+    const pending = scope.pending;
 
     return {
       amount: summary.amount,
@@ -195,6 +201,24 @@ export const balance = internalQuery({
       includedExpenseCount: summary.expenseCount,
       draftCount: summary.draftCount,
       truncated: summary.truncated,
+      pendingSettlement:
+        pending === null
+          ? null
+          : {
+              settlementId: pending._id,
+              amount: pending.amount,
+              fromMemberId: pending.fromMemberId,
+              startedBy: {
+                memberId: pending.settledBy,
+                displayName:
+                  pending.settledBy === member._id
+                    ? member.displayName
+                    : partner?.displayName ?? "?",
+              },
+              startedAt: pending._creationTime,
+              expenseCount: pending.expenseCount,
+              awaiting: pending.settledBy === member._id ? "partner" : "self",
+            },
     };
   },
 });
@@ -283,22 +307,25 @@ export const listExpenses = internalQuery({
     }
 
     return {
-      expenses: result.page.map((expense) => ({
-        id: expense._id,
-        // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.listと同じ規則)
-        title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
-        purchasedAt: expense.purchasedAt,
-        totalAmount: expense.totalAmount,
-        itemCount: expense.items.length,
-        source: expense.source,
-        paidBy: {
-          memberId: expense.paidBy,
-          displayName: displayNameOf(membersById, expense.paidBy),
-        },
-        status: expense.status,
-        settled: scope.stateOf(expense) !== "unsettled",
-        settlementState: scope.stateOf(expense),
-      })),
+      expenses: result.page.map((expense) => {
+        const settlementState = scope.stateOf(expense);
+        return {
+          id: expense._id,
+          // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.listと同じ規則)
+          title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+          purchasedAt: expense.purchasedAt,
+          totalAmount: expense.totalAmount,
+          itemCount: expense.items.length,
+          source: expense.source,
+          paidBy: {
+            memberId: expense.paidBy,
+            displayName: displayNameOf(membersById, expense.paidBy),
+          },
+          status: expense.status,
+          settled: settlementState === "settled",
+          settlementState,
+        };
+      }),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     };
@@ -448,7 +475,7 @@ export const expenseDetail = internalQuery({
       purchasedAt: expense.purchasedAt,
       totalAmount: expense.totalAmount,
       status: expense.status,
-      settled: settlementState !== "unsettled",
+      settled: settlementState === "settled",
       settlementState,
       source: expense.source,
       paidBy: {
