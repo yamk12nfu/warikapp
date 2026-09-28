@@ -17,6 +17,7 @@ import { shareValidator, storedCategoryValidator } from "./schema";
 const ERR_NOT_FOUND = "固定費が見つかりません";
 const ERR_NAME = "名目は1〜50文字で入力してください"; // V-1101
 const ERR_STOPPED = "停止した固定費は変更できません"; // V-1103
+const ERR_RESUME_MEMBER_LEFT = "パートナーが退出しているため再開できません";
 
 type FixedCostTemplate = Pick<
   Doc<"fixedCosts">,
@@ -56,6 +57,41 @@ async function findPosting(
   return expense !== null && isPostedExpense(expense) ? expense : null;
 }
 
+async function findLeftMember(
+  ctx: QueryCtx | MutationCtx,
+  template: FixedCostTemplate,
+): Promise<Id<"members"> | null> {
+  const memberIds = new Set([
+    template.paidBy,
+    ...template.shares.map((share) => share.memberId),
+  ]);
+  for (const memberId of memberIds) {
+    const member = await ctx.db.get("members", memberId);
+    if (
+      member === null ||
+      member.coupleId !== template.coupleId ||
+      member.leftAt !== undefined
+    ) {
+      return memberId;
+    }
+  }
+  return null;
+}
+
+async function requireOwnedFixedCost(
+  ctx: MutationCtx,
+  coupleId: Id<"couples">,
+  rawId: string,
+): Promise<Doc<"fixedCosts">> {
+  const fixedCostId = ctx.db.normalizeId("fixedCosts", rawId);
+  const fixedCost =
+    fixedCostId === null ? null : await ctx.db.get("fixedCosts", fixedCostId);
+  if (fixedCost === null || fixedCost.coupleId !== coupleId) {
+    throw new ConvexError(ERR_NOT_FOUND);
+  }
+  return fixedCost;
+}
+
 async function postMonth(
   ctx: MutationCtx,
   template: FixedCostTemplate,
@@ -72,23 +108,12 @@ async function postMonth(
     return "exists";
   }
 
-  const memberIds = new Set([
-    template.paidBy,
-    ...template.shares.map((share) => share.memberId),
-  ]);
-  for (const memberId of memberIds) {
-    const member = await ctx.db.get("members", memberId);
-    if (
-      member === null ||
-      member.coupleId !== template.coupleId ||
-      member.leftAt !== undefined
-    ) {
-      await ctx.db.patch("fixedCosts", template._id, {
-        stoppedAt: Date.now(),
-        stoppedReason: "memberLeft",
-      });
-      return "memberLeft";
-    }
+  if ((await findLeftMember(ctx, template)) !== null) {
+    await ctx.db.patch("fixedCosts", template._id, {
+      stoppedAt: Date.now(),
+      stoppedReason: "memberLeft",
+    });
+    return "memberLeft";
   }
 
   await ctx.db.insert("expenses", {
@@ -192,14 +217,11 @@ export const save = mutation({
     const member = await requireMember(ctx);
     let existing: Doc<"fixedCosts"> | null = null;
     if (args.fixedCostId !== undefined) {
-      const fixedCostId = ctx.db.normalizeId("fixedCosts", args.fixedCostId);
-      if (fixedCostId === null) {
-        throw new ConvexError(ERR_NOT_FOUND);
-      }
-      existing = await ctx.db.get("fixedCosts", fixedCostId);
-      if (existing === null || existing.coupleId !== member.coupleId) {
-        throw new ConvexError(ERR_NOT_FOUND);
-      }
+      existing = await requireOwnedFixedCost(
+        ctx,
+        member.coupleId,
+        args.fixedCostId,
+      );
       if (existing.stoppedAt !== undefined) {
         throw new ConvexError(ERR_STOPPED);
       }
@@ -277,21 +299,74 @@ export const stop = mutation({
   args: { fixedCostId: v.string() },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
-    const fixedCostId = ctx.db.normalizeId("fixedCosts", args.fixedCostId);
-    if (fixedCostId === null) {
-      throw new ConvexError(ERR_NOT_FOUND);
-    }
-    const fixedCost = await ctx.db.get("fixedCosts", fixedCostId);
-    if (fixedCost === null || fixedCost.coupleId !== member.coupleId) {
-      throw new ConvexError(ERR_NOT_FOUND);
-    }
+    const fixedCost = await requireOwnedFixedCost(
+      ctx,
+      member.coupleId,
+      args.fixedCostId,
+    );
     if (fixedCost.stoppedAt === undefined) {
-      await ctx.db.patch("fixedCosts", fixedCostId, {
+      await ctx.db.patch("fixedCosts", fixedCost._id, {
         stoppedAt: Date.now(),
         stoppedReason: "user",
       });
     }
     return null;
+  },
+});
+
+export const resume = mutation({
+  args: { fixedCostId: v.string() },
+  returns: v.union(
+    v.literal("active"),
+    v.literal("posted"),
+    v.literal("exists"),
+    v.literal("notStarted"),
+    v.literal("stopped"),
+    v.literal("memberLeft"),
+  ),
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const fixedCost = await requireOwnedFixedCost(
+      ctx,
+      member.coupleId,
+      args.fixedCostId,
+    );
+    if (fixedCost.stoppedAt === undefined) {
+      return "active";
+    }
+    if ((await findLeftMember(ctx, fixedCost)) !== null) {
+      throw new ConvexError(ERR_RESUME_MEMBER_LEFT);
+    }
+
+    await ctx.db.patch("fixedCosts", fixedCost._id, {
+      stoppedAt: undefined,
+      stoppedReason: undefined,
+    });
+    return await postMonth(
+      ctx,
+      { ...fixedCost, stoppedAt: undefined },
+      monthInJst(Date.now()),
+    );
+  },
+});
+
+export const postThisMonth = mutation({
+  args: { fixedCostId: v.string() },
+  returns: v.union(
+    v.literal("posted"),
+    v.literal("exists"),
+    v.literal("notStarted"),
+    v.literal("stopped"),
+    v.literal("memberLeft"),
+  ),
+  handler: async (ctx, args) => {
+    const member = await requireMember(ctx);
+    const fixedCost = await requireOwnedFixedCost(
+      ctx,
+      member.coupleId,
+      args.fixedCostId,
+    );
+    return await postMonth(ctx, fixedCost, monthInJst(Date.now()));
   },
 });
 

@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import ShareRatioPicker, {
   nextPresetShares,
   ShareRatioInputs,
+  shareRatioLabel,
 } from "./ShareRatioPicker";
 import type { ShareRatio } from "@/lib/types";
 
@@ -70,6 +71,19 @@ test("負担区分チップは折半・自分・相手の順に循環する", ()
   expect(nextPresetShares(split, self._id, partner._id)).toEqual(selfOnly);
   expect(nextPresetShares(selfOnly, self._id, partner._id)).toEqual(partnerOnly);
   expect(nextPresetShares(partnerOnly, self._id, partner._id)).toEqual(split);
+});
+
+test("負担区分ラベルは相手が不在でも保存済みの折半を表示する", () => {
+  expect(
+    shareRatioLabel(
+      [
+        { memberId: self._id, ratioPercent: 50 },
+        { memberId: "departed", ratioPercent: 50 },
+      ],
+      self._id,
+      null,
+    ),
+  ).toBe("折半");
 });
 
 test("前回の提案は印と読み上げを付ける", () => {

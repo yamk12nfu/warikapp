@@ -48,6 +48,29 @@ const PRESET_LABEL: Record<Preset, string> = {
   custom: "カスタム",
 };
 
+export function shareRatioLabel(
+  shares: ShareRatio[],
+  selfId: string,
+  partnerId: string | null,
+): string {
+  if (
+    partnerId === null &&
+    shares.length === 2 &&
+    shares.every((share) => share.ratioPercent === 50)
+  ) {
+    return PRESET_LABEL.split;
+  }
+  if (
+    partnerId === null &&
+    shares.length === 1 &&
+    shares[0].memberId !== selfId &&
+    shares[0].ratioPercent === 100
+  ) {
+    return PRESET_LABEL.partner;
+  }
+  return PRESET_LABEL[presetOf(shares, selfId, partnerId)];
+}
+
 const PRESET_RATIOS: Record<SharePreset, [number, number]> = {
   split: [50, 50],
   self: [100, 0],

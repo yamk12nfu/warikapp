@@ -1,17 +1,20 @@
 "use client";
 
 import { api } from "@/convex/_generated/api";
+import { useToast } from "@/components/Toast";
+import { toUserMessage } from "@/lib/convex-error";
 import { formatYen } from "@/lib/format";
 import {
   badgeClass,
   linkClass,
   primaryButtonClass,
   rowCardClass,
+  secondaryButtonClass,
 } from "@/lib/ui";
-import { useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const THIS_MONTH_LABEL = {
   posted: "計上済み",
@@ -30,6 +33,13 @@ const THIS_MONTH_BADGE = {
 export default function FixedCostsClient({ month }: { month: string }) {
   const router = useRouter();
   const { isLoading, isAuthenticated } = useConvexAuth();
+  const postThisMonth = useMutation(api.fixedCosts.postThisMonth);
+  const { show: showToast } = useToast();
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postError, setPostError] = useState<{
+    fixedCostId: string;
+    message: string;
+  } | null>(null);
   const member = useQuery(
     api.couples.currentMember,
     isAuthenticated ? {} : "skip",
@@ -45,6 +55,21 @@ export default function FixedCostsClient({ month }: { month: string }) {
       router.replace("/setup");
     }
   }, [isAuthenticated, member, router]);
+
+  async function handlePostThisMonth(fixedCostId: string) {
+    setPostingId(fixedCostId);
+    setPostError(null);
+    try {
+      const result = await postThisMonth({ fixedCostId });
+      if (result === "posted") {
+        showToast("今月分を計上しました");
+      }
+    } catch (caught) {
+      setPostError({ fixedCostId, message: toUserMessage(caught) });
+    } finally {
+      setPostingId(null);
+    }
+  }
 
   if (isLoading) {
     return <main className="p-8 text-muted">読み込み中…</main>;
@@ -87,29 +112,52 @@ export default function FixedCostsClient({ month }: { month: string }) {
           <ul className="space-y-2">
             {fixedCosts.active.map((fixedCost) => (
               <li key={fixedCost._id}>
-                <Link
-                  href={`/fixed-costs/${fixedCost._id}`}
-                  className={`flex items-center justify-between gap-3 ${rowCardClass}`}
-                >
-                  <span className="min-w-0 space-y-1">
-                    <span className="block truncate font-bold">
-                      {fixedCost.name}
+                <div className="space-y-2">
+                  <Link
+                    href={`/fixed-costs/${fixedCost._id}`}
+                    className={`flex items-center justify-between gap-3 ${rowCardClass}`}
+                  >
+                    <span className="min-w-0 space-y-1">
+                      <span className="block truncate font-bold">
+                        {fixedCost.name}
+                      </span>
+                      <span className="block text-xs text-muted">
+                        {payerName(fixedCost.paidBy)}が支払い
+                      </span>
                     </span>
-                    <span className="block text-xs text-muted">
-                      {payerName(fixedCost.paidBy)}が支払い
+                    <span className="shrink-0 space-y-1 text-right">
+                      <span className="block whitespace-nowrap font-bold tabular-nums">
+                        {formatYen(fixedCost.amount)}
+                      </span>
+                      <span
+                        className={`${badgeClass} ${THIS_MONTH_BADGE[fixedCost.thisMonth]}`}
+                      >
+                        {THIS_MONTH_LABEL[fixedCost.thisMonth]}
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 space-y-1 text-right">
-                    <span className="block whitespace-nowrap font-bold tabular-nums">
-                      {formatYen(fixedCost.amount)}
-                    </span>
-                    <span
-                      className={`${badgeClass} ${THIS_MONTH_BADGE[fixedCost.thisMonth]}`}
-                    >
-                      {THIS_MONTH_LABEL[fixedCost.thisMonth]}
-                    </span>
-                  </span>
-                </Link>
+                  </Link>
+                  {fixedCost.thisMonth === "notPosted" && (
+                    <div className="space-y-2 px-1">
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handlePostThisMonth(fixedCost._id)}
+                          disabled={postingId !== null}
+                          className={secondaryButtonClass}
+                        >
+                          {postingId === fixedCost._id
+                            ? "計上中…"
+                            : "今月分を計上する"}
+                        </button>
+                      </div>
+                      {postError?.fixedCostId === fixedCost._id && (
+                        <p role="alert" className="text-sm text-danger">
+                          {postError.message}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
