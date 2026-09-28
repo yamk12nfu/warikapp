@@ -68,38 +68,60 @@ export default function AppHeader() {
         >
           warik<span className="text-me">app</span>
         </Link>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls="app-nav"
-          aria-label={open ? "メニューを閉じる" : "メニューを開く"}
-          className="-m-2 rounded-xl p-2 text-foreground"
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            aria-hidden="true"
+        <div className="flex items-center gap-2">
+          <Link
+            href="/expenses/new/receipt"
+            onClick={() => setOpen(false)}
+            aria-label="レシートを撮る"
+            className="-m-2 rounded-xl p-2 text-foreground"
           >
-            {open ? (
-              <>
-                <line x1="5" y1="5" x2="19" y2="19" />
-                <line x1="19" y1="5" x2="5" y2="19" />
-              </>
-            ) : (
-              <>
-                <line x1="4" y1="6" x2="20" y2="6" />
-                <line x1="4" y1="12" x2="20" y2="12" />
-                <line x1="4" y1="18" x2="20" y2="18" />
-              </>
-            )}
-          </svg>
-        </button>
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="4" x2="12" y2="20" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+            </svg>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls="app-nav"
+            aria-label={open ? "メニューを閉じる" : "メニューを開く"}
+            className="-m-2 rounded-xl p-2 text-foreground"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              {open ? (
+                <>
+                  <line x1="5" y1="5" x2="19" y2="19" />
+                  <line x1="19" y1="5" x2="5" y2="19" />
+                </>
+              ) : (
+                <>
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
       </div>
 
       {open && (

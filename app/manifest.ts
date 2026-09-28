@@ -11,6 +11,15 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: brand.background.light,
     theme_color: brand.background.light,
+    shortcuts: [
+      {
+        name: "レシートを撮る",
+        short_name: "レシート",
+        description: "レシートを撮影して支出を追加",
+        url: "/expenses/new/receipt",
+        icons: [{ src: "/icon.png", sizes: "512x512", type: "image/png" }],
+      },
+    ],
     icons: [
       { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
       // 同じ画像を maskable としても登録する。マークは中央60%に収めてあるので
