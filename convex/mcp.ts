@@ -343,6 +343,7 @@ export const monthlySummary = internalQuery({
   handler: async (ctx, args) => {
     const member = await requireMcpMember(ctx, args.clerkUserId);
     const partner = await findPartner(ctx, member);
+    const scope = await loadSettlementScope(ctx, member.coupleId);
     const month = requireYearMonth(args.month);
     const { from, to } = monthDateRange(month);
 
@@ -363,7 +364,7 @@ export const monthlySummary = internalQuery({
     const expenses = truncated ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows;
     const folded = foldMonth(
       month,
-      expenses.map((expense) => toMonthExpenseFact(expense)),
+      expenses.map((expense) => toMonthExpenseFact(expense, scope.pendingId)),
       member._id,
       partner?._id ?? null,
     );
