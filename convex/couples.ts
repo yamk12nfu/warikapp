@@ -19,6 +19,7 @@ import {
   LEAVE_BLOCKER_MESSAGE,
   LeaveBlocker,
 } from "./lib/leave";
+import { loadSettlementScope } from "./lib/settlementScope";
 
 // 世帯(couple)は全データのテナント境界。1ユーザーは1世帯にのみ所属する(V-202)。
 // 画面に出すエラーは ConvexError で投げる(本番でもメッセージがクライアントに届く)。
@@ -263,10 +264,7 @@ async function findLeaveBlocker(
   member: Doc<"members">,
   partner: Doc<"members"> | null,
 ): Promise<LeaveBlocker> {
-  if (partner === null) {
-    return null;
-  }
-  const [draft, unsettled] = await Promise.all([
+  const [draft, unsettled, scope] = await Promise.all([
     ctx.db
       .query("expenses")
       .withIndex(
@@ -289,10 +287,18 @@ async function findLeaveBlocker(
             .eq("deletedAt", undefined),
       )
       .first(),
+    loadSettlementScope(ctx, member.coupleId),
   ]);
+  if (scope.pending !== null) {
+    return "pending";
+  }
+  if (partner === null) {
+    return null;
+  }
   return getLeaveBlocker({
     hasDraft: draft !== null,
     hasUnsettled: unsettled !== null,
+    hasPending: false,
   });
 }
 
