@@ -118,6 +118,31 @@ async function settle(
   });
 }
 
+async function startSettlement(
+  t: ReturnType<typeof convexTest>,
+  who: typeof ALICE,
+  overrides: {
+    memo?: string;
+    expectedAmount?: number;
+    expectedFromMemberId?: Id<"members"> | null;
+    expectedExpenseCount?: number;
+  } = {},
+) {
+  const balance = await t
+    .withIdentity(who)
+    .query(api.settlements.currentBalance, {});
+  return await t.withIdentity(who).mutation(api.settlements.start, {
+    memo: overrides.memo,
+    expectedAmount: overrides.expectedAmount ?? balance.amount,
+    expectedFromMemberId:
+      overrides.expectedFromMemberId === undefined
+        ? balance.fromMemberId
+        : overrides.expectedFromMemberId,
+    expectedExpenseCount:
+      overrides.expectedExpenseCount ?? balance.expenseCount,
+  });
+}
+
 const listArgs = (numItems = 20, cursor: string | null = null) => ({
   paginationOpts: { numItems, cursor },
 });
@@ -686,6 +711,301 @@ describe("settlements.execute", () => {
   });
 });
 
+describe("settlements.start / confirm / release", () => {
+  test("start は pending と settlementId を返す", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+
+    const started = await startSettlement(t, ALICE);
+
+    expect(started.kind).toBe("pending");
+  });
+
+  test("開始しただけでは支出は精算済みにならず pending になる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+
+    await startSettlement(t, ALICE);
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect(expense!.settlementState).toBe("pending");
+  });
+
+  test("V-702: start は表示額が変わっていたら拒否する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+
+    await expect(
+      startSettlement(t, ALICE, { expectedAmount: 100 }),
+    ).rejects.toThrow("精算対象が変わりました");
+  });
+
+  test("V-701: start は下書きが残っていたら拒否する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await addExpense(t, members, ALICE, { status: "draft" });
+
+    await expect(startSettlement(t, ALICE)).rejects.toThrow(
+      "未確定のレシートがあります",
+    );
+  });
+
+  test("pending 中に追加した支出は次の対象へ残る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+    await addExpense(t, members, ALICE, { price: 3000 });
+
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+
+    expect(balance.amount).toBe(1500);
+  });
+
+  test("確認待ちがある間は再開始できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    await startSettlement(t, ALICE);
+
+    await expect(startSettlement(t, ALICE)).rejects.toThrow(
+      "確認待ちの精算があります。先に確認・差し戻しをしてください",
+    );
+  });
+
+  test("差額0の精算は開始と同時に completed になる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 4000 });
+    await addExpense(t, members, BOB, {
+      paidBy: members.partner._id,
+      price: 4000,
+    });
+
+    const started = await startSettlement(t, ALICE);
+
+    expect(started.kind).toBe("completed");
+  });
+
+  test("相手の確認で completed になり支出も settled になる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect(expense!.settlementState).toBe("settled");
+  });
+
+  test("開始者は確認できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.settlements.confirm, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow(
+      "精算を開始した人は確認できません。相手の確認を待ってください",
+    );
+  });
+
+  test("確認後に同じ人が再確認しても null", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+
+    const repeated = await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+
+    expect(repeated).toBeNull();
+  });
+
+  test("confirm は開始後の支出を含めず開始時の金額を保つ", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await addExpense(t, members, ALICE, { price: 3000 });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+
+    const settlement = await t.run(async (ctx) =>
+      ctx.db.get("settlements", started.settlementId),
+    );
+
+    expect(settlement).toMatchObject({ amount: 2500, expenseCount: 1 });
+  });
+
+  test("他世帯は confirm できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await setupCouple(t, CAROL, identity("dave"));
+
+    await expect(
+      t.withIdentity(CAROL).mutation(api.settlements.confirm, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow("精算が見つかりません");
+  });
+
+  test("confirm は対象金額が変わっていたら完了しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.run(async (ctx) => {
+      const expense = await ctx.db.get("expenses", expenseId);
+      await ctx.db.patch("expenses", expenseId, {
+        totalAmount: 6000,
+        items: expense!.items.map((item) => ({ ...item, price: 6000 })),
+      });
+    });
+
+    await expect(
+      t.withIdentity(BOB).mutation(api.settlements.confirm, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow(
+      "精算の対象が変わっているため完了できません。差し戻してからやり直してください",
+    );
+  });
+
+  test("開始者が取り下げると対象支出は未精算に戻る", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+
+    await t.withIdentity(ALICE).mutation(api.settlements.release, {
+      settlementId: started.settlementId,
+    });
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect(expense!.settlementState).toBe("unsettled");
+  });
+
+  test("相手が差し戻すと開始者にお知らせが届く", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.withIdentity(BOB).mutation(api.settlements.release, {
+      settlementId: started.settlementId,
+    });
+
+    const notices = await t.withIdentity(ALICE).query(api.notices.mine, {});
+
+    expect(notices[0]).toMatchObject({
+      kind: "settlementRejected",
+      amount: 2500,
+      expenseCount: 1,
+    });
+  });
+
+  test("開始者の取り下げでは相手にお知らせしない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.withIdentity(ALICE).mutation(api.settlements.release, {
+      settlementId: started.settlementId,
+    });
+
+    const notices = await t.withIdentity(BOB).query(api.notices.mine, {});
+
+    expect(notices).toEqual([]);
+  });
+
+  test("取り下げた精算を confirm すると見つからない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.withIdentity(ALICE).mutation(api.settlements.release, {
+      settlementId: started.settlementId,
+    });
+
+    await expect(
+      t.withIdentity(BOB).mutation(api.settlements.confirm, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow("精算が見つかりません");
+  });
+
+  test("完了した精算は release できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.settlements.release, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow("この精算はすでに処理されています");
+  });
+
+  test("pending は cancel できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const started = await startSettlement(t, ALICE);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.settlements.cancel, {
+        settlementId: started.settlementId,
+      }),
+    ).rejects.toThrow(
+      "確認待ちの精算は精算画面から取り下げ・差し戻しをしてください",
+    );
+  });
+
+  test("pending がある間は前回の completed を cancel できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const completed = await settle(t, ALICE);
+    await addExpense(t, members, ALICE, { price: 3000 });
+    await startSettlement(t, ALICE);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.settlements.cancel, {
+        settlementId: completed,
+      }),
+    ).rejects.toThrow("直近の精算のみ取り消せます");
+  });
+});
+
 describe("settlements.list", () => {
   test("新しい順に、方向・金額・メモ・対象件数を返す", async () => {
     const t = convexTest(schema, modules);
@@ -978,6 +1298,20 @@ describe("settlements.detail", () => {
 });
 
 describe("settlements.cancel", () => {
+  test("取り消すと相手に settlementCancelled のお知らせが届く", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+    const settlementId = await settle(t, ALICE);
+    await t.withIdentity(ALICE).mutation(api.settlements.cancel, {
+      settlementId,
+    });
+
+    const notices = await t.withIdentity(BOB).query(api.notices.mine, {});
+
+    expect(notices[0].kind).toBe("settlementCancelled");
+  });
+
   test("相手が退出した後の精算は取り消せない", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

@@ -650,6 +650,22 @@ describe("expenses.save(更新)", () => {
     expect(expense!.category).toBeUndefined();
   });
 
+  test("確認待ちの支出は変更できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await startPendingSettlement(t, ALICE);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(
+        api.expenses.save,
+        manualArgs(members, { expenseId }),
+      ),
+    ).rejects.toThrow("確認待ちの精算に含まれている支出は変更できません");
+  });
+
   test("削除済みの支出は更新できない", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -943,6 +959,20 @@ async function markSettled(
       expenseCount: 1,
     });
     await ctx.db.patch("expenses", expenseId, { settlementId });
+  });
+}
+
+async function startPendingSettlement(
+  t: ReturnType<typeof convexTest>,
+  who: typeof ALICE,
+) {
+  const balance = await t
+    .withIdentity(who)
+    .query(api.settlements.currentBalance, {});
+  return await t.withIdentity(who).mutation(api.settlements.start, {
+    expectedAmount: balance.amount,
+    expectedFromMemberId: balance.fromMemberId,
+    expectedExpenseCount: balance.expenseCount,
   });
 }
 
@@ -1380,6 +1410,19 @@ describe("expenses.remove", () => {
     ).rejects.toThrow("精算済みの支出は変更できません");
   });
 
+  test("確認待ちの支出は削除できない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await startPendingSettlement(t, ALICE);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.expenses.remove, { expenseId }),
+    ).rejects.toThrow("確認待ちの精算に含まれている支出は変更できません");
+  });
+
   test("他世帯・削除済みの支出は削除できない", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -1629,6 +1672,25 @@ describe("expenses.setCategory", () => {
       (await t.withIdentity(ALICE).query(api.expenses.get, { expenseId }))!
         .category,
     ).toBe("uncategorized");
+  });
+
+  test("確認待ちでも分類だけ変えられる", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const expenseId = await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.save, manualArgs(members));
+    await startPendingSettlement(t, ALICE);
+
+    await t
+      .withIdentity(ALICE)
+      .mutation(api.expenses.setCategory, { expenseId, category: "food" });
+
+    const expense = await t
+      .withIdentity(ALICE)
+      .query(api.expenses.get, { expenseId });
+
+    expect(expense!.category).toBe("food");
   });
 
   test("他世帯の支出は分類を変えられない", async () => {

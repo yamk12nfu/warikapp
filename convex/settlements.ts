@@ -11,6 +11,11 @@ import {
   calcNetBalance,
   type ItemAdvance,
 } from "../lib/settlement";
+import {
+  findPendingSettlement,
+  phaseOf,
+} from "./lib/settlementScope";
+import { emitSettlementEvent } from "./notices";
 
 // 精算(F-007)。未精算支出から世帯全体の差額を出し、精算実行で区切る。
 // 画面に出すエラーは ConvexError で投げる(本番でも素の Error はメッセージが
@@ -46,6 +51,15 @@ const ERR_CANCEL_MISMATCH =
 // V-702: 確認画面に出ていた差額と、実行時にサーバーが計算した差額が違う場合
 const ERR_AMOUNT_CHANGED =
   "精算対象が変わりました。内容を確認して、もう一度お試しください";
+const ERR_PENDING_EXISTS =
+  "確認待ちの精算があります。先に確認・差し戻しをしてください";
+const ERR_NOT_PENDING = "この精算はすでに処理されています";
+const ERR_NOT_COMPLETED =
+  "確認待ちの精算は精算画面から取り下げ・差し戻しをしてください";
+const ERR_NOT_CONFIRMER =
+  "精算を開始した人は確認できません。相手の確認を待ってください";
+const ERR_TARGET_DRIFT =
+  "精算の対象が変わっているため完了できません。差し戻してからやり直してください";
 
 // 自分以外の世帯メンバー。招待前(1名)の世帯では null
 // MCP(convex/mcp.ts)からも呼ぶため export する(ロジックはここに集約したまま)
@@ -413,6 +427,151 @@ export const execute = mutation({
   },
 });
 
+export const start = mutation({
+  args: {
+    memo: v.optional(v.string()),
+    expectedAmount: v.number(),
+    expectedFromMemberId: v.union(v.id("members"), v.null()),
+    expectedExpenseCount: v.number(),
+  },
+  handler: async (ctx, args): Promise<{
+    kind: "pending" | "completed";
+    settlementId: Id<"settlements">;
+  }> => {
+    const member = await requireMember(ctx);
+    const memo = normalizeMemo(args.memo);
+    const partner = await findPartner(ctx, member);
+    if (partner === null) {
+      throw new ConvexError(ERR_NO_PARTNER);
+    }
+    if ((await findPendingSettlement(ctx, member.coupleId)) !== null) {
+      throw new ConvexError(ERR_PENDING_EXISTS);
+    }
+
+    const { expenses } = await collectUnsettled(ctx, member.coupleId);
+    if (expenses.some((expense) => expense.status === "draft")) {
+      throw new ConvexError(ERR_DRAFT_REMAINS);
+    }
+    if (expenses.length === 0) {
+      throw new ConvexError(ERR_NO_TARGET);
+    }
+
+    const balance = calcNetBalance(member._id, partner._id, expenses);
+    if (
+      balance.amount !== args.expectedAmount ||
+      balance.fromMemberId !== args.expectedFromMemberId ||
+      expenses.length !== args.expectedExpenseCount
+    ) {
+      throw new ConvexError(ERR_AMOUNT_CHANGED);
+    }
+
+    const status = balance.amount === 0 ? "completed" : "pending";
+    const settlementId = await ctx.db.insert("settlements", {
+      coupleId: member.coupleId,
+      fromMemberId: balance.fromMemberId ?? member._id,
+      toMemberId: balance.toMemberId ?? partner._id,
+      amount: balance.amount,
+      memo,
+      settledBy: member._id,
+      expenseCount: expenses.length,
+      status,
+    });
+    for (const expense of expenses) {
+      await ctx.db.patch("expenses", expense._id, { settlementId });
+    }
+
+    if (status === "pending") {
+      const settlement = await ctx.db.get("settlements", settlementId);
+      if (settlement !== null) {
+        await emitSettlementEvent(ctx, {
+          kind: "settlementRequested",
+          settlement,
+          actor: member,
+          recipientId: partner._id,
+        });
+      }
+    }
+
+    return { kind: status, settlementId };
+  },
+});
+
+export const confirm = mutation({
+  args: { settlementId: v.id("settlements") },
+  handler: async (ctx, args): Promise<null> => {
+    const member = await requireMember(ctx);
+    const settlement = await requireOwnSettlement(
+      ctx,
+      member,
+      args.settlementId,
+    );
+    if (
+      phaseOf(settlement) === "completed" &&
+      settlement.confirmedBy === member._id
+    ) {
+      return null;
+    }
+    if (phaseOf(settlement) !== "pending") {
+      throw new ConvexError(ERR_NOT_PENDING);
+    }
+    if (settlement.settledBy === member._id) {
+      throw new ConvexError(ERR_NOT_CONFIRMER);
+    }
+
+    const { expenses, overflow } = await collectSettled(
+      ctx,
+      member.coupleId,
+      settlement._id,
+    );
+    const balance = calcNetBalance(
+      settlement.fromMemberId,
+      settlement.toMemberId,
+      expenses,
+    );
+    if (
+      overflow ||
+      expenses.length !== settlement.expenseCount ||
+      balance.amount !== settlement.amount ||
+      balance.fromMemberId !== settlement.fromMemberId
+    ) {
+      throw new ConvexError(ERR_TARGET_DRIFT);
+    }
+
+    await ctx.db.patch("settlements", settlement._id, {
+      status: "completed",
+      confirmedBy: member._id,
+      confirmedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const release = mutation({
+  args: { settlementId: v.id("settlements") },
+  handler: async (ctx, args): Promise<null> => {
+    const member = await requireMember(ctx);
+    const settlement = await requireOwnSettlement(
+      ctx,
+      member,
+      args.settlementId,
+    );
+    if (phaseOf(settlement) !== "pending") {
+      throw new ConvexError(ERR_NOT_PENDING);
+    }
+
+    await detachTargets(ctx, settlement);
+    if (member._id !== settlement.settledBy) {
+      await emitSettlementEvent(ctx, {
+        kind: "settlementRejected",
+        settlement,
+        actor: member,
+        recipientId: settlement.settledBy,
+      });
+    }
+    return null;
+  },
+});
+
 // 精算履歴(S-008)。新しい順に20件ずつページングする
 export const list = query({
   args: { paginationOpts: paginationOptsValidator },
@@ -483,15 +642,48 @@ export const detail = query({
   },
 });
 
-// 精算の取り消し(S-008)。直近1件のみ。対象支出の settlementId を外してから
-// 精算レコードを消す。取り消すと未精算に戻るので、差額表示も自動で復活する。
+async function requireOwnSettlement(
+  ctx: QueryCtx | MutationCtx,
+  member: Doc<"members">,
+  settlementId: Id<"settlements">,
+): Promise<Doc<"settlements">> {
+  const settlement = await ctx.db.get("settlements", settlementId);
+  if (settlement === null || settlement.coupleId !== member.coupleId) {
+    throw new ConvexError(ERR_NOT_FOUND);
+  }
+  return settlement;
+}
+
+async function detachTargets(
+  ctx: MutationCtx,
+  settlement: Doc<"settlements">,
+): Promise<void> {
+  const { expenses, overflow } = await collectSettled(
+    ctx,
+    settlement.coupleId,
+    settlement._id,
+  );
+  // 1件でも欠けると、削除した精算を参照する支出が残る。
+  if (overflow || expenses.length !== settlement.expenseCount) {
+    throw new ConvexError(ERR_CANCEL_MISMATCH);
+  }
+  for (const expense of expenses) {
+    await ctx.db.patch("expenses", expense._id, { settlementId: undefined });
+  }
+  await ctx.db.delete("settlements", settlement._id);
+}
+
 export const cancel = mutation({
   args: { settlementId: v.id("settlements") },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
-    const settlement = await ctx.db.get("settlements", args.settlementId);
-    if (settlement === null || settlement.coupleId !== member.coupleId) {
-      throw new ConvexError(ERR_NOT_FOUND);
+    const settlement = await requireOwnSettlement(
+      ctx,
+      member,
+      args.settlementId,
+    );
+    if (phaseOf(settlement) !== "completed") {
+      throw new ConvexError(ERR_NOT_COMPLETED);
     }
 
     const latest = await ctx.db
@@ -512,26 +704,13 @@ export const cancel = mutation({
       throw new ConvexError(ERR_COUNTERPART_LEFT);
     }
 
-    const { expenses: settled, overflow } = await collectSettled(
-      ctx,
-      member.coupleId,
-      settlement._id,
-    );
-
-    // 精算時に数えた件数と一致しなければ、この取り消しでは戻しきれない支出が
-    // ある(= settlementId だけが残った孤児レコードを作る)。精算済み支出は
-    // 編集も削除もできないので通常は起こりえないが、取りこぼすくらいなら
-    // 取り消し全体を失敗させる
-    if (overflow || settled.length !== settlement.expenseCount) {
-      throw new ConvexError(ERR_CANCEL_MISMATCH);
-    }
-
-    for (const expense of settled) {
-      // undefined を渡すとフィールドが消える = 未精算に戻る
-      await ctx.db.patch("expenses", expense._id, { settlementId: undefined });
-    }
-
-    await ctx.db.delete("settlements", settlement._id);
+    await detachTargets(ctx, settlement);
+    await emitSettlementEvent(ctx, {
+      kind: "settlementCancelled",
+      settlement,
+      actor: member,
+      recipientId: counterpart._id,
+    });
     return null;
   },
 });

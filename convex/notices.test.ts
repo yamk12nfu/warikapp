@@ -119,4 +119,43 @@ describe("notices", () => {
 
     expect(notices).toHaveLength(5);
   });
+
+  test("差し戻しを6回行っても通知は5件まで", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setup(t);
+    for (let index = 0; index < 6; index += 1) {
+      await t.withIdentity(ALICE).mutation(api.expenses.save, {
+        paidBy: members.self._id,
+        purchasedAt: "2026-01-01",
+        items: [
+          {
+            name: "食材",
+            price: 5000,
+            quantity: 1,
+            shares: [
+              { memberId: members.self._id, ratioPercent: 50 },
+              { memberId: members.partner._id, ratioPercent: 50 },
+            ],
+          },
+        ],
+        source: "manual",
+        status: "confirmed",
+      });
+      const balance = await t
+        .withIdentity(ALICE)
+        .query(api.settlements.currentBalance, {});
+      const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
+        expectedAmount: balance.amount,
+        expectedFromMemberId: balance.fromMemberId,
+        expectedExpenseCount: balance.expenseCount,
+      });
+      await t.withIdentity(BOB).mutation(api.settlements.release, {
+        settlementId: started.settlementId,
+      });
+    }
+
+    const notices = await t.withIdentity(ALICE).query(api.notices.mine, {});
+
+    expect(notices).toHaveLength(5);
+  });
 });
