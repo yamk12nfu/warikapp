@@ -5,6 +5,7 @@ import {
   calcItemShareAmount,
   calcNetBalance,
   calcTotalAmount,
+  settlementStateOf,
 } from "./settlement";
 import type { ExpenseItemInput } from "./types";
 
@@ -24,6 +25,20 @@ const item = (
   shares: ExpenseItemInput["shares"],
   quantity = 1,
 ): ExpenseItemInput => ({ name: "品目", price, quantity, shares });
+
+describe("settlementStateOf", () => {
+  test("settlementId が無ければ unsettled", () => {
+    expect(settlementStateOf(undefined, "s1")).toBe("unsettled");
+  });
+
+  test("pending の id と一致すれば pending", () => {
+    expect(settlementStateOf("s1", "s1")).toBe("pending");
+  });
+
+  test("別の id なら settled", () => {
+    expect(settlementStateOf("s1", null)).toBe("settled");
+  });
+});
 
 describe("calcTotalAmount", () => {
   test("品目金額 × 数量の合計を返す", () => {

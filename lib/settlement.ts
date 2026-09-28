@@ -1,6 +1,18 @@
 import { ConvexError } from "convex/values";
 import type { ExpenseItemInput } from "./types";
 
+export type ExpenseSettlementState = "unsettled" | "pending" | "settled";
+
+export function settlementStateOf(
+  settlementId: string | undefined,
+  pendingSettlementId: string | null,
+): ExpenseSettlementState {
+  if (settlementId === undefined) {
+    return "unsettled";
+  }
+  return settlementId === pendingSettlementId ? "pending" : "settled";
+}
+
 // 支出金額と立て替え額の計算。純粋関数として置き、仕分けUIの表示・
 // expenses.save の totalAmount 算出・精算(settlements)の各関数から共用する
 // (Convex関数はプロジェクト内のファイルを普通にimportできる)。
