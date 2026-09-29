@@ -22,6 +22,7 @@ const DESCRIPTION = `世帯の未精算差額(現在の残高)を取得する。
 - included_expense_count: 集計に含めた支出件数(購入日の古い順に最大200件が上限)。
 - draft_count: 未確定(draft)の支出件数。差額には含まれない。
 - truncated: true のとき amount 等は部分集計値(200件超のとき)。確定値として案内しないこと。
+- pending_settlement: 確認待ちの精算がある場合の固定金額・対象件数・確認待ち役。上の amount は開始後に登録された支出だけの差額。
 
 次に呼ぶツール:
 - 差額の内訳(どの支出が対象か)を知りたい場合は list_expenses を呼ぶ。`;

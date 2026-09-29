@@ -126,6 +126,13 @@ export default function SettingsClient() {
           未確定の支出を見る
         </Link>
       </>
+    ) : household.leaveBlocker === "pending" ? (
+      <>
+        {LEAVE_BLOCKER_MESSAGE.pending}{" "}
+        <Link href="/settlement" className={linkClass}>
+          精算画面へ
+        </Link>
+      </>
     ) : household.leaveBlocker === null ? null : (
       LEAVE_BLOCKER_MESSAGE[household.leaveBlocker]
     );

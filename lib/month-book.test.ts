@@ -50,7 +50,7 @@ function fact(
     purchasedAt: month,
     purchasedAtDate: "2026-09-01",
     status: "confirmed",
-    settled: false,
+    settlementState: "unsettled",
     paidBy: SELF,
     ...overrides,
   };
@@ -153,6 +153,42 @@ describe("monthHref / formatYearMonthLabel", () => {
 });
 
 describe("foldMonth", () => {
+  test("pending は unsettledAmount に積まれ settledAmount に入らない", () => {
+    const folded = foldMonth(
+      month,
+      [
+        fact({
+          totalAmount: 5000,
+          category: "food",
+          settlementState: "pending",
+          items: [item(5000, split())],
+        }),
+      ],
+      SELF,
+      PARTNER,
+    );
+
+    expect([folded.unsettledAmount, folded.settledAmount]).toEqual([5000, 0]);
+  });
+
+  test("pending の支払いは unsettledPaidAmount に含まれる", () => {
+    const folded = foldMonth(
+      month,
+      [
+        fact({
+          totalAmount: 5000,
+          category: "food",
+          settlementState: "pending",
+          items: [item(5000, split())],
+        }),
+      ],
+      SELF,
+      PARTNER,
+    );
+
+    expect(folded.members[0].unsettledPaidAmount).toBe(5000);
+  });
+
   test("下書きの金額は合計にも分類にも差額にも入らない", () => {
     const folded = foldMonth(
       month,
@@ -166,7 +202,7 @@ describe("foldMonth", () => {
         fact({
           totalAmount: 1000,
           category: "daily",
-          settled: true,
+          settlementState: "settled",
           items: [item(1000, split())],
         }),
       ],
@@ -207,7 +243,7 @@ describe("foldMonth", () => {
         fact({
           totalAmount: 5000,
           category: "food",
-          settled: true,
+          settlementState: "settled",
           items: [item(5000, split())],
         }),
         fact({
@@ -551,7 +587,24 @@ describe("categoryRatio", () => {
 });
 
 describe("toMonthExpenseFact", () => {
-  test("日付は月に切り、カテゴリ欠落は未分類、精算idの有無が settled", () => {
+  test("pending の対象は settlementState pending", () => {
+    const pending = toMonthExpenseFact(
+      {
+        _id: "expense-pending",
+        purchasedAt: "2026-09-15",
+        status: "confirmed",
+        settlementId: "s1",
+        paidBy: SELF,
+        totalAmount: 5000,
+        items: [item(5000, split())],
+      },
+      "s1",
+    );
+
+    expect(pending.settlementState).toBe("pending");
+  });
+
+  test("日付は月に切り、カテゴリ欠落は未分類、精算状態を保つ", () => {
     const items = [item(1200, split())];
     const missing = toMonthExpenseFact({
       _id: "expense-1",
@@ -561,10 +614,10 @@ describe("toMonthExpenseFact", () => {
       totalAmount: 1200,
       storeName: "スーパー",
       items,
-    });
+    }, null);
     expect(missing.purchasedAt).toBe("2026-09");
     expect(missing.category).toBe("uncategorized");
-    expect(missing.settled).toBe(false);
+    expect(missing.settlementState).toBe("unsettled");
     expect(missing.purchasedAtDate).toBe("2026-09-15");
     expect(missing.expenseId).toBe("expense-1");
     expect(missing.expenseTitle).toBe("スーパー");
@@ -579,9 +632,9 @@ describe("toMonthExpenseFact", () => {
       category: "leisure",
       storeName: undefined,
       items,
-    });
+    }, null);
     expect(stored.category).toBe("leisure");
-    expect(stored.settled).toBe(true);
+    expect(stored.settlementState).toBe("settled");
     expect(stored.status).toBe("draft");
     expect(stored.paidBy).toBe(PARTNER);
     expect(stored.expenseTitle).toBe("品目");
@@ -596,7 +649,7 @@ describe("toMonthExpenseFact", () => {
       totalAmount: 300,
       category: "daily",
       items: [{ ...item(300, split()), category: "food" }],
-    });
+    }, null);
 
     expect(stored.items[0].category).toBe("food");
   });
@@ -611,7 +664,7 @@ describe("toMonthExpenseFact", () => {
         totalAmount: 100,
         category: "rent",
         items: [],
-      }),
+      }, null),
     ).toThrow(/unknown category/);
   });
 });

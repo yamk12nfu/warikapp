@@ -16,6 +16,7 @@ export const directionEnum = z.enum(["self_pays_partner", "partner_pays_self", "
 
 export const sourceEnum = z.enum(["receipt", "manual"]);
 export const statusEnum = z.enum(["draft", "confirmed"]);
+export const settlementStateEnum = z.enum(["unsettled", "pending", "settled"]);
 export const categoryIdEnum = z.enum([
   "food",
   "daily",
@@ -41,6 +42,16 @@ export const memberRefSchema = z.object({
 
 // --- get_unsettled_balance -------------------------------------------------
 
+const pendingSettlementSchema = z.object({
+  settlement_id: z.string(),
+  amount: z.number().int().min(0),
+  direction: directionEnum,
+  started_by: memberRefSchema,
+  started_at: z.string(),
+  expense_count: z.number().int(),
+  awaiting: z.enum(["self", "partner"]),
+});
+
 export const balanceOutputShape = {
   currency: z.literal("JPY"),
   amount: z.number().int().min(0).describe("未精算差額(円)。0以上。0のとき精算不要"),
@@ -61,6 +72,10 @@ export const balanceOutputShape = {
   truncated: z
     .boolean()
     .describe("true のとき amount 等は部分集計値(上限200件を超えた場合)。確定値として扱わないこと"),
+  // 旧Convexの応答で未追加でも、呼び出し側は「確認待ちなし」として扱う。
+  pending_settlement: pendingSettlementSchema.nullable().default(null).describe(
+    "確認待ちの精算。amount と expense_count は開始時に固定した対象だけの値。上の amount は開始後の支出だけの差額",
+  ),
 };
 export const balanceOutputSchema = z.object(balanceOutputShape);
 export type BalanceResponse = z.infer<typeof balanceOutputSchema>;
@@ -114,6 +129,7 @@ const expenseListItemSchema = z.object({
   paid_by: memberRefSchema,
   status: statusEnum,
   settled: z.boolean(),
+  settlement_state: settlementStateEnum,
 });
 
 export const listExpensesOutputShape = {
@@ -216,6 +232,7 @@ export const getItemBreakdownOutputShape = {
   total_amount: z.number().int(),
   status: statusEnum,
   settled: z.boolean(),
+  settlement_state: settlementStateEnum,
   source: sourceEnum,
   paid_by: memberRefSchema,
   advance_amount: z.number().int().describe("支払者が相手の分を立て替えた金額"),

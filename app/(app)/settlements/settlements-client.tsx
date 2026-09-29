@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toUserMessage } from "@/lib/convex-error";
 import { formatYen } from "@/lib/format";
+import { badgeClass } from "@/lib/ui";
 import {
   useConvexAuth,
   useMutation,
@@ -118,13 +119,17 @@ export default function SettlementsClient() {
         <p className="text-sm text-muted">精算の記録はまだありません</p>
       ) : (
         <ul className="space-y-2">
-          {settlements.results.map((settlement, index) => (
+          {settlements.results.map((settlement) => (
             <li
               key={settlement._id}
               className="space-y-2 rounded-2xl bg-surface p-3 shadow-card"
             >
               <Link
-                href={`/settlements/${settlement._id}`}
+                href={
+                  settlement.status === "pending"
+                    ? "/settlement"
+                    : `/settlements/${settlement._id}`
+                }
                 className="block space-y-2"
               >
                 <div className="flex items-baseline justify-between gap-3">
@@ -135,6 +140,11 @@ export default function SettlementsClient() {
                     {formatYen(settlement.amount)}
                   </span>
                 </div>
+                {settlement.status === "pending" && (
+                  <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
+                    確認待ち
+                  </span>
+                )}
                 <p className="text-sm">
                   {settlement.amount === 0
                     ? "貸し借りなしで精算"
@@ -154,7 +164,7 @@ export default function SettlementsClient() {
                   内訳を見る →
                 </span>
               </Link>
-              {index === 0 && (
+              {settlement.canCancel && (
                 <button
                   type="button"
                   onClick={() => handleCancel(settlement._id)}

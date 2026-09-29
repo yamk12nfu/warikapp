@@ -144,7 +144,26 @@ export default defineSchema({
     // 読み直すのを避けるため、精算実行時に確定した件数をここに持たせる。
     // 精算済み支出は編集・削除ができず、取り消しは精算ごと消すので値はずれない
     expenseCount: v.number(),
-  }).index("by_coupleId", ["coupleId"]),
+    status: v.optional(v.union(v.literal("pending"), v.literal("completed"))),
+    confirmedBy: v.optional(v.id("members")),
+    confirmedAt: v.optional(v.number()),
+  })
+    .index("by_coupleId", ["coupleId"])
+    .index("by_coupleId_and_status", ["coupleId", "status"]),
+
+  notices: defineTable({
+    coupleId: v.id("couples"),
+    recipientId: v.id("members"),
+    actorId: v.id("members"),
+    kind: v.union(
+      v.literal("settlementRejected"),
+      v.literal("settlementCancelled"),
+    ),
+    amount: v.number(),
+    expenseCount: v.number(),
+  })
+    .index("by_recipientId", ["recipientId"])
+    .index("by_coupleId", ["coupleId"]),
 
   // アップロードした画像の世帯帰属台帳(Phase 8)。
   // Convexのstorage IDはURLを知っていれば誰でも指定できてしまうため、

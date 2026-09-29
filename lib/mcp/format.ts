@@ -70,6 +70,25 @@ export function buildBalanceSummaryText(data: BalanceResponse): string {
       `未精算差額: ${fromName}が${toName}に${formatYenText(data.amount)}支払うと精算できます(${directionLabel(data.direction)})。`,
     );
   }
+  if (data.pending_settlement) {
+    const pending = data.pending_settlement;
+    const fromName =
+      pending.direction === "partner_pays_self"
+        ? (data.partner?.display_name ?? "partner")
+        : data.self.display_name;
+    const toName =
+      pending.direction === "partner_pays_self"
+        ? data.self.display_name
+        : (data.partner?.display_name ?? "partner");
+    const awaitingName =
+      pending.awaiting === "self"
+        ? "あなた"
+        : (data.partner?.display_name ?? "partner");
+    lines.push(
+      `確認待ちの精算: ${fromName}が${toName}に¥${YEN_FORMATTER.format(pending.amount)}` +
+        `(${awaitingName}の確認待ち、対象 ${pending.expense_count}件)。`,
+    );
+  }
   lines.push(
     `内訳: 自分の支払い ${formatYenText(data.paid_by_self)} / 相手の支払い ${formatYenText(data.paid_by_partner)} / 対象件数 ${data.included_expense_count}件`,
   );
@@ -84,7 +103,12 @@ export function buildExpenseListSummaryText(data: ListExpensesResponse): string 
   const lines: string[] = [`支出一覧: ${data.returned_count}件を表示。`];
   for (const expense of data.expenses) {
     const statusLabel = expense.status === "draft" ? "未確定" : "確定";
-    const settledLabel = expense.settled ? "精算済み" : "未精算";
+    const settledLabel =
+      expense.settlement_state === "pending"
+        ? "確認待ち"
+        : expense.settled
+          ? "精算済み"
+          : "未精算";
     lines.push(
       `- ${expense.purchased_at} ${expense.title} ${formatYenText(expense.total_amount)}` +
         `(支払: ${expense.paid_by.display_name} / ${statusLabel} / ${settledLabel} / id: ${expense.id})`,
@@ -142,8 +166,8 @@ export function buildMonthlySummaryText(data: MonthlySummaryResponse): string {
 export function buildItemBreakdownSummaryText(data: ExpenseBreakdownResponse): string {
   const title = data.store_name ?? "(店名なし)";
   const lines: string[] = [
-    `${title}(${data.purchased_at}) 合計 ${formatYenText(data.total_amount)} / ` +
-      `支払: ${data.paid_by.display_name} / ${data.settled ? "精算済み" : "未精算"}`,
+      `${title}(${data.purchased_at}) 合計 ${formatYenText(data.total_amount)} / ` +
+      `支払: ${data.paid_by.display_name} / ${data.settlement_state === "pending" ? "確認待ち" : data.settled ? "精算済み" : "未精算"}`,
   ];
   for (const item of data.items) {
     const shareText = item.shares

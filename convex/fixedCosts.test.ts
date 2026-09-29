@@ -732,6 +732,23 @@ describe("fixedCosts.save and posting", () => {
 });
 
 describe("fixedCosts.list and get", () => {
+  test("履歴行は settled boolean を返さない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await insertExpenseFor(t, coupleId, fixedCostId, members, month, {
+      settled: true,
+    });
+
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.fixedCosts.get, { fixedCostId });
+
+    expect("settled" in detail!.history[0]).toBe(false);
+  });
+
   test("thisMonth は計上済み・削除済み・未計上・開始前を区別する", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);
@@ -800,7 +817,7 @@ describe("fixedCosts.list and get", () => {
         expenseId,
         totalAmount: 120000,
         deleted: true,
-        settled: true,
+        settlementState: "settled",
       },
     ]);
     await expect(
@@ -809,6 +826,29 @@ describe("fixedCosts.list and get", () => {
     await expect(
       t.withIdentity(ALICE).query(api.fixedCosts.get, { fixedCostId: "bogus" }),
     ).resolves.toBeNull();
+  });
+
+  test("確認待ちの計上履歴は settlementState pending", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    const coupleId = await coupleIdOf(t);
+    const month = currentMonth();
+    const fixedCostId = await insertFixedCost(t, coupleId, members);
+    await insertExpenseFor(t, coupleId, fixedCostId, members, month);
+    const balance = await t
+      .withIdentity(ALICE)
+      .query(api.settlements.currentBalance, {});
+    await t.withIdentity(ALICE).mutation(api.settlements.start, {
+      expectedAmount: balance.amount,
+      expectedFromMemberId: balance.fromMemberId,
+      expectedExpenseCount: balance.expenseCount,
+    });
+
+    const detail = await t
+      .withIdentity(ALICE)
+      .query(api.fixedCosts.get, { fixedCostId });
+
+    expect(detail!.history[0].settlementState).toBe("pending");
   });
 });
 

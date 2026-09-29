@@ -13,6 +13,7 @@ import type { YearMonth } from "../lib/month-book";
 import { assertCoupleMemberIds, requireMember } from "./lib/auth";
 import { normalizeItems } from "./expenses";
 import { shareValidator, storedCategoryValidator } from "./schema";
+import { loadSettlementScope } from "./lib/settlementScope";
 
 const ERR_NOT_FOUND = "固定費が見つかりません";
 const ERR_NAME = "名目は1〜50文字で入力してください"; // V-1101
@@ -183,13 +184,16 @@ export const get = query({
     if (fixedCost === null || fixedCost.coupleId !== member.coupleId) {
       return null;
     }
-    const history = await ctx.db
-      .query("expenses")
-      .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
-        q.eq("fixedCost.id", fixedCost._id),
-      )
-      .order("desc")
-      .take(12);
+    const [history, scope] = await Promise.all([
+      ctx.db
+        .query("expenses")
+        .withIndex("by_fixedCost_id_and_fixedCost_month", (q) =>
+          q.eq("fixedCost.id", fixedCost._id),
+        )
+        .order("desc")
+        .take(12),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
     return {
       ...fixedCost,
       history: history.filter(isPostedExpense).map((expense) => ({
@@ -197,7 +201,7 @@ export const get = query({
         expenseId: expense._id,
         totalAmount: expense.totalAmount,
         deleted: expense.deletedAt !== undefined,
-        settled: expense.settlementId !== undefined,
+        settlementState: scope.stateOf(expense),
       })),
     };
   },

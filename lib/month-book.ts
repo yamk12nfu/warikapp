@@ -9,6 +9,8 @@ import {
 import {
   calcItemShareAmount,
   calcNetBalance,
+  settlementStateOf,
+  type ExpenseSettlementState,
   type SettlementBalance,
   type SettlementExpenseInput,
 } from "./settlement";
@@ -47,7 +49,7 @@ export type MonthExpenseFact = {
   purchasedAtDate: string;
   deletedAt?: number;
   status: "draft" | "confirmed";
-  settled: boolean;
+  settlementState: ExpenseSettlementState;
   paidBy: string;
   totalAmount: number;
   category: CategoryId;
@@ -235,7 +237,7 @@ function addConfirmed(
 ): void {
   if (fact.paidBy === member.memberId) {
     member.paidAmount += fact.totalAmount;
-    if (!fact.settled) {
+    if (fact.settlementState !== "settled") {
       member.unsettledPaidAmount += fact.totalAmount;
     }
   }
@@ -281,7 +283,7 @@ export function foldMonth(
       categoryAmounts[category] += item.price * item.quantity;
     }
     const items = fact.items.map(toShareItem);
-    if (fact.settled) {
+    if (fact.settlementState === "settled") {
       settledAmount += fact.totalAmount;
     } else {
       unsettledAmount += fact.totalAmount;
@@ -400,7 +402,7 @@ export function toMonthExpenseFact(doc: {
   storeName?: string;
   deletedAt?: number;
   items: ReadonlyArray<MonthItemFact>;
-}): MonthExpenseFact {
+}, pendingSettlementId: string | null): MonthExpenseFact {
   return {
     expenseId: doc._id,
     expenseTitle: expenseTitle(doc.storeName, doc.items[0]?.name),
@@ -408,7 +410,7 @@ export function toMonthExpenseFact(doc: {
     purchasedAtDate: doc.purchasedAt,
     ...(doc.deletedAt === undefined ? {} : { deletedAt: doc.deletedAt }),
     status: doc.status,
-    settled: doc.settlementId !== undefined,
+    settlementState: settlementStateOf(doc.settlementId, pendingSettlementId),
     paidBy: doc.paidBy,
     totalAmount: doc.totalAmount,
     category: normalizeCategory(doc.category),

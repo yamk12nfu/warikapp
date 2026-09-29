@@ -19,6 +19,7 @@ import {
   LEAVE_BLOCKER_MESSAGE,
   LeaveBlocker,
 } from "./lib/leave";
+import { loadSettlementScope } from "./lib/settlementScope";
 
 // 世帯(couple)は全データのテナント境界。1ユーザーは1世帯にのみ所属する(V-202)。
 // 画面に出すエラーは ConvexError で投げる(本番でもメッセージがクライアントに届く)。
@@ -263,10 +264,7 @@ async function findLeaveBlocker(
   member: Doc<"members">,
   partner: Doc<"members"> | null,
 ): Promise<LeaveBlocker> {
-  if (partner === null) {
-    return null;
-  }
-  const [draft, unsettled] = await Promise.all([
+  const [draft, unsettled, scope] = await Promise.all([
     ctx.db
       .query("expenses")
       .withIndex(
@@ -289,10 +287,16 @@ async function findLeaveBlocker(
             .eq("deletedAt", undefined),
       )
       .first(),
+    loadSettlementScope(ctx, member.coupleId),
   ]);
+  // 1人だけの世帯は未精算があっても退出できる(貸し借りの相手がいない)
+  if (partner === null && scope.pending === null) {
+    return null;
+  }
   return getLeaveBlocker({
     hasDraft: draft !== null,
     hasUnsettled: unsettled !== null,
+    hasPending: scope.pending !== null,
   });
 }
 
@@ -419,6 +423,16 @@ export const purgeCouple = internalMutation({
         for (const row of rows) {
           await ctx.storage.delete(row.storageId);
           await ctx.db.delete("uploads", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("notices")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("notices", row._id);
         }
         return rows.length;
       },

@@ -35,6 +35,40 @@ async function setupCouple(
     .mutation(api.couples.createCouple, { displayName });
 }
 
+async function startPendingSettlement(t: ReturnType<typeof convexTest>) {
+  const invitation = await setupCouple(t);
+  await t.withIdentity(BOB).mutation(api.couples.joinCouple, {
+    code: invitation.code,
+    displayName: "ぼぶ",
+  });
+  const household = await t.withIdentity(ALICE).query(api.couples.household, {});
+  await t.withIdentity(ALICE).mutation(api.expenses.save, {
+    paidBy: household.self._id,
+    purchasedAt: "2026-07-20",
+    items: [
+      {
+        name: "食材",
+        price: 1000,
+        quantity: 1,
+        shares: [
+          { memberId: household.self._id, ratioPercent: 50 },
+          { memberId: household.partner!._id, ratioPercent: 50 },
+        ],
+      },
+    ],
+    source: "manual",
+    status: "confirmed",
+  });
+  const balance = await t
+    .withIdentity(ALICE)
+    .query(api.settlements.currentBalance, {});
+  return await t.withIdentity(ALICE).mutation(api.settlements.start, {
+    expectedAmount: balance.amount,
+    expectedFromMemberId: balance.fromMemberId,
+    expectedExpenseCount: balance.expenseCount,
+  });
+}
+
 describe("createCouple", () => {
   test("世帯とメンバーを作り、招待コードを発行する", async () => {
     const t = convexTest(schema, modules);
@@ -418,6 +452,53 @@ describe("reissueInvitation", () => {
 });
 
 describe("leaveCouple", () => {
+  test("household.leaveBlocker は確認待ち中 pending", async () => {
+    const t = convexTest(schema, modules);
+    await startPendingSettlement(t);
+
+    const household = await t
+      .withIdentity(ALICE)
+      .query(api.couples.household, {});
+
+    expect(household.leaveBlocker).toBe("pending");
+  });
+
+  test("開始者は確認待ちの間退出できない", async () => {
+    const t = convexTest(schema, modules);
+    await startPendingSettlement(t);
+
+    await expect(
+      t.withIdentity(ALICE).mutation(api.couples.leaveCouple, {}),
+    ).rejects.toThrow(
+      "確認待ちの精算があります。確認するか差し戻してから退出してください",
+    );
+  });
+
+  test("確認者は確認待ちの間退出できない", async () => {
+    const t = convexTest(schema, modules);
+    await startPendingSettlement(t);
+
+    await expect(
+      t.withIdentity(BOB).mutation(api.couples.leaveCouple, {}),
+    ).rejects.toThrow(
+      "確認待ちの精算があります。確認するか差し戻してから退出してください",
+    );
+  });
+
+  test("差し戻した後は未精算ブロッカーに変わる", async () => {
+    const t = convexTest(schema, modules);
+    const started = await startPendingSettlement(t);
+    await t.withIdentity(BOB).mutation(api.settlements.release, {
+      settlementId: started.settlementId,
+    });
+
+    const household = await t
+      .withIdentity(ALICE)
+      .query(api.couples.household, {});
+
+    expect(household.leaveBlocker).toBe("unsettled");
+  });
+
   test("未精算の確定支出があれば退出を拒否する", async () => {
     const t = convexTest(schema, modules);
     const invitation = await setupCouple(t);
@@ -534,6 +615,16 @@ describe("leaveCouple", () => {
       throw new Error("自分のメンバーが見つからない");
     }
     const coupleId = currentMember.coupleId;
+    await t.run(async (ctx) =>
+      ctx.db.insert("notices", {
+        coupleId,
+        recipientId: household.self._id,
+        actorId: household.partner!._id,
+        kind: "settlementCancelled",
+        amount: 1500,
+        expenseCount: 1,
+      }),
+    );
     const expenseId = await t.withIdentity(ALICE).mutation(api.expenses.save, {
       paidBy: household.self._id,
       purchasedAt: "2026-07-20",
@@ -554,14 +645,16 @@ describe("leaveCouple", () => {
     const balance = await t
       .withIdentity(ALICE)
       .query(api.settlements.currentBalance, {});
-    const settlementId = await t
-      .withIdentity(ALICE)
-      .mutation(api.settlements.execute, {
-        memo: undefined,
-        expectedAmount: balance.amount,
-        expectedFromMemberId: balance.fromMemberId,
-        expectedExpenseCount: balance.expenseCount,
-      });
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
+      memo: undefined,
+      expectedAmount: balance.amount,
+      expectedFromMemberId: balance.fromMemberId,
+      expectedExpenseCount: balance.expenseCount,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
+    });
+    const settlementId = started.settlementId;
 
     await t.withIdentity(ALICE).mutation(api.couples.leaveCouple, {});
 
@@ -704,11 +797,14 @@ describe("leaveCouple", () => {
     const balance = await t
       .withIdentity(ALICE)
       .query(api.settlements.currentBalance, {});
-    await t.withIdentity(ALICE).mutation(api.settlements.execute, {
+    const started = await t.withIdentity(ALICE).mutation(api.settlements.start, {
       memo: undefined,
       expectedAmount: balance.amount,
       expectedFromMemberId: balance.fromMemberId,
       expectedExpenseCount: balance.expenseCount,
+    });
+    await t.withIdentity(BOB).mutation(api.settlements.confirm, {
+      settlementId: started.settlementId,
     });
 
     vi.useFakeTimers();
@@ -721,7 +817,7 @@ describe("leaveCouple", () => {
     }
 
     const afterPurge = await t.run(async (ctx) => {
-      const [couple, expenses, fixedCosts, budgets, uploads, settlements, invitations, members, storage] =
+      const [couple, expenses, fixedCosts, budgets, uploads, settlements, notices, invitations, members, storage] =
         await Promise.all([
           ctx.db.get("couples", coupleId),
           ctx.db
@@ -751,6 +847,10 @@ describe("leaveCouple", () => {
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
             .collect(),
           ctx.db
+            .query("notices")
+            .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+            .collect(),
+          ctx.db
             .query("invitations")
             .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
             .collect(),
@@ -767,6 +867,7 @@ describe("leaveCouple", () => {
         budgets,
         uploads,
         settlements,
+        notices,
         invitations,
         members,
         storage,
@@ -778,6 +879,7 @@ describe("leaveCouple", () => {
     expect(afterPurge.budgets).toHaveLength(0);
     expect(afterPurge.uploads).toHaveLength(0);
     expect(afterPurge.settlements).toHaveLength(0);
+    expect(afterPurge.notices).toHaveLength(0);
     expect(afterPurge.invitations).toHaveLength(0);
     expect(afterPurge.members).toHaveLength(0);
     expect(afterPurge.storage).toBeNull();

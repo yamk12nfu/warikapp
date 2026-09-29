@@ -30,6 +30,7 @@ import {
   visibleCategories,
 } from "../lib/month-book";
 import { rateLimiter, MCP_READ_LIMIT_NAME } from "./rateLimits";
+import { loadSettlementScope } from "./lib/settlementScope";
 
 // リモートMCPサーバー(convex/http.ts)の内部境界。ここに置く関数はすべて
 // internalQuery / internalMutation で、httpAction からしか呼ばれない
@@ -174,12 +175,18 @@ export const balance = internalQuery({
   args: { clerkUserId: v.string() },
   handler: async (ctx, args) => {
     const member = await requireMcpMember(ctx, args.clerkUserId);
-    const partner = await findPartner(ctx, member);
-    const { expenses, truncated } = await collectUnsettled(
-      ctx,
-      member.coupleId,
+    const [partner, collected, scope] = await Promise.all([
+      findPartner(ctx, member),
+      collectUnsettled(ctx, member.coupleId),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
+    const summary = summarize(
+      member._id,
+      partner?._id ?? null,
+      collected.expenses,
+      collected.truncated,
     );
-    const summary = summarize(member._id, partner?._id ?? null, expenses, truncated);
+    const pending = scope.pending;
 
     return {
       amount: summary.amount,
@@ -194,6 +201,24 @@ export const balance = internalQuery({
       includedExpenseCount: summary.expenseCount,
       draftCount: summary.draftCount,
       truncated: summary.truncated,
+      pendingSettlement:
+        pending === null
+          ? null
+          : {
+              settlementId: pending._id,
+              amount: pending.amount,
+              fromMemberId: pending.fromMemberId,
+              startedBy: {
+                memberId: pending.settledBy,
+                displayName:
+                  pending.settledBy === member._id
+                    ? member.displayName
+                    : partner?.displayName ?? "?",
+              },
+              startedAt: pending._creationTime,
+              expenseCount: pending.expenseCount,
+              awaiting: pending.settledBy === member._id ? "partner" : "self",
+            },
     };
   },
 });
@@ -221,6 +246,7 @@ export const listExpenses = internalQuery({
       ctx,
       args.clerkUserId,
     );
+    const scope = await loadSettlementScope(ctx, member.coupleId);
 
     const scoped =
       args.filter === "unsettled"
@@ -281,21 +307,25 @@ export const listExpenses = internalQuery({
     }
 
     return {
-      expenses: result.page.map((expense) => ({
-        id: expense._id,
-        // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.listと同じ規則)
-        title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
-        purchasedAt: expense.purchasedAt,
-        totalAmount: expense.totalAmount,
-        itemCount: expense.items.length,
-        source: expense.source,
-        paidBy: {
-          memberId: expense.paidBy,
-          displayName: displayNameOf(membersById, expense.paidBy),
-        },
-        status: expense.status,
-        settled: expense.settlementId !== undefined,
-      })),
+      expenses: result.page.map((expense) => {
+        const settlementState = scope.stateOf(expense);
+        return {
+          id: expense._id,
+          // 店名は任意項目。未設定なら先頭の品目名を見出しにする(expenses.listと同じ規則)
+          title: expense.storeName ?? expense.items[0]?.name ?? "(名称なし)",
+          purchasedAt: expense.purchasedAt,
+          totalAmount: expense.totalAmount,
+          itemCount: expense.items.length,
+          source: expense.source,
+          paidBy: {
+            memberId: expense.paidBy,
+            displayName: displayNameOf(membersById, expense.paidBy),
+          },
+          status: expense.status,
+          settled: settlementState === "settled",
+          settlementState,
+        };
+      }),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     };
@@ -340,6 +370,7 @@ export const monthlySummary = internalQuery({
   handler: async (ctx, args) => {
     const member = await requireMcpMember(ctx, args.clerkUserId);
     const partner = await findPartner(ctx, member);
+    const scope = await loadSettlementScope(ctx, member.coupleId);
     const month = requireYearMonth(args.month);
     const { from, to } = monthDateRange(month);
 
@@ -360,7 +391,7 @@ export const monthlySummary = internalQuery({
     const expenses = truncated ? rows.slice(0, MAX_UNSETTLED_EXPENSES) : rows;
     const folded = foldMonth(
       month,
-      expenses.map((expense) => toMonthExpenseFact(expense)),
+      expenses.map((expense) => toMonthExpenseFact(expense, scope.pendingId)),
       member._id,
       partner?._id ?? null,
     );
@@ -434,6 +465,9 @@ export const expenseDetail = internalQuery({
       return null;
     }
 
+    const scope = await loadSettlementScope(ctx, member.coupleId);
+    const settlementState = scope.stateOf(expense);
+
     const expenseCategory = normalizeCategory(expense.category);
     return {
       id: expense._id,
@@ -441,7 +475,8 @@ export const expenseDetail = internalQuery({
       purchasedAt: expense.purchasedAt,
       totalAmount: expense.totalAmount,
       status: expense.status,
-      settled: expense.settlementId !== undefined,
+      settled: settlementState === "settled",
+      settlementState,
       source: expense.source,
       paidBy: {
         memberId: expense.paidBy,

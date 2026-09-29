@@ -37,6 +37,7 @@ const VALID_BREAKDOWN = {
   total_amount: 4321,
   status: "confirmed" as const,
   settled: true,
+  settlement_state: "settled" as const,
   source: "receipt" as const,
   paid_by: { member_id: "m1", display_name: "かえで" },
   advance_amount: 2100,

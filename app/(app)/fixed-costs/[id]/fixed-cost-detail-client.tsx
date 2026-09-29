@@ -271,7 +271,12 @@ export default function FixedCostDetailClient({
                     <span className="block whitespace-nowrap font-bold tabular-nums">
                       {formatYen(row.totalAmount)}
                     </span>
-                    {row.settled && (
+                    {row.settlementState === "pending" && (
+                      <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
+                        確認待ち
+                      </span>
+                    )}
+                    {row.settlementState === "settled" && (
                       <span className={`${badgeClass} bg-line text-muted`}>
                         精算済み
                       </span>

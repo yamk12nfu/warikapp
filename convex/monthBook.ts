@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
+import { loadSettlementScope } from "./lib/settlementScope";
 import { listActiveMembers, listAllMembers } from "./lib/members";
 import { MAX_UNSETTLED_EXPENSES } from "./settlements";
 import type { SettlementBalance } from "../lib/settlement";
@@ -121,7 +122,10 @@ export const month = query({
       activeMembers.find((row) => row._id !== member._id) ??
       allMembers.find((row) => row._id !== member._id) ??
       null;
-    const read = await readMonthExpenses(ctx, member.coupleId, monthValue);
+    const [read, scope] = await Promise.all([
+      readMonthExpenses(ctx, member.coupleId, monthValue),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
     if (read.kind === "overflow") {
       return {
         kind: "overflow" as const,
@@ -132,7 +136,7 @@ export const month = query({
 
     const folded = foldMonth(
       monthValue,
-      read.rows.map((row) => toMonthExpenseFact(row)),
+      read.rows.map((row) => toMonthExpenseFact(row, scope.pendingId)),
       member._id,
       partner?._id ?? null,
     );
@@ -166,13 +170,16 @@ export const categoryItems = query({
       throw new ConvexError(ERR_CATEGORY);
     }
 
-    const read = await readMonthExpenses(ctx, member.coupleId, monthValue);
+    const [read, scope] = await Promise.all([
+      readMonthExpenses(ctx, member.coupleId, monthValue),
+      loadSettlementScope(ctx, member.coupleId),
+    ]);
     if (read.kind === "overflow") {
       return { kind: "overflow" as const, limit: read.limit };
     }
 
     const rows = categoryItemRows(
-      read.rows.map((row) => toMonthExpenseFact(row)),
+      read.rows.map((row) => toMonthExpenseFact(row, scope.pendingId)),
       category,
     );
     return {

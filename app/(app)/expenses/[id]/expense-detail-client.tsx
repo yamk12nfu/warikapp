@@ -191,7 +191,12 @@ export default function ExpenseDetailClient({
               未確定
             </span>
           )}
-          {expense.settled && (
+          {expense.settlementState === "pending" && (
+            <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
+              確認待ち
+            </span>
+          )}
+          {expense.settlementState === "settled" && (
             <span className={`${badgeClass} bg-line text-muted`}>
               精算済み
             </span>
@@ -334,9 +339,11 @@ export default function ExpenseDetailClient({
         </div>
       </section>
 
-      {expense.settled && (
+      {expense.settlementState !== "unsettled" && (
         <p className="text-sm text-muted">
-          金額と品目は精算済みのため変更できません。分類だけ直せます。
+          {expense.settlementState === "pending"
+            ? "確認待ちの精算に含まれているため、金額と品目は変更できません。分類だけ直せます。"
+            : "金額と品目は精算済みのため変更できません。分類だけ直せます。"}
         </p>
       )}
       {error !== null && (
@@ -346,7 +353,7 @@ export default function ExpenseDetailClient({
       )}
 
       <div className="flex gap-3">
-        {expense.settled ? (
+        {expense.settlementState !== "unsettled" ? (
           <button type="button" disabled className={buttonClass}>
             編集
           </button>
@@ -358,7 +365,7 @@ export default function ExpenseDetailClient({
         <button
           type="button"
           onClick={handleRemove}
-          disabled={expense.settled || removing}
+          disabled={expense.settlementState !== "unsettled" || removing}
           className={`${buttonClass} text-danger`}
         >
           {removing ? "削除中…" : "削除"}

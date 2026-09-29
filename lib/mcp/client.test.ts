@@ -232,6 +232,7 @@ describe("lib/mcp/client", () => {
         total_amount: 0,
         status: "confirmed",
         settled: false,
+        settlement_state: "unsettled",
         source: "manual",
         paid_by: { member_id: "m1", display_name: "self" },
         advance_amount: 0,
