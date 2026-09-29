@@ -17,6 +17,7 @@ import type * as budgets from "../budgets.js";
 import type * as couples from "../couples.js";
 import type * as crons from "../crons.js";
 import type * as expenses from "../expenses.js";
+import type * as export_ from "../export.js";
 import type * as fixedCosts from "../fixedCosts.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   couples: typeof couples;
   crons: typeof crons;
   expenses: typeof expenses;
+  export: typeof export_;
   fixedCosts: typeof fixedCosts;
   http: typeof http;
   "lib/auth": typeof lib_auth;
