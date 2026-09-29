@@ -61,7 +61,7 @@ const ERR_NOT_COMPLETED =
 const ERR_NOT_CONFIRMER =
   "精算を開始した人は確認できません。相手の確認を待ってください";
 const ERR_TARGET_DRIFT =
-  "精算の対象が変わっているため完了できません。差し戻してからやり直してください";
+  "精算の対象が変わっているため完了できません。時間をおいて再度お試しください";
 
 // 自分以外の世帯メンバー。招待前(1名)の世帯では null
 // MCP(convex/mcp.ts)からも呼ぶため export する(ロジックはここに集約したまま)
@@ -75,7 +75,7 @@ export async function findPartner(
 
 // 未精算(settlementId 未設定)・未削除の支出を購入日の古い順に読む。
 // 上限の扱いは MAX_UNSETTLED_EXPENSES のコメントを参照。currentBalance と
-// execute が同じ集合を見るよう、取得条件と並び順はこの関数に集約する。
+// start が同じ集合を見るよう、取得条件と並び順はこの関数に集約する。
 // 論理削除の除外は .filter() ではなくインデックス範囲で行う(.filter() だと
 // 走査した行は読み取りに数えられるため、削除済みが溜まるほど走査量が増える)。
 // MCP(convex/mcp.ts)の /mcp/balance からも呼ぶため export する

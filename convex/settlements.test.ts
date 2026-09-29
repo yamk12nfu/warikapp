@@ -944,7 +944,7 @@ describe("settlements.start / confirm / release", () => {
         settlementId: started.settlementId,
       }),
     ).rejects.toThrow(
-      "精算の対象が変わっているため完了できません。差し戻してからやり直してください",
+      "精算の対象が変わっているため完了できません。時間をおいて再度お試しください",
     );
   });
 
