@@ -318,6 +318,19 @@ export const leaveCouple = mutation({
       throw new ConvexError(LEAVE_BLOCKER_MESSAGE[blocker]);
     }
 
+    const subscriptions = await ctx.db
+      .query("pushSubscriptions")
+      .withIndex("by_memberId", (q) => q.eq("memberId", member._id))
+      .take(PURGE_BATCH_SIZE);
+    for (const subscription of subscriptions) {
+      await ctx.db.delete("pushSubscriptions", subscription._id);
+    }
+    if (subscriptions.length === PURGE_BATCH_SIZE) {
+      await ctx.scheduler.runAfter(0, internal.push.removeForMember, {
+        memberId: member._id,
+      });
+    }
+
     await departMember(ctx, member);
     if (partner === null) {
       const unused = await listUnusedInvitations(ctx, member.coupleId);
@@ -433,6 +446,16 @@ export const purgeCouple = internalMutation({
           .take(PURGE_BATCH_SIZE);
         for (const row of rows) {
           await ctx.db.delete("notices", row._id);
+        }
+        return rows.length;
+      },
+      async () => {
+        const rows = await ctx.db
+          .query("pushSubscriptions")
+          .withIndex("by_coupleId", (q) => q.eq("coupleId", coupleId))
+          .take(PURGE_BATCH_SIZE);
+        for (const row of rows) {
+          await ctx.db.delete("pushSubscriptions", row._id);
         }
         return rows.length;
       },

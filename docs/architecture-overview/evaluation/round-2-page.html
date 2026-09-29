@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>warikappは画面で品目を仕分け、サーバーで世帯ごとの精算を記録する</title>
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap');
+:root {
+  --ink: #212529;
+  --muted: #64707C;
+  --line: #DEE2E6;
+  --paper: #FFFFFF;
+  --paper-dim: #F6F8FA;
+  --accent: #2563EB;
+  --ok: #16A34A;
+  --warn: #D97706;
+  --err: #DC2626;
+  --font-sans: 'IBM Plex Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --text-micro: 11.5px;
+  --text-caption: 12.5px;
+  --text-data: 13.5px;
+  --text-body: 15px;
+  --text-section: 18px;
+  --text-title: 21px;
+  --text-display: 27px;
+  --text-stat: 34px;
+  --leading-body: 1.9;
+  --leading-data: 1.6;
+  --leading-heading: 1.45;
+  --measure: 760px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-sans); font-weight: 400;
+  font-size: var(--text-body); line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  
+  overflow-wrap: anywhere;
+}
+.wrap { max-width: var(--measure); margin: 0 auto; padding: 40px 24px 0; }
+a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+.kicker {
+  font-family: var(--font-mono); font-size: var(--text-caption); font-weight: 400;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1.display {
+  font-size: var(--text-display); font-weight: 700; line-height: var(--leading-heading);
+  letter-spacing: 0.01em; margin: 10px 0 16px;
+}
+.conclusion.lead {
+  background: var(--paper-dim); border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0; padding: 14px 20px;
+  font-weight: 500; margin-bottom: 28px;
+}
+
+figure.hero { margin: 0 0 8px; }
+figure.hero img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; display: block; }
+
+ol.steps { list-style: none; counter-reset: step; margin: 8px 0 4px; }
+.steps li { counter-increment: step; position: relative; padding: 0 0 14px 40px; }
+.steps li::before {
+  content: counter(step); position: absolute; left: 0; top: 1px;
+  width: 26px; height: 26px; border: 1.5px solid var(--ink); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-weight: 600; font-size: var(--text-data);
+}
+
+section.block { padding: 32px 0 4px; border-top: 1px solid var(--line); margin-top: 28px; }
+h2.title { font-size: var(--text-title); font-weight: 700; line-height: var(--leading-heading); letter-spacing: 0.01em; margin: 0 0 6px; border-left: 3px solid var(--accent); padding-left: 10px; }
+p { margin-bottom: 14px; }
+figure.diagram { margin: 8px 0 4px; }
+figure.diagram svg { width: 100%; height: auto; display: block; }
+figure.diagram img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; display: block; }
+.caption { font-size: var(--text-caption); color: var(--muted); line-height: var(--leading-data); margin: 6px 0 18px; }
+
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 8px; }
+@media (max-width: 680px) { .kpis { grid-template-columns: 1fr; } }
+.kpi { border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.kpi .n { font-family: var(--font-mono); font-weight: 600; font-size: var(--text-stat); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi .label { font-size: var(--text-data); font-weight: 500; color: var(--ink); }
+.kpi .delta { font-size: var(--text-caption); color: var(--muted); }
+
+.callout { display: flex; gap: 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 16px; font-size: var(--text-data); line-height: var(--leading-data); margin: 26px 0 6px; }
+.callout b { font-weight: 700; }
+
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.data { width: 100%; border-collapse: collapse; font-size: var(--text-data); line-height: var(--leading-data); margin: 8px 0 4px; overflow-wrap: normal; }
+.data th {
+  text-align: left; font-size: var(--text-micro); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700; border-bottom: 1.5px solid var(--ink); padding: 8px 10px;
+}
+.data td { border-bottom: 1px solid var(--line); padding: 9px 10px; }
+.data .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.data th.num { text-align: right; }
+
+details.fold { border: 1px solid var(--line); border-radius: 10px; margin: 10px 0; }
+.fold summary {
+  padding: 12px 18px; font-weight: 500; font-size: var(--text-body); cursor: pointer;
+  list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary .size { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--muted); }
+.fold summary::after { content: "開く +"; font-size: var(--text-caption); color: var(--accent); flex-shrink: 0; }
+.fold[open] summary::after { content: "閉じる −"; }
+.fold .body { padding: 0 18px 14px; font-size: var(--text-data); line-height: var(--leading-data); }
+
+footer.end { border-top: 1px solid var(--line); margin-top: 40px; padding: 20px 0 48px; }
+.meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: var(--text-caption); color: var(--muted); }
+
+@media print {
+  
+  @page { margin: 12mm 11mm 14mm; }
+  a { color: var(--ink); text-decoration: none; }
+  
+  details.fold::details-content { content-visibility: visible; display: block; }
+  .fold summary::after, .fold[open] summary::after { content: ""; }
+  
+  figure.diagram, figure.hero, .conclusion.lead, ol.steps, .kpis, .callout, footer.end { break-inside: avoid; page-break-inside: avoid; }
+  .data tr { break-inside: avoid; }
+  
+  .table-scroll { overflow: visible; }
+  
+  .wrap { padding-top: 24px; }
+  p { margin-bottom: 11px; }
+  section.block { padding: 16px 0 2px; margin-top: 12px; }
+  .conclusion.lead { margin-bottom: 20px; }
+  .steps li { padding-bottom: 10px; }
+  figure.hero { margin-bottom: 4px; }
+  .caption { margin: 5px 0 12px; }
+  .data td { padding: 4px 10px; }
+  .data th { padding: 6px 10px; }
+  .fold summary { padding: 9px 18px; }
+  .fold .body { padding-bottom: 5px; }
+  footer.end { margin-top: 8px; padding: 4px 0 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">warikapp のコードを読み始める人へ</div>
+    <h1 class="display">warikappは画面で品目を仕分け、サーバーで世帯ごとの精算を記録する</h1>
+    <div class="conclusion lead">結論: 同棲カップル向けのレシート割り勘アプリ。画面は入力と確認を担当し、サーバーが世帯別に支出を保存して、立て替えの差額を計算する。</div>
+  </header>
+
+    <figure class="hero">
+    <img src="hero.svg" alt="warikappのレシート読取り、画面での仕分け、世帯の支出保存、差額の精算記録をつなぐ概要図。" width="1200" height="350">
+    <figcaption class="caption">図 1 — 画面で確認した負担割合が、世帯の精算記録につながる。実際の送金はアプリの外で行う。</figcaption>
+  </figure>
+
+  <ol class="steps" aria-label="3 行解説">
+    <li>Next.js が画面、Convex が保存と計算、Clerk が本人確認を担当する。</li>
+    <li>AIが読み取った支出は下書きになり、<b>人が確定した品目</b>を精算額に反映する。</li>
+    <li>画面は保存先に直接つながり、外部AIからの照会は専用の窓口を経由する。</li>
+  </ol>
+
+
+
+  <section class="block">
+    <h2 class="title">画面・保存・AIの担当</h2>
+    <p>Next.js はページを作る仕組みで、Vercel はその配信サービス。ブラウザでは React が画面の表示や入力を担当する。Convex はデータ保存・画像保存・サーバー処理をまとめて担当する。</p>
+    <p>画面は Convex に直接つながり、データの変更を受け取って表示を更新する。Clerk はログインを扱い、本人確認の結果を Convex に渡す。Convex は本人と世帯への所属を確認してからデータを返す。</p>
+    <p>Gemini は既定のレシート読取AIで、設定によって Claude に切り替えられる。AIを呼ぶ処理と、その接続に使う秘密の文字列は Convex 側に置く。</p>
+    <figure class="diagram">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300" role="img" aria-label="利用者のブラウザでReact画面が動き、Convexへ直接通信する。VercelはNext.jsを配信し、Clerkが本人確認する。Convexが業務処理と保存を担い、AIでレシートを読み取る。">
+  <title>warikappの実行場所とサービスの役割</title>
+  <desc>Vercelから配信されたNext.jsのReact画面がブラウザで動作する。Clerkの本人確認の結果を伴って、ブラウザのConvexクライアントがConvexのquery、mutation、actionを直接呼び出す。Convexが業務処理、データベース、画像ストレージを担当し、レシートの読み取りには既定でGeminiを使う。Claudeにも切り替えられる。</desc>
+  <defs>
+    <marker id="system-data-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 7 3.5 0 7Z" fill="var(--accent)"/>
+    </marker>
+    <marker id="system-auth-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 7 3.5 0 7Z" fill="var(--ok)"/>
+    </marker>
+  </defs>
+  <g font-family="var(--font-sans, sans-serif)" fill="var(--ink)">
+    <!-- Main path starts at the browser; the upper row provides delivery and identity. -->
+    <path d="M78 86V143" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#system-data-arrow)"/>
+    <path d="M332 53H268V112H172V143" fill="none" stroke="var(--ok)" stroke-width="1.6" marker-end="url(#system-auth-arrow)"/>
+    <text x="281" y="105" font-size="11" fill="var(--ok)">本人確認</text>
+
+    <g>
+      <rect x="20" y="20" width="200" height="66" rx="9" fill="var(--paper-dim)" stroke="var(--line)"/>
+      <text x="120" y="47" text-anchor="middle" font-size="12.5" font-weight="700">Vercel / Next.js</text>
+      <text x="120" y="67" text-anchor="middle" font-size="11" fill="var(--muted)">画面を配信</text>
+    </g>
+
+    <g>
+      <rect x="332" y="20" width="182" height="66" rx="9" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+      <path d="M352 46l4 4 8-9" fill="none" stroke="var(--ok)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="423" y="47" text-anchor="middle" font-size="12.5" font-weight="700">Clerk</text>
+      <text x="423" y="67" text-anchor="middle" font-size="11" fill="var(--muted)">ログイン・本人確認</text>
+    </g>
+
+    <g>
+      <rect x="20" y="145" width="200" height="108" rx="10" fill="var(--paper)" stroke="var(--accent)" stroke-width="2.2"/>
+      <rect x="102" y="161" width="36" height="24" rx="3" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.3"/>
+      <path d="M102 168H138" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <circle cx="107" cy="164.5" r="1" fill="var(--accent)"/>
+      <text x="120" y="212" text-anchor="middle" font-size="12.5" font-weight="700">利用者のブラウザ</text>
+      <text x="120" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">品目の入力・一覧の表示</text>
+    </g>
+
+    <path d="M220 196H330" fill="none" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#system-data-arrow)"/>
+    <text x="276" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">読取・保存</text>
+    <text x="276" y="181" text-anchor="middle" font-size="10.5" fill="var(--accent)">AI実行</text>
+    <rect x="230" y="210" width="92" height="24" rx="12" fill="var(--paper)" stroke="var(--ok)"/>
+    <text x="276" y="226" text-anchor="middle" font-size="10.5" fill="var(--ok)">本人確認の結果も渡す</text>
+
+    <g>
+      <rect x="332" y="145" width="182" height="108" rx="10" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+      <path d="M408 166V182C408 187 438 187 438 182V166" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <ellipse cx="423" cy="166" rx="15" ry="4" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <path d="M408 174C408 179 438 179 438 174" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="423" y="212" text-anchor="middle" font-size="12.5" font-weight="700">Convex</text>
+      <text x="423" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">処理・データ・画像保存</text>
+    </g>
+
+    <path d="M514 196H554" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#system-data-arrow)"/>
+    <text x="535" y="166" text-anchor="middle" font-size="9.5" fill="var(--accent)">レシート</text>
+    <text x="535" y="181" text-anchor="middle" font-size="9.5" fill="var(--accent)">読取り</text>
+    <g>
+      <rect x="556" y="145" width="132" height="108" rx="10" fill="var(--paper)" stroke="var(--line)"/>
+      <path d="M612 162H632V187L627 184 622 187 617 184 612 187Z" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M617 169H627M617 175H627" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="622" y="212" text-anchor="middle" font-size="12" font-weight="700">Gemini（既定）</text>
+      <text x="622" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">Claudeへ切替可</text>
+    </g>
+  </g>
+</svg>
+      <figcaption class="caption">図 2 — 画面の配信とデータの通信は別経路。ブラウザから Convex へ直接、読取・保存・AI実行を依頼する。</figcaption>
+    </figure>
+  </section>
+
+  <section class="block">
+    <h2 class="title">レシート読取と確定の境目</h2>
+    <p>画像を圧縮して送信し、その画像がどの世帯のものかを登録する。AIが品目を抽出すると、画面が保存処理を呼び、<b>下書きを自動保存</b>する。画面を離れても下書きは残り、金額が変わりうるため精算差額からは除く。</p>
+    <p>人が品目・支払者・負担割合を確認し、確認済みとして残す操作が確定保存。この支出が精算対象になる。税や値引きによる合計差額は、可能な場合に品目へ配分する。手入力も、同じ編集部品から支出を保存する。</p>
+    <figure class="diagram">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 270" role="img" aria-label="レシート画像を圧縮して世帯に登録し、AIで抽出した品目を下書き保存する。人が金額、支払者、負担割合を確認して確定保存すると、支出は精算対象になる。" font-family="IBM Plex Sans JP, Hiragino Kaku Gothic ProN, sans-serif">
+  <defs>
+    <marker id="receipt-arrow-data" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="receipt-arrow-review" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="receipt-arrow-confirmed" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <path d="M122 124 H146" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#receipt-arrow-data)"/>
+  <path d="M264 124 H288" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#receipt-arrow-data)"/>
+  <path d="M406 124 H430" fill="none" stroke="var(--warn)" stroke-width="1.5" marker-end="url(#receipt-arrow-review)"/>
+  <path d="M548 124 H572" fill="none" stroke="var(--ok)" stroke-width="1.5" marker-end="url(#receipt-arrow-confirmed)"/>
+
+  <g>
+    <rect x="12" y="66" width="108" height="120" rx="10" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.5"/>
+    <path d="M54 84 H74 V118 L69 114 L64 118 L59 114 L54 118 Z" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M59 92 H69 M59 98 H69 M59 104 H66" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="66" y="147" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">画像を登録</text>
+    <text x="66" y="169" text-anchor="middle" font-size="9.5" fill="var(--muted)">圧縮して所属世帯に関連付け</text>
+  </g>
+
+  <g>
+    <rect x="154" y="66" width="108" height="120" rx="10" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.5"/>
+    <rect x="191" y="87" width="30" height="29" rx="4" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+    <path d="M197 96 H207 M197 102 H215 M197 108 H211" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M221 80 L224 87 L231 90 L224 93 L221 100 L218 93 L211 90 L218 87 Z" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="208" y="147" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">AIで品目を読取り</text>
+    <text x="208" y="169" text-anchor="middle" font-size="9.5" fill="var(--muted)">税・値引き差額を調整</text>
+  </g>
+
+  <g>
+    <rect x="296" y="66" width="108" height="120" rx="10" fill="var(--paper)" stroke="var(--warn)" stroke-width="1.5"/>
+    <path d="M334 92 V111 C334 120 366 120 366 111 V92" fill="var(--paper-dim)" stroke="var(--warn)" stroke-width="1.5"/>
+    <ellipse cx="350" cy="92" rx="16" ry="6" fill="var(--paper)" stroke="var(--warn)" stroke-width="1.5"/>
+    <path d="M334 102 C334 110 366 110 366 102" fill="none" stroke="var(--warn)" stroke-width="1.5"/>
+    <text x="350" y="147" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">下書きを自動保存</text>
+    <text x="350" y="169" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="400" fill="var(--muted)">expenses.save</text>
+  </g>
+
+  <g>
+    <rect x="438" y="66" width="108" height="120" rx="10" fill="var(--paper)" stroke="var(--warn)" stroke-width="1.5"/>
+    <circle cx="483" cy="93" r="7" fill="var(--paper-dim)" stroke="var(--warn)" stroke-width="1.5"/>
+    <path d="M470 116 V112 C470 99 496 99 496 112 V116" fill="var(--paper-dim)" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M503 88 V114 M498 95 H508 M498 108 H508" fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round"/>
+    <circle cx="503" cy="95" r="2.5" fill="var(--paper)" stroke="var(--warn)" stroke-width="1.5"/>
+    <circle cx="503" cy="108" r="2.5" fill="var(--paper)" stroke="var(--warn)" stroke-width="1.5"/>
+    <text x="492" y="147" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">人が確認・仕分け</text>
+    <text x="492" y="169" text-anchor="middle" font-size="9.5" fill="var(--muted)">金額・支払者・負担割合</text>
+  </g>
+
+  <g>
+    <rect x="580" y="66" width="108" height="120" rx="10" fill="var(--paper)" stroke="var(--ok)" stroke-width="2"/>
+    <path d="M618 92 V111 C618 120 650 120 650 111 V92" fill="var(--paper-dim)" stroke="var(--ok)" stroke-width="1.5"/>
+    <ellipse cx="634" cy="92" rx="16" ry="6" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+    <path d="M626 106 L632 112 L643 101" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="634" y="147" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">支出を確定保存</text>
+    <text x="634" y="169" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="400" fill="var(--muted)">expenses.save</text>
+  </g>
+
+  <text x="350" y="231" text-anchor="middle" font-size="12" fill="var(--ink)">AIの結果は下書きで残し、人が確定した支出だけを精算する。</text>
+</svg>
+      <figcaption class="caption">図 3 — AI読取後の下書き保存と、人による確定保存を分ける。図の expenses.save は支出を保存する共通処理。</figcaption>
+    </figure>
+  </section>
+
+  <section class="block">
+    <h2 class="title">世帯に属する支出と精算</h2>
+    <p>保存先は世帯・参加者・招待・支出・精算・画像と世帯の対応を持つ6テーブル。テーブルは同じ種類の記録を集める場所で、coupleId が所属する世帯を示す。品目は支出内の配列 items、つまり品目を順に並べたデータにまとめる。画像本体は別の画像保存領域に置く。</p>
+    <p>精算額は、双方が相手のために立て替えた金額の差。品目ごとに負担割合を掛けて四捨五入し、合算する。同じ計算処理を画面とサーバーが共有するため、内訳表示と精算の計算方法がそろう。</p>
+    <p>精算時は金額を計算し直し、確認画面の金額・向き・件数と照合する。精算記録の作成と支出への関連付けをまとめて更新するため、途中の状態が残らない。精算済みの支出は編集できず、直近の精算だけ取り消せる。</p>
+    <figure class="diagram">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 310" role="img" aria-label="世帯 couples を共通の所属先として、参加者 members と招待 invitations、画像と世帯の対応 uploads、支出 expenses、精算 settlements を保存する。品目 items は支出内の配列。精算時に対象支出の settlementId が精算記録を参照する。">
+  <defs>
+    <marker id="data-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1 7 4 1 7" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <g font-family="var(--font-sans)" font-size="12.5" font-weight="400">
+    <rect x="16" y="20" width="668" height="270" rx="12" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+    <path d="M38 44 48 36 58 44V57H42V44" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="70" y="46" fill="var(--ink)" font-weight="700">世帯</text>
+    <text x="70" y="65" fill="var(--accent)" font-family="var(--font-mono)" font-size="10.5">couples</text>
+    <text x="258" y="54" fill="var(--accent)" font-size="11.5">各データの coupleId が共通の世帯を参照</text>
+    <path d="M38 82H662" stroke="var(--line)" stroke-width="1"/>
+
+    <g>
+      <rect x="38" y="103" width="190" height="68" rx="8" fill="var(--paper)" stroke="var(--accent)"/>
+      <text x="54" y="130" fill="var(--ink)" font-weight="500">参加者・招待</text>
+      <text x="54" y="150" fill="var(--muted)" font-family="var(--font-mono)" font-size="10.5">members / invitations</text>
+    </g>
+
+    <g>
+      <rect x="38" y="201" width="190" height="68" rx="8" fill="var(--paper)" stroke="var(--accent)"/>
+      <text x="54" y="228" fill="var(--ink)" font-weight="500">画像と世帯の対応</text>
+      <text x="54" y="248" fill="var(--muted)" font-family="var(--font-mono)" font-size="10.5">uploads</text>
+    </g>
+
+    <g>
+      <rect x="258" y="103" width="184" height="166" rx="8" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="274" y="130" fill="var(--ink)" font-weight="500">支出</text>
+      <text x="274" y="150" fill="var(--muted)" font-family="var(--font-mono)" font-size="10.5">expenses</text>
+      <rect x="274" y="177" width="152" height="74" rx="6" fill="var(--paper-dim)" stroke="var(--line)"/>
+      <text x="289" y="207" fill="var(--ink)" font-size="11.5">品目（内包する配列）</text>
+      <text x="289" y="229" fill="var(--accent)" font-family="var(--font-mono)" font-size="10.5">items[]</text>
+    </g>
+
+    <g>
+      <text x="487" y="170" text-anchor="middle" fill="var(--accent)" font-size="10.5">精算時に関連付け</text>
+      <text x="487" y="188" text-anchor="middle" fill="var(--muted)" font-family="var(--font-mono)" font-size="9.5">settlementId</text>
+      <path d="M442 205H528" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#data-arrow)"/>
+    </g>
+
+    <g>
+      <rect x="532" y="159" width="130" height="92" rx="8" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+      <path d="M546 175 550 179 557 170" fill="none" stroke="var(--ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="548" y="205" fill="var(--ink)" font-weight="500">精算記録</text>
+      <text x="548" y="227" fill="var(--muted)" font-family="var(--font-mono)" font-size="10.5">settlements</text>
+    </g>
+  </g>
+</svg>
+      <figcaption class="caption">図 4 — 外枠は世帯への所属、支出内の箱は品目の内包を表す。settlementId は支出から精算記録への参照。</figcaption>
+    </figure>
+  </section>
+
+  <section class="block">
+    <h2 class="title">外部AIは専用窓口から支出を照会</h2>
+    <p>MCP は外部のAIアプリが、このアプリの機能を呼ぶ接続方式。未精算差額・支出一覧・月次集計・品目内訳を、<b>読み取り専用の4ツール</b>で公開する。レシート読取AIとは別の経路で、支出の追加や精算実行はできない。</p>
+    <p>Next.js の /mcp が、Clerk の OAuth（外部サービス向け認証）で本人を確認する。本人IDは利用者を識別する値で、確認済みの値だけを Convex に渡す。</p>
+    <p>内部キーは、サーバー間の接続を確認する秘密の文字列。Convex はこのキーを確かめ、本人IDから所属世帯を照合する。外部AIから届く本人確認用の認証トークンは、Convex に転送しない。照会結果にも画像へのリンクを含めない。</p>
+    <figure class="diagram">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300" role="img" aria-label="外部AIアプリはOAuth認証でNext.jsのMCPを呼ぶ。Next.jsはClerkで本人を確認し、内部キーと検証済み本人IDをConvexへ渡す。Convexは所属世帯を照合し、支出データを読取り専用で返す。">
+  <title>外部AIから世帯データを照会するMCPの経路</title>
+  <desc>外部AIアプリからNext.jsの/mcpへOAuth認証付きで質問する。Clerkで検証した本人のIDと内部キーをConvexのHTTP APIに送る。OAuthトークンはConvexへ転送しない。Convexは内部キーと本人の世帯所属を確認して、未精算差額、支出一覧、月次集計、品目内訳を読み取る。支出データは変更しない。</desc>
+  <defs>
+    <marker id="mcp-data-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 7 3.5 0 7Z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+  <g font-family="var(--font-sans, sans-serif)" fill="var(--ink)">
+    <g>
+      <rect x="20" y="58" width="130" height="122" rx="10" fill="var(--paper)" stroke="var(--accent)" stroke-width="2"/>
+      <path d="M71 76H99V95H86L79 101V95H71Z" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M77 83H93M77 89H87" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="85" y="132" text-anchor="middle" font-size="11.5" font-weight="700">外部AIアプリ</text>
+      <text x="85" y="155" text-anchor="middle" font-size="10.5" fill="var(--muted)">質問・照会</text>
+    </g>
+
+    <path d="M150 120H198" fill="none" stroke="var(--accent)" stroke-width="1.7" marker-end="url(#mcp-data-arrow)"/>
+    <text x="175" y="106" text-anchor="middle" font-size="9.5" fill="var(--ok)">OAuth認証</text>
+
+    <g>
+      <rect x="200" y="58" width="130" height="122" rx="10" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+      <path d="M265 74L278 79V87C278 95 271 100 265 103C259 100 252 95 252 87V79Z" fill="var(--paper-dim)" stroke="var(--ok)" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M259 87L264 92 272 83" fill="none" stroke="var(--ok)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="265" y="132" text-anchor="middle" font-size="12" font-weight="700">Next.js の /mcp</text>
+      <text x="265" y="155" text-anchor="middle" font-size="10.5" fill="var(--muted)">Clerkで本人確認</text>
+    </g>
+
+    <path d="M330 120H378" fill="none" stroke="var(--accent)" stroke-width="1.7" marker-end="url(#mcp-data-arrow)"/>
+    <text x="355" y="91" text-anchor="middle" font-size="9.5" fill="var(--accent)">内部キー＋</text>
+    <text x="355" y="106" text-anchor="middle" font-size="9.5" fill="var(--accent)">本人のID</text>
+
+    <g>
+      <rect x="380" y="58" width="136" height="122" rx="10" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+      <path d="M440 86V81A8 8 0 0 1 456 81V86" fill="none" stroke="var(--ok)" stroke-width="1.4"/>
+      <rect x="436" y="86" width="24" height="18" rx="3" fill="var(--paper-dim)" stroke="var(--ok)" stroke-width="1.4"/>
+      <path d="M444 94L447 97 453 91" fill="none" stroke="var(--ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="448" y="132" text-anchor="middle" font-size="11.5" font-weight="700">Convex の通信窓口</text>
+      <text x="448" y="155" text-anchor="middle" font-size="10.5" fill="var(--muted)">内部キーを確認</text>
+    </g>
+
+    <path d="M516 120H564" fill="none" stroke="var(--accent)" stroke-width="1.7" marker-end="url(#mcp-data-arrow)"/>
+    <text x="541" y="106" text-anchor="middle" font-size="9.5" fill="var(--ok)">所属を照合</text>
+
+    <g>
+      <rect x="566" y="58" width="114" height="122" rx="10" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+      <path d="M608 80V100C608 105 638 105 638 100V80" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <ellipse cx="623" cy="80" rx="15" ry="4" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <path d="M608 90C608 95 638 95 638 90" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="623" y="132" text-anchor="middle" font-size="12" font-weight="700">世帯のデータ</text>
+      <text x="623" y="155" text-anchor="middle" font-size="10.5" fill="var(--muted)">所属する世帯だけ</text>
+    </g>
+
+    <rect x="20" y="226" width="660" height="38" rx="8" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="350" y="251" text-anchor="middle" font-size="12" fill="var(--accent)">未精算差額 / 支出一覧 / 月次集計 / 品目内訳</text>
+    <text x="350" y="286" text-anchor="middle" font-size="11" fill="var(--muted)">支出データは読取り専用</text>
+  </g>
+</svg>
+      <figcaption class="caption">図 5 — 本人確認済みのIDを引き継ぎ、Convex で世帯を特定する。照会結果には画像を含めない。</figcaption>
+    </figure>
+  </section>
+
+  <section class="block">
+    <h2 class="title">変更したい機能からコードをたどる</h2>
+    <p>app はページと画面、components は共有する画面部品、convex は保存と権限確認を担う。lib は金額計算や画像処理などの共通処理を置く場所。画面の操作から呼び出し先を追うと、入力・検証・保存のつながりが分かる。</p>
+    <p>通常のページはログインを確認してから、操作用の画面ファイルを呼ぶ。品目の入力部品は、レシート・手入力・編集で共用する。配信設定は、Convex の更新と Next.js の画面を配信する準備を一つのコマンドで行う。</p>
+    <figure class="diagram">
+      <div class="table-scroll">
+      <table class="data">
+        <thead><tr><th>知りたいこと</th><th>画面・入口</th><th>保存・計算の担当</th></tr></thead>
+        <tbody>
+          <tr><td>世帯と招待</td><td>app/(app)/setup/・settings/</td><td>convex/couples.ts</td></tr>
+          <tr><td>支出一覧・品目編集</td><td>home-client.tsx・ExpenseEditor.tsx</td><td>convex/expenses.ts</td></tr>
+          <tr><td>レシート読取</td><td>expenses/new/receipt/</td><td>convex/receipts.ts・convex/ai/</td></tr>
+          <tr><td>差額・精算・取消</td><td>settlement/・settlements/</td><td>convex/settlements.ts・lib/settlement.ts</td></tr>
+          <tr><td>外部AIの照会</td><td>app/mcp/route.ts</td><td>lib/mcp/・convex/http.ts・convex/mcp.ts</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <figcaption class="caption">表 1 — 画面ファイルの省略パスは app/(app)/ 配下。ExpenseEditor.tsx は components/ 配下。実ファイルへのリンクは同梱の out.md に記載。</figcaption>
+    </figure>
+  </section>
+
+  <div class="callout"><span><b>調査範囲:</b> 手元のコードの構成を整理した資料。<b>公開中のアプリの設定・稼働状況・実データは未確認</b>。根拠と実ファイルへのリンクは同梱の out.md を参照。</span></div>
+
+  
+
+  <footer class="end">
+    <div class="meta"><span>作成 2026-09-06</span><span>出所 手元の warikapp コード ／ 根拠: 同梱 out.md</span><span>作成者 コード調査</span></div>
+  </footer>
+
+</div>
+</body>
+</html>

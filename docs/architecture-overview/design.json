@@ -1,0 +1,16 @@
+{
+  "reader": "warikapp のコードを読み始める開発者・プロダクト担当者",
+  "reader_knows": [
+    "warikapp はレシートを使う割り勘アプリである",
+    "Web アプリにはブラウザの画面とサーバーがある",
+    "コードのファイルとデータベースの基本的な役割"
+  ],
+  "takeaway": "warikapp は画面で品目を仕分け、サーバーで世帯ごとの支出と精算を管理する。",
+  "support": [
+    "Next.js が画面を作り、Convex が保存と計算、Clerk が本人確認を担当する。",
+    "レシートは AI 読取後に下書き保存され、人が確定した支出を使って精算額を計算する。",
+    "通常画面は Convex に直接接続し、外部 AI からの照会は Next.js の専用窓口を経由する。"
+  ],
+  "subject_anchor": "warikapp",
+  "avoid_terms": ["S-003", "V-701", "H-4", "veto", "takeaway", "subject_anchor", "cold-read", "fail closed", "D4", "TBD", "チャンク", "発火"]
+}

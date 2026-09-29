@@ -1,0 +1,214 @@
+{
+  "tier": "quick",
+  "verdict": "pass",
+  "probes": [
+    {
+      "id": "B",
+      "test": "30秒読みの代理評価",
+      "response": {
+        "subject": "同棲カップル向けレシート割り勘アプリ warikapp の仕組みと、機能を変更するときに読むコードの場所。",
+        "reader": "warikapp のコードをこれから読み始める人。アプリの利用者としては同棲カップルを想定している。",
+        "claim": "warikapp は画面で人が確認した品目と負担割合を、サーバーで世帯ごとの支出として保存し、立て替えの差額を精算記録にする。",
+        "why": [
+          {
+            "claim": "AIが読み取っただけの支出は精算せず、人が確定した支出だけを精算する。",
+            "mechanism": "AIが品目を抽出すると下書きを自動保存するが、金額が変わりうるため精算差額から除く。人が品目・支払者・負担割合を確認して確定保存すると、その支出が精算対象になる。"
+          },
+          {
+            "claim": "画面の内訳とサーバーの精算で計算方法がそろい、精算処理の途中の状態が残らない。",
+            "mechanism": "双方が相手のために立て替えた金額の差を、品目ごとの負担割合と四捨五入で計算し、その計算処理を画面とサーバーが共有する。精算時には計算し直して確認画面の金額・向き・件数と照合し、精算記録の作成と支出への関連付けをまとめて更新する。"
+          },
+          {
+            "claim": "外部AIは専用窓口を通して、本人の所属世帯の支出だけを読み取る。",
+            "mechanism": "Next.js の /mcp が Clerk の OAuth で本人を確認し、確認済みの本人IDと内部キーを Convex に渡す。Convex はキーを確かめて本人IDから所属世帯を照合する。公開するのは読み取り専用の4ツールなので、支出の追加や精算実行はできない。"
+          }
+        ],
+        "unfamiliar_terms": [
+          "warikapp",
+          "Next.js",
+          "Convex",
+          "Clerk",
+          "Vercel",
+          "React",
+          "Gemini",
+          "Claude",
+          "確定保存",
+          "精算差額",
+          "未精算差額",
+          "テーブル",
+          "配列",
+          "内包",
+          "coupleId",
+          "couples",
+          "members",
+          "invitations",
+          "uploads",
+          "expenses",
+          "items",
+          "items[]",
+          "expenses.save",
+          "settlementId",
+          "settlements",
+          "MCP",
+          "/mcp",
+          "OAuth",
+          "本人ID",
+          "内部キー",
+          "認証トークン",
+          "app",
+          "components",
+          "convex",
+          "lib",
+          "app/(app)/",
+          "app/(app)/setup/",
+          "settings/",
+          "convex/couples.ts",
+          "home-client.tsx",
+          "ExpenseEditor.tsx",
+          "convex/expenses.ts",
+          "expenses/new/receipt/",
+          "convex/receipts.ts",
+          "convex/ai/",
+          "settlement/",
+          "settlements/",
+          "convex/settlements.ts",
+          "lib/settlement.ts",
+          "app/mcp/route.ts",
+          "lib/mcp/",
+          "convex/http.ts",
+          "convex/mcp.ts",
+          "out.md"
+        ],
+        "notes": [
+          "HTMLとhero.svgをそれぞれ一度だけ読み、表示される本文・図中文字・表を対象に回答した。",
+          "実際の送金はアプリの外で行う。",
+          "資料は手元のコードの構成を説明しており、公開中の設定・稼働状況・実データは未確認と明記されている。",
+          "unfamiliar_termsには、紙面で説明されている専門語・製品名・コード識別子・ファイルパスも候補として含めた。"
+        ]
+      }
+    }
+  ],
+  "judgment": {
+    "verdict": "pass",
+    "subject_match": true,
+    "claim_match": true,
+    "reader_match": true,
+    "why_recovery": {
+      "recovered_count": 3,
+      "details": [
+        {
+          "claim": "AI読取直後の下書きは精算せず、人が確定した支出だけを精算する。",
+          "recovered": true,
+          "reason": "下書き保存、金額が変わりうることによる精算対象からの除外、人による品目・支払者・負担割合の確認、確定保存による対象化という状態と処理の関係が説明されている。同語反復や価値評価ではない。"
+        },
+        {
+          "claim": "画面とサーバーの計算方法がそろい、精算処理の途中の状態が残らない。",
+          "recovered": true,
+          "reason": "負担割合と四捨五入を扱う計算処理の共有、精算時の再計算と確認内容の照合、精算記録作成と支出の関連付けの一括更新という具体的な処理で説明されている。"
+        },
+        {
+          "claim": "外部AIは専用窓口から本人の所属世帯の支出だけを読み取る。",
+          "recovered": true,
+          "reason": "Next.js の /mcp、Clerk の OAuth、確認済み本人IDと内部キー、Convex によるキー確認と所属世帯照合、読み取り専用ツールへの限定という接続・確認・権限制限の機構が説明されている。"
+        }
+      ]
+    },
+    "undefined_terms": [
+      "未精算差額"
+    ],
+    "defined_or_known_terms": [
+      "warikapp",
+      "Next.js",
+      "Convex",
+      "Clerk",
+      "Vercel",
+      "React",
+      "Gemini",
+      "Claude",
+      "確定保存",
+      "精算差額",
+      "テーブル",
+      "配列",
+      "内包",
+      "coupleId",
+      "couples",
+      "members",
+      "invitations",
+      "uploads",
+      "expenses",
+      "items",
+      "items[]",
+      "expenses.save",
+      "settlementId",
+      "settlements",
+      "MCP",
+      "/mcp",
+      "OAuth",
+      "本人ID",
+      "内部キー",
+      "認証トークン",
+      "app",
+      "components",
+      "convex",
+      "lib",
+      "app/(app)/",
+      "app/(app)/setup/",
+      "settings/",
+      "convex/couples.ts",
+      "home-client.tsx",
+      "ExpenseEditor.tsx",
+      "convex/expenses.ts",
+      "expenses/new/receipt/",
+      "convex/receipts.ts",
+      "convex/ai/",
+      "settlement/",
+      "settlements/",
+      "convex/settlements.ts",
+      "lib/settlement.ts",
+      "app/mcp/route.ts",
+      "lib/mcp/",
+      "convex/http.ts",
+      "convex/mcp.ts",
+      "out.md"
+    ],
+    "avoid_terms_found": [],
+    "reasons": [
+      "probe.subject が subject_anchor の warikapp を明示している。",
+      "probe.claim は画面での品目確認と負担割合の設定、サーバーでの世帯別支出保存と精算を述べ、design.takeaway と意味が一致する。",
+      "probe.reader は warikapp のコードをこれから読み始める人を示している。利用者への補足は想定読者の取り違えには当たらない。",
+      "なぜの回答は3件とも具体的な処理や条件の関係を構成しており、必要な2件以上を満たす。",
+      "warikapp は reader_knows に含まれる。他の列挙語は提示された表示上の定義、ファイル役割表、パス注記と照合した。Claude は既定の読取AIである Gemini の切替先として説明され、ファイルパスは表の機能・担当列と注記によって位置と役割が示されている。",
+      "未精算差額については、提示された表示上の定義に未精算という対象範囲の説明がないため未定義として数えた。未定義は1語であり、語彙ゲートの veto 条件である3語以上には達しない。",
+      "親の表示テキスト照合で avoid_terms の出現は報告されていない。"
+    ],
+    "suggested_fixes": [
+      "未精算差額の初出で、例えば「まだ精算していない確定済み支出について、双方が立て替えた金額の差」と対象範囲を説明する。"
+    ]
+  },
+  "undefined_terms": [
+    "未精算差額"
+  ],
+  "avoid_terms_found": [],
+  "rounds": [
+    {
+      "round": 1,
+      "verdict": "veto",
+      "reason": "lexicon",
+      "undefined_term_count": 19
+    },
+    {
+      "round": 2,
+      "verdict": "pass",
+      "undefined_term_count": 1
+    }
+  ],
+  "verification": {
+    "probe_visible_text_matches_final_html": true,
+    "visible_text_sha256": "d7d499fb6116ee78c3384afc10a0f58ae9cdcbfe3ea2db3fdd3ed43936800b18"
+  },
+  "notes": [
+    "独立したprobeと別のjudgeによる判定。人間の実測読解時間ではない。",
+    "fullのH-4評価ループはquick tierのため未実施。",
+    "未定義と判定された「未精算差額」は、正本out.mdで補足した。HTMLの評価後本文は変更していない。"
+  ]
+}

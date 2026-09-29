@@ -1,6 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
 import { listActiveMembers, listAllMembers } from "./lib/members";
@@ -494,6 +495,13 @@ export const start = mutation({
       expenseCount: expenses.length,
       status,
     });
+    if (status === "pending") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.pushSend.settlementRequested,
+        { settlementId },
+      );
+    }
     for (const expense of expenses) {
       await ctx.db.patch("expenses", expense._id, { settlementId });
     }

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300" role="img" aria-label="利用者のブラウザでReact画面が動き、Convexへ直接通信する。VercelはNext.jsを配信し、Clerkが本人確認する。Convexが業務処理と保存を担い、AIでレシートを読み取る。">
+  <title>warikappの実行場所とサービスの役割</title>
+  <desc>Vercelから配信されたNext.jsのReact画面がブラウザで動作する。Clerkの本人確認の結果を伴って、ブラウザのConvexクライアントがConvexのquery、mutation、actionを直接呼び出す。Convexが業務処理、データベース、画像ストレージを担当し、レシートの読み取りには既定でGeminiを使う。Claudeにも切り替えられる。</desc>
+  <defs>
+    <marker id="system-data-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 7 3.5 0 7Z" fill="var(--accent)"/>
+    </marker>
+    <marker id="system-auth-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 7 3.5 0 7Z" fill="var(--ok)"/>
+    </marker>
+  </defs>
+  <g font-family="var(--font-sans, sans-serif)" fill="var(--ink)">
+    <!-- Main path starts at the browser; the upper row provides delivery and identity. -->
+    <path d="M78 86V143" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#system-data-arrow)"/>
+    <path d="M332 53H268V112H172V143" fill="none" stroke="var(--ok)" stroke-width="1.6" marker-end="url(#system-auth-arrow)"/>
+    <text x="281" y="105" font-size="11" fill="var(--ok)">本人確認</text>
+
+    <g>
+      <rect x="20" y="20" width="200" height="66" rx="9" fill="var(--paper-dim)" stroke="var(--line)"/>
+      <text x="120" y="47" text-anchor="middle" font-size="12.5" font-weight="700">Vercel / Next.js</text>
+      <text x="120" y="67" text-anchor="middle" font-size="11" fill="var(--muted)">画面を配信</text>
+    </g>
+
+    <g>
+      <rect x="332" y="20" width="182" height="66" rx="9" fill="var(--paper)" stroke="var(--ok)" stroke-width="1.5"/>
+      <path d="M352 46l4 4 8-9" fill="none" stroke="var(--ok)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="423" y="47" text-anchor="middle" font-size="12.5" font-weight="700">Clerk</text>
+      <text x="423" y="67" text-anchor="middle" font-size="11" fill="var(--muted)">ログイン・本人確認</text>
+    </g>
+
+    <g>
+      <rect x="20" y="145" width="200" height="108" rx="10" fill="var(--paper)" stroke="var(--accent)" stroke-width="2.2"/>
+      <rect x="102" y="161" width="36" height="24" rx="3" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.3"/>
+      <path d="M102 168H138" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <circle cx="107" cy="164.5" r="1" fill="var(--accent)"/>
+      <text x="120" y="212" text-anchor="middle" font-size="12.5" font-weight="700">利用者のブラウザ</text>
+      <text x="120" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">品目の入力・一覧の表示</text>
+    </g>
+
+    <path d="M220 196H330" fill="none" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#system-data-arrow)"/>
+    <text x="276" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">読取・保存</text>
+    <text x="276" y="181" text-anchor="middle" font-size="10.5" fill="var(--accent)">AI実行</text>
+    <rect x="221" y="210" width="110" height="24" rx="12" fill="var(--paper)" stroke="var(--ok)"/>
+    <text x="276" y="226" text-anchor="middle" font-size="10" fill="var(--ok)">本人確認の結果も渡す</text>
+
+    <g>
+      <rect x="332" y="145" width="182" height="108" rx="10" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.5"/>
+      <path d="M408 166V182C408 187 438 187 438 182V166" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <ellipse cx="423" cy="166" rx="15" ry="4" fill="var(--paper)" stroke="var(--accent)" stroke-width="1.3"/>
+      <path d="M408 174C408 179 438 179 438 174" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="423" y="212" text-anchor="middle" font-size="12.5" font-weight="700">Convex</text>
+      <text x="423" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">処理・データ・画像保存</text>
+    </g>
+
+    <path d="M514 196H554" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#system-data-arrow)"/>
+    <text x="535" y="166" text-anchor="middle" font-size="9.5" fill="var(--accent)">レシート</text>
+    <text x="535" y="181" text-anchor="middle" font-size="9.5" fill="var(--accent)">読取り</text>
+    <g>
+      <rect x="556" y="145" width="132" height="108" rx="10" fill="var(--paper)" stroke="var(--line)"/>
+      <path d="M612 162H632V187L627 184 622 187 617 184 612 187Z" fill="var(--paper-dim)" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M617 169H627M617 175H627" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="622" y="212" text-anchor="middle" font-size="12" font-weight="700">Gemini（既定）</text>
+      <text x="622" y="233" text-anchor="middle" font-size="10.5" fill="var(--muted)">Claudeへ切替可</text>
+    </g>
+  </g>
+</svg>

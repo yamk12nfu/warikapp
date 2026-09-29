@@ -1,0 +1,188 @@
+{
+  "design": {
+    "reader": "warikapp のコードを読み始める開発者・プロダクト担当者",
+    "reader_knows": [
+      "warikapp はレシートを使う割り勘アプリである",
+      "Web アプリにはブラウザの画面とサーバーがある",
+      "コードのファイルとデータベースの基本的な役割"
+    ],
+    "takeaway": "warikapp は画面で品目を仕分け、サーバーで世帯ごとの支出と精算を管理する。",
+    "support": [
+      "Next.js が画面を作り、Convex が保存と計算、Clerk が本人確認を担当する。",
+      "レシートは AI 読取後に下書き保存され、人が確定した支出を使って精算額を計算する。",
+      "通常画面は Convex に直接接続し、外部 AI からの照会は Next.js の専用窓口を経由する。"
+    ],
+    "subject_anchor": "warikapp",
+    "avoid_terms": [
+      "S-003",
+      "V-701",
+      "H-4",
+      "veto",
+      "takeaway",
+      "subject_anchor",
+      "cold-read",
+      "fail closed",
+      "D4",
+      "TBD",
+      "チャンク",
+      "発火"
+    ]
+  },
+  "probe": {
+    "subject": "同棲カップル向けレシート割り勘アプリ warikapp の仕組みと、機能を変更するときに読むコードの場所。",
+    "reader": "warikapp のコードをこれから読み始める人。アプリの利用者としては同棲カップルを想定している。",
+    "claim": "warikapp は画面で人が確認した品目と負担割合を、サーバーで世帯ごとの支出として保存し、立て替えの差額を精算記録にする。",
+    "why": [
+      {
+        "claim": "AIが読み取っただけの支出は精算せず、人が確定した支出だけを精算する。",
+        "mechanism": "AIが品目を抽出すると下書きを自動保存するが、金額が変わりうるため精算差額から除く。人が品目・支払者・負担割合を確認して確定保存すると、その支出が精算対象になる。"
+      },
+      {
+        "claim": "画面の内訳とサーバーの精算で計算方法がそろい、精算処理の途中の状態が残らない。",
+        "mechanism": "双方が相手のために立て替えた金額の差を、品目ごとの負担割合と四捨五入で計算し、その計算処理を画面とサーバーが共有する。精算時には計算し直して確認画面の金額・向き・件数と照合し、精算記録の作成と支出への関連付けをまとめて更新する。"
+      },
+      {
+        "claim": "外部AIは専用窓口を通して、本人の所属世帯の支出だけを読み取る。",
+        "mechanism": "Next.js の /mcp が Clerk の OAuth で本人を確認し、確認済みの本人IDと内部キーを Convex に渡す。Convex はキーを確かめて本人IDから所属世帯を照合する。公開するのは読み取り専用の4ツールなので、支出の追加や精算実行はできない。"
+      }
+    ],
+    "unfamiliar_terms": [
+      "warikapp",
+      "Next.js",
+      "Convex",
+      "Clerk",
+      "Vercel",
+      "React",
+      "Gemini",
+      "Claude",
+      "確定保存",
+      "精算差額",
+      "未精算差額",
+      "テーブル",
+      "配列",
+      "内包",
+      "coupleId",
+      "couples",
+      "members",
+      "invitations",
+      "uploads",
+      "expenses",
+      "items",
+      "items[]",
+      "expenses.save",
+      "settlementId",
+      "settlements",
+      "MCP",
+      "/mcp",
+      "OAuth",
+      "本人ID",
+      "内部キー",
+      "認証トークン",
+      "app",
+      "components",
+      "convex",
+      "lib",
+      "app/(app)/",
+      "app/(app)/setup/",
+      "settings/",
+      "convex/couples.ts",
+      "home-client.tsx",
+      "ExpenseEditor.tsx",
+      "convex/expenses.ts",
+      "expenses/new/receipt/",
+      "convex/receipts.ts",
+      "convex/ai/",
+      "settlement/",
+      "settlements/",
+      "convex/settlements.ts",
+      "lib/settlement.ts",
+      "app/mcp/route.ts",
+      "lib/mcp/",
+      "convex/http.ts",
+      "convex/mcp.ts",
+      "out.md"
+    ],
+    "notes": [
+      "HTMLとhero.svgをそれぞれ一度だけ読み、表示される本文・図中文字・表を対象に回答した。",
+      "実際の送金はアプリの外で行う。",
+      "資料は手元のコードの構成を説明しており、公開中の設定・稼働状況・実データは未確認と明記されている。",
+      "unfamiliar_termsには、紙面で説明されている専門語・製品名・コード識別子・ファイルパスも候補として含めた。"
+    ]
+  },
+  "avoid_terms_found_in_rendered_text": [],
+  "displayed_definitions": {
+    "Next.js": "Next.js はページを作る仕組み",
+    "Vercel": "Vercel はその配信サービス",
+    "React": "ブラウザでは React が画面の表示や入力を担当する",
+    "Convex": "Convex はデータ保存・画像保存・サーバー処理をまとめて担当する",
+    "Clerk": "Clerk はログインを扱い、本人確認の結果を Convex に渡す",
+    "Gemini": "Gemini は既定のレシート読取AI",
+    "Claude": "設定によって Claude に切り替えられる",
+    "expenses.save": "図の expenses.save は支出を保存する共通処理",
+    "テーブル": "テーブルは同じ種類の記録を集める場所",
+    "coupleId": "coupleId が所属する世帯を示す",
+    "items": "品目は支出内の配列 items、つまり品目を順に並べたデータにまとめる。",
+    "items[]": "品目（内包する配列） items[]",
+    "couples": "世帯 couples",
+    "members": "参加者・招待 members / invitations",
+    "invitations": "参加者・招待 members / invitations",
+    "uploads": "画像と世帯の対応 uploads",
+    "expenses": "支出 expenses",
+    "settlements": "精算記録 settlements",
+    "settlementId": "settlementId は支出から精算記録への参照",
+    "MCP": "MCP は外部のAIアプリが、このアプリの機能を呼ぶ接続方式。",
+    "OAuth": "OAuth（外部サービス向け認証）",
+    "/mcp": "Next.js の /mcp が、Clerk の OAuth（外部サービス向け認証）で本人を確認する。",
+    "app": "app はページと画面",
+    "components": "components は共有する画面部品",
+    "convex": "convex は保存と権限確認を担う",
+    "lib": "lib は金額計算や画像処理などの共通処理を置く場所",
+    "out.md": "根拠と実ファイルへのリンクは同梱の out.md を参照",
+    "確定保存": "人が品目・支払者・負担割合を確認し、確認済みとして残す操作が確定保存。この支出が精算対象になる。",
+    "配列": "品目は支出内の配列 items、つまり品目を順に並べたデータにまとめる。",
+    "本人ID": "本人IDは利用者を識別する値で、確認済みの値だけを Convex に渡す。",
+    "内部キー": "内部キーは、サーバー間の接続を確認する秘密の文字列。",
+    "認証トークン": "外部AIから届く本人確認用の認証トークンは、Convex に転送しない。",
+    "精算差額": "精算額は、双方が相手のために立て替えた金額の差。",
+    "内包": "品目は支出内の配列 items、つまり品目を順に並べたデータにまとめる。図の外枠は世帯への所属、支出内の箱は品目の内包を表す。"
+  },
+  "displayed_file_role_table": {
+    "headers": [
+      "知りたいこと",
+      "画面・入口",
+      "保存・計算の担当"
+    ],
+    "rows": [
+      [
+        "世帯と招待",
+        "app/(app)/setup/・settings/",
+        "convex/couples.ts"
+      ],
+      [
+        "支出一覧・品目編集",
+        "home-client.tsx・ExpenseEditor.tsx",
+        "convex/expenses.ts"
+      ],
+      [
+        "レシート読取",
+        "expenses/new/receipt/",
+        "convex/receipts.ts・convex/ai/"
+      ],
+      [
+        "差額・精算・取消",
+        "settlement/・settlements/",
+        "convex/settlements.ts・lib/settlement.ts"
+      ],
+      [
+        "外部AIの照会",
+        "app/mcp/route.ts",
+        "lib/mcp/・convex/http.ts・convex/mcp.ts"
+      ]
+    ]
+  },
+  "displayed_path_caption": "画面ファイルの省略パスは app/(app)/ 配下。ExpenseEditor.tsx は components/ 配下。実ファイルへのリンクは同梱の out.md に記載。",
+  "verification": {
+    "probe_visible_text_matches_final_html": true,
+    "visible_text_sha256": "d7d499fb6116ee78c3384afc10a0f58ae9cdcbfe3ea2db3fdd3ed43936800b18"
+  }
+}
