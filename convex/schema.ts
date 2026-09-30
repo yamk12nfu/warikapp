@@ -165,6 +165,16 @@ export default defineSchema({
     .index("by_recipientId", ["recipientId"])
     .index("by_coupleId", ["coupleId"]),
 
+  pushSubscriptions: defineTable({
+    coupleId: v.id("couples"),
+    memberId: v.id("members"),
+    endpoint: v.string(),
+    keys: v.object({ p256dh: v.string(), auth: v.string() }),
+  })
+    .index("by_endpoint", ["endpoint"])
+    .index("by_memberId", ["memberId"])
+    .index("by_coupleId", ["coupleId"]),
+
   // アップロードした画像の世帯帰属台帳(Phase 8)。
   // Convexのstorage IDはURLを知っていれば誰でも指定できてしまうため、
   // 「このstorageIdはどの世帯がアップロードしたか」をここに記録し、

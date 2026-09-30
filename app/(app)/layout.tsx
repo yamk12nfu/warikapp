@@ -1,4 +1,5 @@
 import AppHeader from "@/components/AppHeader";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import { ToastProvider } from "@/components/Toast";
 import { requireSignedIn } from "@/lib/server-auth";
 import { ReactNode } from "react";
@@ -14,6 +15,7 @@ export default async function ProtectedLayout({
   await requireSignedIn();
   return (
     <ToastProvider>
+      <ServiceWorkerRegistration />
       <AppHeader />
       {children}
     </ToastProvider>

@@ -26,6 +26,9 @@ import type { DataModel } from "./dataModel.js";
  */
 type Env = {
   readonly CLERK_JWT_ISSUER_DOMAIN: string | undefined;
+  readonly VAPID_PRIVATE_KEY: string | undefined;
+  readonly VAPID_PUBLIC_KEY: string | undefined;
+  readonly VAPID_SUBJECT: string | undefined;
   readonly WARIKAPP_MCP_INTERNAL_SECRET: string | undefined;
   readonly WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS: string | undefined;
 };

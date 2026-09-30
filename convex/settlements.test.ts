@@ -754,6 +754,42 @@ describe("settlements.start / confirm / release", () => {
     expect(started.kind).toBe("pending");
   });
 
+  test("pending の精算開始は確認依頼の push action を予約する", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, { price: 5000 });
+
+    const started = await startSettlement(t, ALICE);
+    const scheduled = await t.run(async (ctx) =>
+      await ctx.db.system.query("_scheduled_functions").collect(),
+    );
+
+    expect(started.kind).toBe("pending");
+    expect(
+      scheduled.map(({ name, args }) => ({ name, args })),
+    ).toContainEqual({
+      name: "pushSend:settlementRequested",
+      args: [{ settlementId: started.settlementId }],
+    });
+  });
+
+  test("金額0で即時完了する精算は push action を予約しない", async () => {
+    const t = convexTest(schema, modules);
+    const members = await setupCouple(t);
+    await addExpense(t, members, ALICE, {
+      price: 5000,
+      shares: [{ memberId: members.self._id, ratioPercent: 100 }],
+    });
+
+    const started = await startSettlement(t, ALICE);
+    const scheduled = await t.run(async (ctx) =>
+      await ctx.db.system.query("_scheduled_functions").collect(),
+    );
+
+    expect(started.kind).toBe("completed");
+    expect(scheduled).toHaveLength(0);
+  });
+
   test("開始しただけでは支出は精算済みにならず pending になる", async () => {
     const t = convexTest(schema, modules);
     const members = await setupCouple(t);

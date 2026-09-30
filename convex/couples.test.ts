@@ -1007,3 +1007,60 @@ describe("leaveCouple", () => {
     ).resolves.toBeNull();
   });
 });
+
+describe("pushSubscriptions lifecycle", () => {
+  test("退出したメンバーの購読を削除する", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    const endpoint = "https://push.example.com/alice";
+    await t.withIdentity(ALICE).mutation(api.push.subscribe, {
+      endpoint,
+      keys: { p256dh: "public-key", auth: "auth-key" },
+    });
+
+    await t.withIdentity(ALICE).mutation(api.couples.leaveCouple, {});
+
+    const rows = await t.run(async (ctx) =>
+      await ctx.db
+        .query("pushSubscriptions")
+        .withIndex("by_endpoint", (q) => q.eq("endpoint", endpoint))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  test("世帯削除で購読も削除する", async () => {
+    const t = convexTest(schema, modules);
+    await setupCouple(t);
+    const member = await t.withIdentity(ALICE).query(api.couples.currentMember, {});
+    if (member === null) {
+      throw new Error("メンバーが見つからない");
+    }
+    const endpoint = "https://push.example.com/alice";
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get("members", member._id);
+      if (row === null) {
+        throw new Error("メンバーが見つからない");
+      }
+      await ctx.db.insert("pushSubscriptions", {
+        coupleId: member.coupleId,
+        memberId: member._id,
+        endpoint,
+        keys: { p256dh: "public-key", auth: "auth-key" },
+      });
+      await departMember(ctx, row);
+    });
+
+    await t.mutation(internal.couples.purgeCouple, {
+      coupleId: member.coupleId,
+    });
+
+    const rows = await t.run(async (ctx) =>
+      await ctx.db
+        .query("pushSubscriptions")
+        .withIndex("by_endpoint", (q) => q.eq("endpoint", endpoint))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+  });
+});

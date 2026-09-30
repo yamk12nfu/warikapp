@@ -26,6 +26,8 @@ import type * as lib_settlementScope from "../lib/settlementScope.js";
 import type * as mcp from "../mcp.js";
 import type * as monthBook from "../monthBook.js";
 import type * as notices from "../notices.js";
+import type * as push from "../push.js";
+import type * as pushSend from "../pushSend.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as receipts from "../receipts.js";
 import type * as settlements from "../settlements.js";
@@ -56,6 +58,8 @@ declare const fullApi: ApiFromModules<{
   mcp: typeof mcp;
   monthBook: typeof monthBook;
   notices: typeof notices;
+  push: typeof push;
+  pushSend: typeof pushSend;
   rateLimits: typeof rateLimits;
   receipts: typeof receipts;
   settlements: typeof settlements;

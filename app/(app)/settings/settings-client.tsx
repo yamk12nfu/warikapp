@@ -3,6 +3,7 @@
 import { api } from "@/convex/_generated/api";
 import DangerActionConfirm from "@/components/DangerActionConfirm";
 import InviteCodeCard from "@/components/InviteCodeCard";
+import PushNotificationSettings from "@/components/PushNotificationSettings";
 import { LEAVE_BLOCKER_MESSAGE } from "@/convex/lib/leave";
 import { toUserMessage } from "@/lib/convex-error";
 import { inputClass, linkClass } from "@/lib/ui";
@@ -228,6 +229,8 @@ export default function SettingsClient() {
           </>
         )}
       </section>
+
+      <PushNotificationSettings />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted">アカウント</h2>

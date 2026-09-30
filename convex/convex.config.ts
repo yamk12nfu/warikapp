@@ -14,6 +14,9 @@ const app = defineApp({
     WARIKAPP_MCP_INTERNAL_SECRET: v.optional(v.string()),
     WARIKAPP_MCP_INTERNAL_SECRET_PREVIOUS: v.optional(v.string()),
     CLERK_JWT_ISSUER_DOMAIN: v.optional(v.string()),
+    VAPID_PUBLIC_KEY: v.optional(v.string()),
+    VAPID_PRIVATE_KEY: v.optional(v.string()),
+    VAPID_SUBJECT: v.optional(v.string()),
   },
 });
 app.use(rateLimiter);
