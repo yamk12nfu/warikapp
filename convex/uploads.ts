@@ -1,8 +1,16 @@
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation, QueryCtx, MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  QueryCtx,
+  MutationCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { requireMember } from "./lib/auth";
 import { RECEIPT_UPLOAD_LIMIT_NAME, rateLimiter } from "./rateLimits";
+import { PURGE_BATCH_SIZE } from "./couples";
 
 // レシート画像のアップロード窓口(Phase 8 / F-003)。
 //
@@ -15,6 +23,7 @@ import { RECEIPT_UPLOAD_LIMIT_NAME, rateLimiter } from "./rateLimits";
 // 画面に出すエラーは ConvexError で投げる(本番でも文言がクライアントに届く)。
 
 const ERR_FOREIGN_STORAGE = "この画像は利用できません";
+const ORPHAN_TTL_MS = 24 * 60 * 60 * 1000;
 
 async function findOwnUpload(
   ctx: QueryCtx | MutationCtx,
@@ -169,5 +178,35 @@ export const authorizeUpload = internalQuery({
     const member = await requireMember(ctx);
     await assertOwnedUpload(ctx, member.coupleId, args.storageId);
     return { coupleId: member.coupleId };
+  },
+});
+
+export const purgeOrphans = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - ORPHAN_TTL_MS;
+    const rows = await ctx.db
+      .query("uploads")
+      .withIndex("by_usedByExpenseId", (q) =>
+        q.eq("usedByExpenseId", undefined).lt("_creationTime", cutoff),
+      )
+      .take(PURGE_BATCH_SIZE);
+
+    for (const row of rows) {
+      try {
+        await ctx.storage.delete(row.storageId);
+      } catch (error) {
+        // 実体だけ先に消えていても台帳を残さず収束させる。
+        if ((await ctx.db.system.get("_storage", row.storageId)) !== null) {
+          throw error;
+        }
+      }
+      await ctx.db.delete("uploads", row._id);
+    }
+
+    if (rows.length === PURGE_BATCH_SIZE) {
+      await ctx.scheduler.runAfter(0, internal.uploads.purgeOrphans, {});
+    }
+    return rows.length;
   },
 });

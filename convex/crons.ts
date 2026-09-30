@@ -10,4 +10,11 @@ crons.cron(
   {},
 );
 
+crons.cron(
+  "purge orphan uploads",
+  "30 18 * * *",
+  internal.uploads.purgeOrphans,
+  {},
+);
+
 export default crons;

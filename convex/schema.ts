@@ -190,7 +190,9 @@ export default defineSchema({
     usedByExpenseId: v.optional(v.id("expenses")),
   })
     .index("by_storageId", ["storageId"])
-    .index("by_coupleId", ["coupleId"]),
+    .index("by_coupleId", ["coupleId"])
+    // 未使用画像の掃除で _creationTime まで範囲指定し、.filter() の全走査を避ける
+    .index("by_usedByExpenseId", ["usedByExpenseId"]),
 });
 
 // レート制限(要件: AI読み取り30回/時/世帯、アップロードURL発行60回/時/世帯)は

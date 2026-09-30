@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -47,6 +47,38 @@ async function storeImage(t: ReturnType<typeof convexTest>) {
     return await ctx.storage.store(
       new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }),
     );
+  });
+}
+
+function useAlignedFakeClock() {
+  // convex-test の _creationTime はホスト側の実時計を使うため、fake clock の基準を合わせる。
+  const startTime = Date.now();
+  vi.useFakeTimers();
+  vi.setSystemTime(startTime);
+  return startTime;
+}
+
+async function saveExpenseWithImage(
+  t: ReturnType<typeof convexTest>,
+  storageId: Id<"_storage">,
+) {
+  const household = await t
+    .withIdentity(ALICE)
+    .query(api.couples.household, {});
+  return await t.withIdentity(ALICE).mutation(api.expenses.save, {
+    paidBy: household.self._id,
+    purchasedAt: "2026-07-20",
+    items: [
+      {
+        name: "牛肉",
+        price: 500,
+        quantity: 1,
+        shares: [{ memberId: household.self._id, ratioPercent: 100 }],
+      },
+    ],
+    source: "receipt",
+    status: "draft",
+    imageStorageId: storageId,
   });
 }
 
@@ -281,5 +313,157 @@ describe("uploads.authorizeUpload", () => {
     await expect(
       t.query(internal.uploads.authorizeUpload, { storageId }),
     ).rejects.toThrow("ログインしてください");
+  });
+});
+
+describe("uploads.purgeOrphans", () => {
+  test("24時間以上経った未使用画像の台帳行と実体を削除する", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const startTime = useAlignedFakeClock();
+    try {
+      const storageId = await storeImage(t);
+      await t
+        .withIdentity(ALICE)
+        .mutation(api.uploads.registerUpload, { storageId });
+
+      vi.setSystemTime(startTime + 25 * 60 * 60 * 1000);
+      const deleted = await t.mutation(internal.uploads.purgeOrphans, {});
+
+      const upload = await t.run(async (ctx) =>
+        ctx.db
+          .query("uploads")
+          .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+          .unique(),
+      );
+      expect(deleted).toBe(1);
+      expect(upload).toBeNull();
+      expect(await t.run((ctx) => ctx.storage.getUrl(storageId))).toBeNull();
+      expect(
+        await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("支出に紐付いた画像は24時間後も残す", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const startTime = useAlignedFakeClock();
+    try {
+      const storageId = await storeImage(t);
+      await t
+        .withIdentity(ALICE)
+        .mutation(api.uploads.registerUpload, { storageId });
+      await saveExpenseWithImage(t, storageId);
+
+      vi.setSystemTime(startTime + 25 * 60 * 60 * 1000);
+      const deleted = await t.mutation(internal.uploads.purgeOrphans, {});
+
+      const upload = await t.run(async (ctx) =>
+        ctx.db
+          .query("uploads")
+          .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+          .unique(),
+      );
+      expect(deleted).toBe(0);
+      expect(upload?.usedByExpenseId).toBeTruthy();
+      expect(await t.run((ctx) => ctx.storage.getUrl(storageId))).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("24時間未満の未使用画像は残す", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const startTime = useAlignedFakeClock();
+    try {
+      const storageId = await storeImage(t);
+      await t
+        .withIdentity(ALICE)
+        .mutation(api.uploads.registerUpload, { storageId });
+
+      vi.setSystemTime(startTime + 60 * 60 * 1000);
+      const deleted = await t.mutation(internal.uploads.purgeOrphans, {});
+
+      const upload = await t.run(async (ctx) =>
+        ctx.db
+          .query("uploads")
+          .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+          .unique(),
+      );
+      expect(deleted).toBe(0);
+      expect(upload).not.toBeNull();
+      expect(await t.run((ctx) => ctx.storage.getUrl(storageId))).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("100件で継続を予約し、101件すべてを削除する", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const startTime = useAlignedFakeClock();
+    try {
+      const storageIds: Id<"_storage">[] = [];
+      for (let index = 0; index < 101; index += 1) {
+        const storageId = await storeImage(t);
+        storageIds.push(storageId);
+        await t
+          .withIdentity(ALICE)
+          .mutation(api.uploads.registerUpload, { storageId });
+      }
+
+      vi.setSystemTime(startTime + 25 * 60 * 60 * 1000);
+      const deleted = await t.mutation(internal.uploads.purgeOrphans, {});
+      const remaining = await t.run((ctx) =>
+        ctx.db.query("uploads").withIndex("by_coupleId").take(101),
+      );
+      expect(deleted).toBe(100);
+      expect(remaining).toHaveLength(1);
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const rows = await t.run((ctx) =>
+        ctx.db.query("uploads").withIndex("by_coupleId").take(101),
+      );
+      expect(rows).toHaveLength(0);
+      for (const storageId of storageIds) {
+        expect(
+          await t.run((ctx) => ctx.db.system.get("_storage", storageId)),
+        ).toBeNull();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("実体が先に消えていても台帳行を削除する", async () => {
+    const t = setup();
+    await setupCouple(t);
+    const startTime = useAlignedFakeClock();
+    try {
+      const storageId = await storeImage(t);
+      await t
+        .withIdentity(ALICE)
+        .mutation(api.uploads.registerUpload, { storageId });
+      await t.run((ctx) => ctx.storage.delete(storageId));
+
+      vi.setSystemTime(startTime + 25 * 60 * 60 * 1000);
+      const deleted = await t.mutation(internal.uploads.purgeOrphans, {});
+      const upload = await t.run(async (ctx) =>
+        ctx.db
+          .query("uploads")
+          .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+          .unique(),
+      );
+
+      expect(deleted).toBe(1);
+      expect(upload).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
