@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildSettlementRequestPayload,
+  isAllowedPushEndpoint,
   shouldDropSubscription,
   urlBase64ToUint8Array,
 } from "./push";
@@ -35,5 +36,22 @@ describe("shouldDropSubscription", () => {
     expect(shouldDropSubscription(410)).toBe(true);
     expect(shouldDropSubscription(500)).toBe(false);
     expect(shouldDropSubscription(undefined)).toBe(false);
+  });
+});
+
+describe("isAllowedPushEndpoint", () => {
+  test("https の公開ホスト名だけを受け付ける", () => {
+    expect(isAllowedPushEndpoint("https://fcm.googleapis.com/fcm/send/abc")).toBe(true);
+    expect(isAllowedPushEndpoint("https://web.push.apple.com/QAbc")).toBe(true);
+    expect(isAllowedPushEndpoint("http://fcm.googleapis.com/fcm/send/abc")).toBe(false);
+    expect(isAllowedPushEndpoint("https://127.0.0.1/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://[::1]/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://localhost/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://push.localhost/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://metadata.internal/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://convex/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://user:pw@push.example.com/x")).toBe(false);
+    expect(isAllowedPushEndpoint("not a url")).toBe(false);
+    expect(isAllowedPushEndpoint(`https://push.example.com/${"a".repeat(2048)}`)).toBe(false);
   });
 });

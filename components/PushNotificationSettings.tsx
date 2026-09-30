@@ -107,8 +107,8 @@ export default function PushNotificationSettings() {
       if (enabled) {
         const current = subscription;
         if (current !== null) {
-          await current.unsubscribe();
           await unsubscribe({ endpoint: current.endpoint });
+          await current.unsubscribe();
         }
         setSubscription(null);
         setMessage("通知をオフにしました");
@@ -126,12 +126,18 @@ export default function PushNotificationSettings() {
 
       const registration = await navigator.serviceWorker.ready;
       const existing = await registration.pushManager.getSubscription();
+      // 同じ端末で別アカウントに切り替えた場合、ブラウザーの購読は前の人の
+      // ものとしてサーバーに残っている。引き継がず作り直す
+      if (existing !== null && serverSubscribed === false) {
+        await existing.unsubscribe();
+      }
       const next =
-        existing ??
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        }));
+        existing !== null && serverSubscribed === true
+          ? existing
+          : await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+            });
       await subscribe({
         endpoint: next.endpoint,
         keys: {

@@ -33,3 +33,36 @@ export function shouldDropSubscription(
 ): boolean {
   return statusCode === 404 || statusCode === 410;
 }
+
+const MAX_ENDPOINT_LENGTH = 2048;
+
+// 購読の endpoint はクライアントが自由に送ってくる値で、サーバーはそこへ
+// HTTPS リクエストを出す。内部アドレスを登録されて SSRF に使われないよう、
+// https の公開ホスト名だけを受け付ける(IP リテラルと localhost 系は拒否)
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  if (endpoint.length > MAX_ENDPOINT_LENGTH) {
+    return false;
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "") {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.startsWith("[") ||
+    /^\d+(\.\d+){3}$/.test(host) ||
+    !host.includes(".")
+  ) {
+    return false;
+  }
+  return true;
+}

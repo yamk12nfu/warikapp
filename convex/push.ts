@@ -10,6 +10,9 @@ import {
 import { ConvexError, v } from "convex/values";
 import { requireMember } from "./lib/auth";
 import { listActiveMembers } from "./lib/members";
+import { isAllowedPushEndpoint } from "../lib/push";
+
+const ERR_BAD_ENDPOINT = "この通知先は登録できません";
 
 const SUBSCRIPTION_DELETE_BATCH_SIZE = 100;
 
@@ -28,13 +31,19 @@ export const subscribe = mutation({
   },
   handler: async (ctx, args) => {
     const member = await requireMember(ctx);
+    if (!isAllowedPushEndpoint(args.endpoint)) {
+      throw new ConvexError(ERR_BAD_ENDPOINT);
+    }
     const existing = await ctx.db
       .query("pushSubscriptions")
       .withIndex("by_endpoint", (q) => q.eq("endpoint", args.endpoint))
       .unique();
 
     if (existing !== null) {
-      if (existing.coupleId !== member.coupleId) {
+      if (
+        existing.coupleId !== member.coupleId ||
+        existing.memberId !== member._id
+      ) {
         throw new ConvexError("権限がありません");
       }
       await ctx.db.patch("pushSubscriptions", existing._id, {

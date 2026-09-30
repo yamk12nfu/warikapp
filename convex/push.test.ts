@@ -98,3 +98,40 @@ test("他世帯の endpoint を解除・上書きできない", async () => {
     t.withIdentity(ALICE).query(api.push.isSubscribed, { endpoint }),
   ).resolves.toBe(true);
 });
+
+test("同じ世帯でも他のメンバーの endpoint は上書きできない", async () => {
+  const t = convexTest(schema, modules);
+  await setupCouple(t);
+  const endpoint = "https://push.example.com/shared-device";
+
+  await t.withIdentity(ALICE).mutation(api.push.subscribe, {
+    endpoint,
+    keys: KEYS,
+  });
+  await expect(
+    t.withIdentity(BOB).mutation(api.push.subscribe, { endpoint, keys: KEYS }),
+  ).rejects.toThrow("権限がありません");
+
+  const rows = await t.run((ctx) => ctx.db.query("pushSubscriptions").collect());
+  expect(rows).toHaveLength(1);
+  expect(
+    await t.withIdentity(ALICE).query(api.push.isSubscribed, { endpoint }),
+  ).toBe(true);
+});
+
+test("https の公開ホスト名でない endpoint は登録できない", async () => {
+  const t = convexTest(schema, modules);
+  await setupCouple(t);
+
+  for (const endpoint of [
+    "http://push.example.com/a",
+    "https://127.0.0.1/a",
+    "https://localhost/a",
+  ]) {
+    await expect(
+      t.withIdentity(ALICE).mutation(api.push.subscribe, { endpoint, keys: KEYS }),
+    ).rejects.toThrow("この通知先は登録できません");
+  }
+  const rows = await t.run((ctx) => ctx.db.query("pushSubscriptions").collect());
+  expect(rows).toHaveLength(0);
+});
