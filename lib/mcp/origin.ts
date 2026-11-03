@@ -1,10 +1,12 @@
 // Streamable HTTPのOrigin検証(MCP仕様の必須要件。計画書 §6.1)。
 //
-// mcp-handler@1.1.0 はOriginヘッダーを検証しない
-// (node_modules/mcp-handler/dist/index.js を確認済み。"origin"という語が出るのは
+// mcp-handler@2.3.0 はOriginヘッダーを検証しない
+// (node_modules/mcp-handler/dist/index.mjs を確認済み。"origin"という語が出るのは
 // X-Forwarded-Host等からpublicな自分自身のオリジンを算出する箇所と、
 // metadataエンドポイントのCORSヘッダーだけで、受信リクエストのOriginを許可/拒否する
-// ロジックは存在しない)ため、/mcp ルートの手前で自前に検証する。
+// ロジックは存在しない)。内部で使う SDK v2 の createMcpHandler も
+// 「エントリ自体は意図的に検証なし。Origin/Host検証は手前に置く」と明記している
+// (node_modules/@modelcontextprotocol/server/dist/index.mjs)ため、/mcp ルートの手前で自前に検証する。
 //
 // この検証本体を app/mcp/route.ts に直書きせず、Next.js/Clerk/mcp-handlerに
 // 依存しない純関数としてここに切り出してあるのは、決定的な単体テストを

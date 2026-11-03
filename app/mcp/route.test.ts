@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // app/mcp/route.ts の配線(Origin検証 → withMcpAuth → verifyToken)の統合テスト。
-// mcp-handler本体・@modelcontextprotocol/sdkは実物を使い、Clerk側だけを
+// mcp-handler本体・SDK v2(@modelcontextprotocol/server)は実物を使い、Clerk側だけを
 // モックする(計画書 §7.2)。verifyToken は route.ts 内で
 // auth({ acceptsToken: "oauth_token" }) → verifyClerkToken(...) の順に呼ぶ薄い
 // ラッパーなので、両方をモックして戻り値を制御する。
@@ -137,8 +137,8 @@ describe("app/mcp/route ハンドラの配線", () => {
 // ==========================================================================
 // スコープ検証(レビュー指摘 中1)
 //
-// requiredScopes: ["profile"] は mcp-handler@1.1.0 の withMcpAuth がネイティブに
-// 検査する(InsufficientScopeError → 403 + WWW-Authenticate)。verifyClerkToken の
+// requiredScopes: ["profile"] は mcp-handler@2.3.0 の withMcpAuth がネイティブに
+// 検査する(OAuthError(insufficient_scope) → 403 + WWW-Authenticate)。verifyClerkToken の
 // 戻り値(AuthInfo)の scopes フィールドをそのまま見るので、ここでは
 // verifyClerkToken のモックが返す scopes を変えるだけでよい。
 // ==========================================================================
@@ -199,17 +199,17 @@ describe("app/mcp/route スコープ検証", () => {
 // ==========================================================================
 // MCP成功パスの統合テスト(レビュー指摘 中5)
 //
-// mcp-handler本体・@modelcontextprotocol/sdkは実物を使い、Clerk側(auth /
+// mcp-handler本体・SDK v2(@modelcontextprotocol/server)は実物を使い、Clerk側(auth /
 // verifyClerkToken)とConvex内部APIへのfetch(lib/mcp/client.ts経由)だけを
 // モックする。実際のJSON-RPC(initialize → tools/call)をPOST /mcpへ通し、
 // structuredContentが返ることを検証する。
+// (実MCPクライアントを使った疎通は route.client.test.ts が別途カバーする)
 //
-// mcp-handler@1.1.0のcreateMcpHandlerは既定でステートレスモード
-// (sessionIdGeneratorを渡さない)で動くため、node_modules/@modelcontextprotocol/sdk/
-// dist/esm/server/webStandardStreamableHttp.js の validateSession実装により
-// セッションIDの発行・検証は行われない(initializeを経ずにtools/callを直接
-// 送っても処理される)。レスポンスは既定でSSE形式(Content-Type:
-// text/event-stream)になるため、Accept: application/json, text/event-stream を
+// mcp-handler@2.3.0 は SDK v2 の createMcpHandler を legacy: "stateless" で使う
+// (node_modules/mcp-handler/dist/index.mjs)ため、2025世代の要求はセッションIDの
+// 発行・検証をしないステートレス fallback で処理される(initializeを経ずに
+// tools/callを直接送っても処理される)。レスポンスはSSE形式(Content-Type:
+// text/event-stream)になりうるため、Accept: application/json, text/event-stream を
 // 送った上で「event: message\ndata: <json>\n\n」形式をパースする。
 // ==========================================================================
 

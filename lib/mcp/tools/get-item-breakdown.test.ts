@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { getItemBreakdownOutputSchema } from "../schemas";
 import { registerGetItemBreakdownTool } from "./get-item-breakdown";
 
@@ -27,7 +27,7 @@ function createFakeServer() {
   };
 }
 
-const FAKE_EXTRA = { authInfo: { extra: { userId: "user_1" } } };
+const FAKE_CTX = { http: { authInfo: { extra: { userId: "user_1" } } } };
 
 const VALID_BREAKDOWN = {
   currency: "JPY" as const,
@@ -76,7 +76,7 @@ describe("registerGetItemBreakdownTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerGetItemBreakdownTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler({ expense_id: "e1" }, FAKE_EXTRA)) as {
+    const result = (await captured.handler({ expense_id: "e1" }, FAKE_CTX)) as {
       structuredContent: unknown;
       content: { text: string }[];
       isError?: boolean;
@@ -101,7 +101,7 @@ describe("registerGetItemBreakdownTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerGetItemBreakdownTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler({ expense_id: "unknown" }, FAKE_EXTRA)) as {
+    const result = (await captured.handler({ expense_id: "unknown" }, FAKE_CTX)) as {
       isError?: boolean;
       content: { text: string }[];
     };

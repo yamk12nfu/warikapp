@@ -1,8 +1,8 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { fetchExpenseBreakdown } from "../client";
 import { buildItemBreakdownSummaryText } from "../format";
 import { getClerkUserId, toolErrorFromUnknown, toolSuccess } from "../respond";
-import { getItemBreakdownInputShape, getItemBreakdownOutputShape } from "../schemas";
+import { getItemBreakdownInputSchema, getItemBreakdownOutputSchema } from "../schemas";
 
 const DESCRIPTION = `1件の支出の品目・数量・金額・メンバーごとの負担割合の内訳を取得する。
 
@@ -30,8 +30,8 @@ export function registerGetItemBreakdownTool(server: McpServer): void {
     {
       title: "支出の品目内訳を取得",
       description: DESCRIPTION,
-      inputSchema: getItemBreakdownInputShape,
-      outputSchema: getItemBreakdownOutputShape,
+      inputSchema: getItemBreakdownInputSchema,
+      outputSchema: getItemBreakdownOutputSchema,
       annotations: {
         title: "支出の品目内訳を取得",
         readOnlyHint: true,
@@ -40,9 +40,9 @@ export function registerGetItemBreakdownTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (args, extra) => {
+    async (args, ctx) => {
       try {
-        const clerkUserId = getClerkUserId(extra);
+        const clerkUserId = getClerkUserId(ctx);
         const data = await fetchExpenseBreakdown(args.expense_id, clerkUserId);
         return toolSuccess(buildItemBreakdownSummaryText(data), data);
       } catch (error) {

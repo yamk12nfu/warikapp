@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { listExpensesOutputSchema } from "../schemas";
 import { registerListExpensesTool } from "./list-expenses";
 
@@ -27,7 +27,7 @@ function createFakeServer() {
   };
 }
 
-const FAKE_EXTRA = { authInfo: { extra: { userId: "user_1" } } } as never;
+const FAKE_CTX = { http: { authInfo: { extra: { userId: "user_1" } } } } as never;
 
 const VALID_LIST = {
   currency: "JPY" as const,
@@ -73,7 +73,7 @@ describe("registerListExpensesTool", () => {
     registerListExpensesTool(server);
     const captured = getCaptured();
     const args = { filter: "all" as const, date_from: "2026-08-01" };
-    const result = (await captured.handler(args, FAKE_EXTRA)) as {
+    const result = (await captured.handler(args, FAKE_CTX)) as {
       structuredContent: unknown;
       content: { text: string }[];
       isError?: boolean;
@@ -96,7 +96,7 @@ describe("registerListExpensesTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerListExpensesTool(server);
     const captured = getCaptured();
-    await captured.handler({ date_from: "2026-08-01" }, FAKE_EXTRA);
+    await captured.handler({ date_from: "2026-08-01" }, FAKE_CTX);
 
     expect(mock).toHaveBeenCalledWith({ date_from: "2026-08-01", filter: "all" }, "user_1");
   });
@@ -110,7 +110,7 @@ describe("registerListExpensesTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerListExpensesTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler({}, FAKE_EXTRA)) as { isError?: boolean; content: { text: string }[] };
+    const result = (await captured.handler({}, FAKE_CTX)) as { isError?: boolean; content: { text: string }[] };
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("cursorが不正です");

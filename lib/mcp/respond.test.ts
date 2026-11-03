@@ -63,13 +63,14 @@ describe("toolErrorFromUnknown", () => {
 });
 
 describe("getClerkUserId", () => {
-  test("authInfo.extra.userIdを返す", () => {
-    expect(getClerkUserId({ authInfo: { extra: { userId: "user_123" } } })).toBe("user_123");
+  test("http.authInfo.extra.userIdを返す", () => {
+    expect(getClerkUserId({ http: { authInfo: { extra: { userId: "user_123" } } } })).toBe("user_123");
   });
 
   test("userIdが無ければ例外を投げる", () => {
     expect(() => getClerkUserId({})).toThrow();
-    expect(() => getClerkUserId({ authInfo: {} })).toThrow();
-    expect(() => getClerkUserId({ authInfo: { extra: { userId: 123 } } })).toThrow();
+    expect(() => getClerkUserId({ http: {} })).toThrow();
+    expect(() => getClerkUserId({ http: { authInfo: {} } })).toThrow();
+    expect(() => getClerkUserId({ http: { authInfo: { extra: { userId: 123 } } } })).toThrow();
   });
 });

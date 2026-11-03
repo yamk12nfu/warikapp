@@ -1,9 +1,9 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { todayInJst } from "../../date";
 import { fetchMonthlySummary } from "../client";
 import { buildMonthlySummaryText } from "../format";
 import { getClerkUserId, toolErrorFromUnknown, toolSuccess } from "../respond";
-import { monthlySummaryInputShape, monthlySummaryOutputShape } from "../schemas";
+import { monthlySummaryInputSchema, monthlySummaryOutputSchema } from "../schemas";
 
 const DESCRIPTION = `指定した月の支出サマリー(合計・メンバー別の支払/負担・精算状況)を取得する。
 
@@ -39,8 +39,8 @@ export function registerMonthlySummaryTool(server: McpServer): void {
     {
       title: "月次サマリーを取得",
       description: DESCRIPTION,
-      inputSchema: monthlySummaryInputShape,
-      outputSchema: monthlySummaryOutputShape,
+      inputSchema: monthlySummaryInputSchema,
+      outputSchema: monthlySummaryOutputSchema,
       annotations: {
         title: "月次サマリーを取得",
         readOnlyHint: true,
@@ -49,9 +49,9 @@ export function registerMonthlySummaryTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (args, extra) => {
+    async (args, ctx) => {
       try {
-        const clerkUserId = getClerkUserId(extra);
+        const clerkUserId = getClerkUserId(ctx);
         // month省略時はNext.js側でJSTの今月を補完する(Convex queryはwall clockを
         // 読まない既存規約のため、summary API自体はmonth必須。計画書 §4.3(3))
         const month = args.month ?? todayInJst().slice(0, 7);

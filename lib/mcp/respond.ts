@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { McpApiError, type McpApiErrorCode } from "./client";
 import { buildTextContent } from "./format";
 
@@ -73,14 +73,14 @@ export function toolErrorFromUnknown(error: unknown): CallToolResult {
   };
 }
 
-// registerToolのハンドラに渡ってくる extra(RequestHandlerExtra)から、
+// registerToolのハンドラに渡ってくる ctx(ServerContext)の ctx.http?.authInfo から、
 // withMcpAuth 経由で検証済みのClerk userIdを取り出す。
 // verifyClerkToken(@clerk/mcp-tools)は AuthInfo.extra.userId にuserIdを積む実装のため、
 // その形に合わせて読む。required: true を通っている前提の防御的チェック
-type ToolExtraLike = { authInfo?: { extra?: Record<string, unknown> } };
+type ToolCtxLike = { http?: { authInfo?: { extra?: Record<string, unknown> } } };
 
-export function getClerkUserId(extra: ToolExtraLike): string {
-  const userId = extra.authInfo?.extra?.userId;
+export function getClerkUserId(ctx: ToolCtxLike): string {
+  const userId = ctx.http?.authInfo?.extra?.userId;
   if (typeof userId !== "string" || userId === "") {
     throw new Error("認証情報からuserIdを取得できませんでした");
   }

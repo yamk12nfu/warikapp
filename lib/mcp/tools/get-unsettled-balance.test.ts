@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { balanceOutputSchema } from "../schemas";
 import { registerGetUnsettledBalanceTool } from "./get-unsettled-balance";
 
@@ -29,7 +29,7 @@ function createFakeServer() {
   };
 }
 
-const FAKE_EXTRA = { authInfo: { extra: { userId: "user_1" } } } as never;
+const FAKE_CTX = { http: { authInfo: { extra: { userId: "user_1" } } } } as never;
 
 const VALID_BALANCE = {
   currency: "JPY" as const,
@@ -71,7 +71,7 @@ describe("registerGetUnsettledBalanceTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerGetUnsettledBalanceTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler(FAKE_EXTRA)) as {
+    const result = (await captured.handler(FAKE_CTX)) as {
       structuredContent: unknown;
       content: { type: string; text: string }[];
       isError?: boolean;
@@ -91,7 +91,7 @@ describe("registerGetUnsettledBalanceTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerGetUnsettledBalanceTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler(FAKE_EXTRA)) as { isError?: boolean; content: { text: string }[] };
+    const result = (await captured.handler(FAKE_CTX)) as { isError?: boolean; content: { text: string }[] };
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("世帯に参加してから再接続");
