@@ -164,18 +164,12 @@ export default function HomeClient() {
           <div className="bg-partner" style={{ width: `${100 - selfPct}%` }} />
         </div>
         <div className="mt-2 flex justify-between text-xs text-muted">
-          <span>
-            <span
-              aria-hidden
-              className="mr-1 inline-block size-2 rounded-full bg-me align-[1px]"
-            />
+          <span className="inline-flex items-center gap-1">
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-me" />
             あなた {formatYen(paidSelf)}
           </span>
-          <span>
-            <span
-              aria-hidden
-              className="mr-1 inline-block size-2 rounded-full bg-partner align-[1px]"
-            />
+          <span className="inline-flex items-center gap-1">
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-partner" />
             {household.partner.displayName}さん {formatYen(paidPartner)}
           </span>
         </div>
@@ -185,11 +179,9 @@ export default function HomeClient() {
 
   return (
     <main className="mx-auto w-full max-w-md space-y-6 p-6">
-      {/* ロゴは共通ヘッダー(AppHeader)にあるため、ここは挨拶だけ */}
+      {/* ロゴは共通ヘッダー(AppHeader)にあるため、ここは画面名だけ */}
       <header>
-        <h1 className="text-xl font-bold">
-          こんにちは、{member.displayName} さん
-        </h1>
+        <h1 className="text-xl font-bold">ホーム</h1>
       </header>
 
       {notices !== undefined && notices.length > 0 && (
@@ -230,7 +222,7 @@ export default function HomeClient() {
       )}
 
       {pending !== null && household !== undefined && (
-        <Link href="/settlement" className={`block ${cardClass} p-4`}>
+        <Link href="/settlement" className={`block ${cardClass} p-5`}>
           <span className={`${badgeClass} bg-warn-soft text-warn-strong`}>
             確認待ち
           </span>
@@ -247,7 +239,7 @@ export default function HomeClient() {
 
       {/* 未精算差額(F-007)。常時表示し、タップで精算画面へ */}
       <Link href="/settlement" className={`block ${cardClass} p-5`}>
-        <p className="text-xs font-bold text-muted">未精算差額</p>
+        <p className="text-xs font-medium text-muted">未精算差額</p>
         {balance === undefined || household === undefined ? (
           // 差額と支払う側の名前が揃うまでは金額を出さない(名前だけ先に出ると
           // 「あなたが さんに」のような欠けた文になる)
@@ -281,7 +273,7 @@ export default function HomeClient() {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold">支出</h2>
+          <h2 className="text-sm font-medium">支出</h2>
           <div
             className="flex rounded-full bg-line p-0.5"
             role="group"
@@ -293,7 +285,7 @@ export default function HomeClient() {
                 type="button"
                 onClick={() => setFilter(value)}
                 aria-pressed={filter === value}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
                   filter === value
                     ? "bg-surface shadow-card"
                     : "text-muted"
@@ -323,7 +315,7 @@ export default function HomeClient() {
                 >
                   <span className="min-w-0 space-y-1">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-bold">
+                      <span className="truncate font-medium">
                         {expense.title}
                       </span>
                       {expense.status === "draft" && (
