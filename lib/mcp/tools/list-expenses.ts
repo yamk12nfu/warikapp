@@ -1,8 +1,8 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { fetchExpenseList } from "../client";
 import { buildExpenseListSummaryText } from "../format";
 import { getClerkUserId, toolErrorFromUnknown, toolSuccess } from "../respond";
-import { listExpensesInputShape, listExpensesOutputShape } from "../schemas";
+import { listExpensesInputSchema, listExpensesOutputSchema } from "../schemas";
 
 const DESCRIPTION = `支出(レシート読み取り・手入力の両方)の一覧を取得する。
 
@@ -35,8 +35,8 @@ export function registerListExpensesTool(server: McpServer): void {
     {
       title: "支出一覧を取得",
       description: DESCRIPTION,
-      inputSchema: listExpensesInputShape,
-      outputSchema: listExpensesOutputShape,
+      inputSchema: listExpensesInputSchema,
+      outputSchema: listExpensesOutputSchema,
       annotations: {
         title: "支出一覧を取得",
         readOnlyHint: true,
@@ -45,9 +45,9 @@ export function registerListExpensesTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (args, extra) => {
+    async (args, ctx) => {
       try {
-        const clerkUserId = getClerkUserId(extra);
+        const clerkUserId = getClerkUserId(ctx);
         // Convex側API(convex/http.ts)の既定はunsettledのまま変更しない。
         // MCPツール層はfilter省略時に常に"all"を明示送信する(レビュー指摘 中6)。
         // モデルがfilterを省略した場合に精算済みの購入が一覧から欠落するのを防ぐ

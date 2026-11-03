@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { monthlySummaryOutputSchema } from "../schemas";
 import { registerMonthlySummaryTool } from "./monthly-summary";
 
@@ -27,7 +27,7 @@ function createFakeServer() {
   };
 }
 
-const FAKE_EXTRA = { authInfo: { extra: { userId: "user_1" } } };
+const FAKE_CTX = { http: { authInfo: { extra: { userId: "user_1" } } } };
 
 const VALID_SUMMARY = {
   currency: "JPY" as const,
@@ -76,7 +76,7 @@ describe("registerMonthlySummaryTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerMonthlySummaryTool(server);
     const captured = getCaptured();
-    await captured.handler({}, FAKE_EXTRA);
+    await captured.handler({}, FAKE_CTX);
 
     expect(mock).toHaveBeenCalledTimes(1);
     const [monthArg, userIdArg] = mock.mock.calls[0];
@@ -92,7 +92,7 @@ describe("registerMonthlySummaryTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerMonthlySummaryTool(server);
     const captured = getCaptured();
-    await captured.handler({ month: "2026-01" }, FAKE_EXTRA);
+    await captured.handler({ month: "2026-01" }, FAKE_CTX);
 
     expect(mock).toHaveBeenCalledWith("2026-01", "user_1");
   });
@@ -104,7 +104,7 @@ describe("registerMonthlySummaryTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerMonthlySummaryTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler({ month: "2026-08" }, FAKE_EXTRA)) as {
+    const result = (await captured.handler({ month: "2026-08" }, FAKE_CTX)) as {
       structuredContent: unknown;
       content: { text: string }[];
       isError?: boolean;
@@ -128,7 +128,7 @@ describe("registerMonthlySummaryTool", () => {
     const { server, getCaptured } = createFakeServer();
     registerMonthlySummaryTool(server);
     const captured = getCaptured();
-    const result = (await captured.handler({}, FAKE_EXTRA)) as { isError?: boolean; content: { text: string }[] };
+    const result = (await captured.handler({}, FAKE_CTX)) as { isError?: boolean; content: { text: string }[] };
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("時間をおいて再試行");
