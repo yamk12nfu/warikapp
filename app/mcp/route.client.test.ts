@@ -1,12 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import {
-  buildBalanceSummaryText,
-  buildExpenseListSummaryText,
-  buildItemBreakdownSummaryText,
-  buildMonthlySummaryText,
-  buildTextContent,
-} from "@/lib/mcp/format";
+import TOOLS_CALL_V2 from "./__fixtures__/tools-call.v2.json";
+import TOOLS_LIST_V2 from "./__fixtures__/tools-list.v2.json";
 
 // 実MCPクライアント(@modelcontextprotocol/client の Client + StreamableHTTPClientTransport)で
 // app/mcp/route.ts の GET/POST/DELETE を叩くプロトコル疎通テスト。
@@ -20,6 +15,10 @@ import {
 //
 // claude.ai / Claude Code が今話す 2025 世代(versionNegotiation 既定の legacy)と、
 // mcp-handler 2.x がネイティブに提供する 2026-07-28 世代(auto)の両方で同じ検証を回す。
+//
+// 外部契約(tools/list と tools/call の応答)は __fixtures__/*.v2.json に実応答を固定し、
+// 完全一致で比較する。lib/mcp の説明文・スキーマ・文言を変えたら、意図した変更か確認のうえ
+// fixture を更新すること。
 
 const { authenticateRequestMock } = vi.hoisted(() => ({
   authenticateRequestMock: vi.fn(),
@@ -232,83 +231,31 @@ describe.each(ERAS)("実MCPクライアントでの疎通: $era", ({ versionNego
     expect(client.getServerCapabilities()?.tools).toBeDefined();
   });
 
-  test("tools/list: 4ツールの名前・annotations・入出力スキーマ", async () => {
+  // 結果エンベロープ(2026-07-28 世代だけが付ける _meta / cacheScope / ttlMs)は世代で異なるため、
+  // ツール契約そのもの(tools 配列、content / structuredContent)だけを比較する
+  test("tools/list: 4ツールの name・title・description・annotations・入出力スキーマが fixture と完全一致", async () => {
     const client = await connect("token-a");
     const { tools } = await client.listTools();
-    const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
-
-    expect(Object.keys(byName).sort()).toEqual([
-      "get_item_breakdown",
-      "get_unsettled_balance",
-      "list_expenses",
-      "monthly_summary",
-    ]);
-    for (const tool of tools) {
-      expect(tool.description).toBeTruthy();
-      expect(tool.annotations).toEqual({
-        title: tool.title,
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      });
-    }
-    expect(byName.get_unsettled_balance.title).toBe("未精算差額を取得");
-    expect(Object.keys(byName.get_unsettled_balance.inputSchema.properties ?? {})).toEqual([]);
-    expect(Object.keys(byName.list_expenses.inputSchema.properties ?? {})).toEqual([
-      "filter",
-      "date_from",
-      "date_to",
-      "cursor",
-      "limit",
-    ]);
-    expect(byName.list_expenses.inputSchema.required).toBeUndefined();
-    expect(Object.keys(byName.monthly_summary.inputSchema.properties ?? {})).toEqual(["month"]);
-    expect(byName.get_item_breakdown.inputSchema.required).toEqual(["expense_id"]);
-    expect(byName.get_unsettled_balance.outputSchema?.required).toEqual(
-      Object.keys(FIXTURES.balance),
-    );
-    expect(byName.list_expenses.outputSchema?.required).toEqual(Object.keys(FIXTURES.list));
-    expect(byName.monthly_summary.outputSchema?.required).toEqual(Object.keys(FIXTURES.summary));
-    expect(byName.get_item_breakdown.outputSchema?.required).toEqual(
-      Object.keys(FIXTURES.breakdown),
-    );
+    expect(tools).toEqual(TOOLS_LIST_V2.tools);
   });
 
-  test.each([
-    {
-      name: "get_unsettled_balance",
-      args: {},
-      fixture: FIXTURES.balance,
-      summary: () => buildBalanceSummaryText(FIXTURES.balance as never),
+  test.each(TOOLS_CALL_V2)(
+    "tools/call $name: text と structuredContent が fixture と完全一致",
+    async ({ name, args, result: expected }) => {
+      const client = await connect("token-a");
+      const result = await client.callTool({ name, arguments: args });
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toEqual(expected.content);
+      expect(result.structuredContent).toEqual(expected.structuredContent);
     },
-    {
-      name: "list_expenses",
-      args: { date_from: "2026-08-01" },
-      fixture: FIXTURES.list,
-      summary: () => buildExpenseListSummaryText(FIXTURES.list as never),
-    },
-    {
-      name: "monthly_summary",
-      args: { month: "2026-08" },
-      fixture: FIXTURES.summary,
-      summary: () => buildMonthlySummaryText(FIXTURES.summary as never),
-    },
-    {
-      name: "get_item_breakdown",
-      args: { expense_id: "e1" },
-      fixture: FIXTURES.breakdown,
-      summary: () => buildItemBreakdownSummaryText(FIXTURES.breakdown as never),
-    },
-  ])("tools/call $name: structuredContent と text が変わらない", async ({ name, args, fixture, summary }) => {
-    const client = await connect("token-a");
-    const result = await client.callTool({ name, arguments: args });
+  );
 
-    expect(result.isError).toBeUndefined();
-    expect(result.structuredContent).toEqual(fixture);
-    expect(result.content).toEqual([
-      { type: "text", text: buildTextContent(summary(), fixture as Record<string, unknown>) },
-    ]);
+  test("tools/call: 未知のツール名は JSON-RPC エラー -32602 になる(SDK v2 の挙動。v1 は isError の結果だった)", async () => {
+    const client = await connect("token-a");
+    await expect(client.callTool({ name: "no_such_tool", arguments: {} })).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining("Tool no_such_tool not found"),
+    });
   });
 
   test("tools/call: Convex呼び出しに検証済みトークンのuserIdと引数が渡る", async () => {
@@ -331,6 +278,7 @@ describe.each(ERAS)("実MCPクライアントでの疎通: $era", ({ versionNego
 
     expect(seen[0].status).toBe(401);
     expect(seen[0].wwwAuthenticate).toContain('error="invalid_token"');
+    expect(seen[0].wwwAuthenticate).toContain('scope="profile"');
     expect(seen[0].wwwAuthenticate).toContain(
       'resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource/mcp"',
     );
@@ -343,6 +291,7 @@ describe.each(ERAS)("実MCPクライアントでの疎通: $era", ({ versionNego
 
     expect(seen[0].status).toBe(403);
     expect(seen[0].wwwAuthenticate).toContain('error="insufficient_scope"');
+    expect(seen[0].wwwAuthenticate).toContain('scope="profile"');
     expect(seen[0].wwwAuthenticate).toContain(
       'resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource/mcp"',
     );

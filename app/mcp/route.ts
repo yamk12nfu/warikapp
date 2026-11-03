@@ -1,5 +1,8 @@
 import { createClerkClient } from "@clerk/backend";
-import { verifyClerkToken } from "@clerk/mcp-tools/next";
+// "/next" ではなく "/server" から読む。"/next" は ../client.mjs 経由で SDK 1.x の
+// Client / StreamableHTTPClientTransport を実行時 import し、/mcp に SDK 1.x が同梱されるため。
+// "/server" は実行時 import の無い純関数のみ(node_modules/@clerk/mcp-tools/dist/server.mjs)。
+import { verifyClerkToken } from "@clerk/mcp-tools/server";
 import type { AuthInfo, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { checkOrigin } from "@/lib/mcp/origin";
@@ -93,9 +96,10 @@ async function verifyToken(
     return undefined;
   }
   const clerkAuth = state.toAuth() as Parameters<typeof verifyClerkToken>[0];
-  // verifyClerkToken は @clerk/mcp-tools が内部で依存する SDK 1.x の AuthInfo を返す。
-  // SDK v2(@modelcontextprotocol/server)の AuthInfo はそれに任意項目
-  // resourceMetadataUrl を足しただけの同形なので、変換なしでそのまま返せる。
+  // verifyClerkToken の戻り値型は @modelcontextprotocol/sdk(1.x。@clerk/mcp-tools 自身の
+  // dependencies)の AuthInfo で、server.d.mts が型としてのみ import する(実行時 import は無い)。
+  // 中身は { token, clientId, scopes, expiresAt?, resource?, extra? }。SDK v2 の AuthInfo は
+  // これに任意項目 resourceMetadataUrl? を足しただけなので構造的に代入可能で、変換は不要。
   return verifyClerkToken(clerkAuth, bearerToken);
 }
 
