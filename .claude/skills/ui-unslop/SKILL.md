@@ -13,7 +13,7 @@ metadata:
 > **Attribution and changes (CC BY 4.0)**
 > - Original work: "unslop" by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), https://github.com/heydamir/unslop (copied from commit `a6f121eee5f29c2f74976b75456feae8b66afb3a`).
 > - License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The full license text is in [LICENSE](LICENSE).
-> - Changes made for warikapp: the skill is renamed from `unslop` to `ui-unslop` (directory name and the `name` field) so it does not clash with the prose `unslop` skill, the description says it is for UI only, and this note was added. `scripts/` (`snapshot.mjs`, `story.mjs`), the reference images under `references/refs/`, and `examples/` were not copied, so the live-site snapshot and the story video steps are unavailable here; see the upstream repository for them. Short "not included in this copy" notes were added where the text points to those scripts and images. All other text is unchanged.
+> - Changes made for warikapp: the skill is renamed from `unslop` to `ui-unslop` (directory name and the `name` field) so it does not clash with the prose `unslop` skill, the description says it is for UI only, and this note was added. `scripts/` (`snapshot.mjs`, `story.mjs`), the reference images under `references/refs/`, and `examples/` were not copied, so the live-site snapshot and the story video steps are unavailable here; see the upstream repository for them. Short "not included in this copy" notes were added where the text points to those scripts and images, and the image links in `references/refs.md` and in this file point to the upstream repository at the pinned commit above. `NOTICE.md` was added to list known issues in the copied text that are left unfixed here. All other text is unchanged.
 
 unslop was created by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), who started the Unslopping series on X. It is licensed under CC BY 4.0, so keep this credit in any copy or adaptation.
 
@@ -181,7 +181,7 @@ If the product already has a real brand, like a logo file, a color or a typeface
 
 ## Story video
 
-A short video where the screen unslops itself step by step, with red redlines on the slop. Look at [refs/story-dashboard-frames.webp](references/refs/story-dashboard-frames.webp) before you build it, eight frames from it in order. That video went viral, and this is how it works: (The image is not included in this copy; see https://github.com/heydamir/unslop.)
+A short video where the screen unslops itself step by step, with red redlines on the slop. Look at [refs/story-dashboard-frames.webp](https://github.com/heydamir/unslop/blob/a6f121eee5f29c2f74976b75456feae8b66afb3a/skills/unslop/references/refs/story-dashboard-frames.webp) before you build it, eight frames from it in order. That video went viral, and this is how it works: (The image is not included in this copy; see https://github.com/heydamir/unslop.)
 
 - **Nothing is swapped, everything morphs.** One page, and each step only changes CSS, so padding, gaps, sizes, colors, radii and shadows tween from the old value to the new one in place. You see the spacing open up, the purple drain out, the corners soften.
 - **A wave.** Elements start a few dozen milliseconds apart from the top left down, so a change runs across the screen instead of everything flipping at once.
