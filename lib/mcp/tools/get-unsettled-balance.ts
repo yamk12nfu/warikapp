@@ -1,8 +1,8 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { fetchUnsettledBalance } from "../client";
 import { buildBalanceSummaryText } from "../format";
 import { getClerkUserId, toolErrorFromUnknown, toolSuccess } from "../respond";
-import { balanceOutputShape } from "../schemas";
+import { balanceOutputSchema } from "../schemas";
 
 const DESCRIPTION = `世帯の未精算差額(現在の残高)を取得する。引数はなし。
 
@@ -33,7 +33,7 @@ export function registerGetUnsettledBalanceTool(server: McpServer): void {
     {
       title: "未精算差額を取得",
       description: DESCRIPTION,
-      outputSchema: balanceOutputShape,
+      outputSchema: balanceOutputSchema,
       annotations: {
         title: "未精算差額を取得",
         readOnlyHint: true,
@@ -42,9 +42,9 @@ export function registerGetUnsettledBalanceTool(server: McpServer): void {
         openWorldHint: false,
       },
     },
-    async (extra) => {
+    async (ctx) => {
       try {
-        const clerkUserId = getClerkUserId(extra);
+        const clerkUserId = getClerkUserId(ctx);
         const data = await fetchUnsettledBalance(clerkUserId);
         return toolSuccess(buildBalanceSummaryText(data), data);
       } catch (error) {

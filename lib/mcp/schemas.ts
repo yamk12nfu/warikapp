@@ -4,11 +4,9 @@ import { z } from "zod";
 // docs/mcp-server-plan.md §4.3 のレスポンス形と同形(snake_case)にしてあり、
 // Convex側(convex/http.ts)のJSONをほぼそのままstructuredContentとして返せるようにする。
 //
-// registerTool の inputSchema / outputSchema には「raw shape」
-// (Record<string, ZodType>)を渡す(SDKのregisterToolはZodRawShapeCompatか
-// 完全なZodObjectのどちらも受け付けるが、このリポジトリでは公式ガイドの例に
-// 合わせてraw shapeを使う)。z.object(shape) でラップした完全版は
-// z.infer で型を取り出すため、および単体テストでの適合チェックのために用意する。
+// registerTool の inputSchema / outputSchema には z.object(shape) でラップした
+// 完全版(Standard Schema)を渡す(SDK v2 では raw shape の受け付けは非推奨)。
+// 同じ完全版を z.infer の型取り出しと単体テストでの適合チェックにも使う。
 
 // 未精算差額・月内純差額の方向。from/toのIDだけだとLLMが読み違えるため
 // 冗長に持つ(計画書 D6 の隣接決定)。
@@ -52,7 +50,7 @@ const pendingSettlementSchema = z.object({
   awaiting: z.enum(["self", "partner"]),
 });
 
-export const balanceOutputShape = {
+const balanceOutputShape = {
   currency: z.literal("JPY"),
   amount: z.number().int().min(0).describe("未精算差額(円)。0以上。0のとき精算不要"),
   direction: directionEnum.describe(
@@ -88,7 +86,7 @@ const dateStringSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, DATE_FORMAT_MESSAGE);
 
-export const listExpensesInputShape = {
+const listExpensesInputShape = {
   // MCPツール層の既定は"all"(convex/http.ts側のConvex API既定"unsettled"とは
   // 異なる。呼び出し側(lib/mcp/tools/list-expenses.ts)がfilter省略時に常に
   // "all"を明示送信する。レビュー指摘 中6・計画書 §5.4)
@@ -132,7 +130,7 @@ const expenseListItemSchema = z.object({
   settlement_state: settlementStateEnum,
 });
 
-export const listExpensesOutputShape = {
+const listExpensesOutputShape = {
   currency: z.literal("JPY"),
   expenses: z.array(expenseListItemSchema),
   returned_count: z
@@ -150,7 +148,7 @@ export type ListExpensesResponse = z.infer<typeof listExpensesOutputSchema>;
 
 // --- monthly_summary -----------------------------------------------------------
 
-export const monthlySummaryInputShape = {
+const monthlySummaryInputShape = {
   month: z
     .string()
     .regex(/^\d{4}-\d{2}$/, "YYYY-MM形式で指定してください(例: 2026-08)")
@@ -176,7 +174,7 @@ const unsettledBalanceSchema = z.object({
   direction: directionEnum,
 });
 
-export const monthlySummaryOutputShape = {
+const monthlySummaryOutputShape = {
   currency: z.literal("JPY"),
   month: z.string(),
   included_expense_count: z.number().int(),
@@ -201,7 +199,7 @@ export type MonthlySummaryResponse = z.infer<typeof monthlySummaryOutputSchema>;
 
 // --- get_item_breakdown -----------------------------------------------------------
 
-export const getItemBreakdownInputShape = {
+const getItemBreakdownInputShape = {
   expense_id: z.string().min(1).describe("list_expenses が返す各支出の id をそのまま渡す"),
 };
 export const getItemBreakdownInputSchema = z.object(getItemBreakdownInputShape);
@@ -224,7 +222,7 @@ const expenseItemSchema = z.object({
   shares: z.array(itemShareSchema),
 });
 
-export const getItemBreakdownOutputShape = {
+const getItemBreakdownOutputShape = {
   currency: z.literal("JPY"),
   id: z.string(),
   store_name: z.string().nullable().describe("未設定の支出ではnull(欠落ではなく明示的null)"),

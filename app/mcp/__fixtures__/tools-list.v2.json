@@ -1,0 +1,742 @@
+{
+  "tools": [
+    {
+      "name": "get_unsettled_balance",
+      "title": "未精算差額を取得",
+      "description": "世帯の未精算差額(現在の残高)を取得する。引数はなし。\n\nいつ使うか:\n- 「いま精算するとどっちがいくら払う?」「今の未精算残高は?」のように、期間を限定しない\n  「今この瞬間の差額」を聞かれたときに最初に呼ぶ。\n- 「今月の未精算いくら?」のように月を指定した質問には、このツールではなく\n  monthly_summary の unsettled_balance(月内純差額)を使うこと。get_unsettled_balance は\n  前月以前の未精算も合算した全期間の残高であり、月をまたぐと monthly_summary の値とは\n  一致しない場合がある。\n\n返り値(主なフィールド):\n- amount / direction: 未精算差額(円)とその方向(\"self_pays_partner\" | \"partner_pays_self\" | \"even\")。\n  even のとき amount は0で精算不要。\n- self / partner: 呼び出しユーザーとパートナーの表示名。パートナーが世帯に未参加の場合は partner: null。\n- paid_by_self / paid_by_partner: それぞれの未精算分の支払合計。\n- included_expense_count: 集計に含めた支出件数(購入日の古い順に最大200件が上限)。\n- draft_count: 未確定(draft)の支出件数。差額には含まれない。\n- truncated: true のとき amount 等は部分集計値(200件超のとき)。確定値として案内しないこと。\n- pending_settlement: 確認待ちの精算がある場合の固定金額・対象件数・確認待ち役。上の amount は開始後に登録された支出だけの差額。\n\n次に呼ぶツール:\n- 差額の内訳(どの支出が対象か)を知りたい場合は list_expenses を呼ぶ。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "const": "JPY"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "未精算差額(円)。0以上。0のとき精算不要"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "self_pays_partner",
+              "partner_pays_self",
+              "even"
+            ],
+            "description": "差額の方向。even のとき amount は0で self/partner のどちらも支払わない"
+          },
+          "self": {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "member_id",
+              "display_name"
+            ],
+            "additionalProperties": false,
+            "description": "呼び出しユーザー自身"
+          },
+          "partner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "member_id": {
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "member_id",
+                  "display_name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "パートナー。世帯にまだ2人目が参加していない場合は null"
+          },
+          "paid_by_self": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "自分が支払った未精算分の合計(円)"
+          },
+          "paid_by_partner": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "相手が支払った未精算分の合計(円)"
+          },
+          "included_expense_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "差額の集計に含めた支出件数。truncated:true のときは全件数ではない"
+          },
+          "draft_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "未確定(draft)の支出件数。差額には含まれない"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "true のとき amount 等は部分集計値(上限200件を超えた場合)。確定値として扱わないこと"
+          },
+          "pending_settlement": {
+            "default": null,
+            "description": "確認待ちの精算。amount と expense_count は開始時に固定した対象だけの値。上の amount は開始後の支出だけの差額",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "settlement_id": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "self_pays_partner",
+                      "partner_pays_self",
+                      "even"
+                    ]
+                  },
+                  "started_by": {
+                    "type": "object",
+                    "properties": {
+                      "member_id": {
+                        "type": "string"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "member_id",
+                      "display_name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "started_at": {
+                    "type": "string"
+                  },
+                  "expense_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "awaiting": {
+                    "type": "string",
+                    "enum": [
+                      "self",
+                      "partner"
+                    ]
+                  }
+                },
+                "required": [
+                  "settlement_id",
+                  "amount",
+                  "direction",
+                  "started_by",
+                  "started_at",
+                  "expense_count",
+                  "awaiting"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "amount",
+          "direction",
+          "self",
+          "partner",
+          "paid_by_self",
+          "paid_by_partner",
+          "included_expense_count",
+          "draft_count",
+          "truncated",
+          "pending_settlement"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "未精算差額を取得",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_expenses",
+      "title": "支出一覧を取得",
+      "description": "支出(レシート読み取り・手入力の両方)の一覧を取得する。\n\nいつ使うか:\n- 「先週何買った?」「8月の支出一覧」のように、期間や条件を指定して支出を列挙したいとき。\n- 一覧の続きを見るときは、直前の応答が返した next_cursor をそのまま cursor に渡す。\n\n引数:\n- filter?: \"all\"(省略時の既定。精算済みも含め全件) | \"unsettled\"(未精算のみ)。\n  一般的な購入履歴の質問(「先週何買った?」等)には filter を指定せず既定の\n  all を使うこと。未精算の支出だけを見たいときのみ unsettled を指定する。\n- date_from? / date_to?: 購入日の範囲(両端を含む)。\"YYYY-MM-DD\" 形式の\n  JST基準の絶対日付で渡すこと。「先週」「今月」のような相対表現は、このツールを呼ぶ前に\n  呼び出し側(モデル)でJST基準の絶対日付に変換すること(Next.js側では変換しない)。\n- cursor?: 前回の list_expenses が返した next_cursor。\n- limit?: 1〜50件(省略時20件)。\n\n返り値:\n- expenses: 各支出の id / title(表示名) / purchased_at / total_amount / item_count /\n  source(\"receipt\"=レシート読み取り | \"manual\"=手入力) / paid_by / status(\"draft\"|\"confirmed\") / settled。\n- returned_count: 実際に返した件数(通常はlimit件だがページ境界で前後しうる)。\n- has_more / next_cursor: 続きがあるかどうかと次ページ用カーソル(最終ページは next_cursor: null)。\n\n次に呼ぶツール:\n- 特定の支出の品目まで見たい場合は、一覧中の id を渡して get_item_breakdown を呼ぶ。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "description": "省略時は\"all\"(精算済みも含め全件)。一般的な購入履歴の質問はこちら。未精算の支出だけを見たいときのみ\"unsettled\"を指定する",
+            "type": "string",
+            "enum": [
+              "unsettled",
+              "all"
+            ]
+          },
+          "date_from": {
+            "description": "購入日の下限(含む)。JST基準の絶対日付(YYYY-MM-DD)で渡すこと。「先週」等の相対表現は呼び出し側で変換する",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "date_to": {
+            "description": "購入日の上限(含む)。JST基準の絶対日付(YYYY-MM-DD)で渡すこと",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "cursor": {
+            "description": "前回のlist_expensesが返したnext_cursorをそのまま渡す",
+            "type": "string"
+          },
+          "limit": {
+            "description": "1〜50件。省略時は20件",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "const": "JPY"
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "店名 → 先頭品目名 → \"(名称なし)\" の順で決まる表示名"
+                },
+                "purchased_at": {
+                  "type": "string"
+                },
+                "total_amount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "item_count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "receipt",
+                    "manual"
+                  ],
+                  "description": "receipt: レシート読み取り由来 / manual: 手入力"
+                },
+                "paid_by": {
+                  "type": "object",
+                  "properties": {
+                    "member_id": {
+                      "type": "string"
+                    },
+                    "display_name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "member_id",
+                    "display_name"
+                  ],
+                  "additionalProperties": false
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "confirmed"
+                  ]
+                },
+                "settled": {
+                  "type": "boolean"
+                },
+                "settlement_state": {
+                  "type": "string",
+                  "enum": [
+                    "unsettled",
+                    "pending",
+                    "settled"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "purchased_at",
+                "total_amount",
+                "item_count",
+                "source",
+                "paid_by",
+                "status",
+                "settled",
+                "settlement_state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "returned_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "実際に返した件数。通常はlimit件だがページ境界で前後しうる"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "description": "続きがある場合の次ページ用カーソル。最終ページはnull(欠落ではなく明示的null)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "expenses",
+          "returned_count",
+          "has_more",
+          "next_cursor"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "支出一覧を取得",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "monthly_summary",
+      "title": "月次サマリーを取得",
+      "description": "指定した月の支出サマリー(合計・メンバー別の支払/負担・精算状況)を取得する。\n\nいつ使うか:\n- 「今月の合計は?」「8月の食費は精算するといくらになる?」のように、月単位の集計を\n  聞かれたとき。\n- 「今月の未精算いくら?」には、このツールが返す unsettled_balance(月内純差額)で\n  答えること。get_unsettled_balance(全期間の現在残高)は前月以前の未精算も合算されるため、\n  月だけを指定した質問への回答としては不正確になりうる(両者の使い分けはここが基準)。\n\n引数:\n- month?: \"YYYY-MM\" 形式。省略時はJSTの今月を自動補完する。「先月」等の相対表現を\n  渡したい場合は、呼び出し側(モデル)でJST基準の絶対値に変換してから渡すこと。\n\n返り値:\n- total_amount / settled_amount / unsettled_amount: 月内の確定(confirmed)支出の金額集計\n  (draftは件数のみで金額には含まれない)。\n- unsettled_balance: 月内の未精算(confirmed)支出だけを対象にした「誰が誰にいくら」\n  (amount, direction)。get_unsettled_balance との違いは説明のとおり。\n- category_amounts: category_id / category_label / amount の配列。確定済み品目を有効な\n  分類ごとに集計した金額で、amount の合計は total_amount と一致する。\n- members: メンバーごとの paid_amount(支払合計) / share_amount(負担合計) /\n  unsettled_paid_amount(未精算分の支払額)。\n- truncated: true のとき上記は部分集計値(該当月の対象支出が上限200件を超えた場合)。\n\n次に呼ぶツール:\n- 該当月の支出を一件ずつ見たい場合は、list_expenses に date_from/date_to\n  (その月の1日〜末日)を渡して呼ぶ。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "description": "対象月(YYYY-MM)。省略時はJSTの今月を自動補完する。「先月」等の相対表現は呼び出し側で絶対値に変換する",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "const": "JPY"
+          },
+          "month": {
+            "type": "string"
+          },
+          "included_expense_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "draft_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "total_amount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "settled_amount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "unsettled_amount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "category_amounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category_id": {
+                  "type": "string",
+                  "enum": [
+                    "food",
+                    "daily",
+                    "transport",
+                    "housing",
+                    "medical",
+                    "leisure",
+                    "other",
+                    "uncategorized"
+                  ]
+                },
+                "category_label": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "category_id",
+                "category_label",
+                "amount"
+              ],
+              "additionalProperties": false
+            },
+            "description": "確定済み品目を有効な分類ごとに合計した金額。合計はtotal_amountと一致する"
+          },
+          "unsettled_balance": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "self_pays_partner",
+                  "partner_pays_self",
+                  "even"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "direction"
+            ],
+            "additionalProperties": false,
+            "description": "その月の未精算(confirmed)支出だけを対象にした「誰が誰にいくら」。get_unsettled_balance(全期間の現在残高)とは異なり月をまたぐ未精算は含まない"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "member_id": {
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "is_self": {
+                  "type": "boolean"
+                },
+                "paid_amount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "その月にこのメンバーが支払った合計(confirmedのみ)"
+                },
+                "share_amount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "その月にこのメンバーが負担すべき合計(confirmedのみ)"
+                },
+                "unsettled_paid_amount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "上記のうち未精算分の支払額"
+                }
+              },
+              "required": [
+                "member_id",
+                "display_name",
+                "is_self",
+                "paid_amount",
+                "share_amount",
+                "unsettled_paid_amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "true のとき上記の金額は部分集計値(該当月の対象支出が上限件数を超えた場合)"
+          }
+        },
+        "required": [
+          "currency",
+          "month",
+          "included_expense_count",
+          "draft_count",
+          "total_amount",
+          "settled_amount",
+          "unsettled_amount",
+          "category_amounts",
+          "unsettled_balance",
+          "members",
+          "truncated"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "月次サマリーを取得",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_item_breakdown",
+      "title": "支出の品目内訳を取得",
+      "description": "1件の支出の品目・数量・金額・メンバーごとの負担割合の内訳を取得する。\n\nいつ使うか:\n- 「このレシートの中身見せて」「◯◯で買ったものの内訳は?」のように、list_expenses や\n  monthly_summary で一覧・言及した特定の支出1件について、品目レベルの明細を聞かれたとき。\n\n引数:\n- expense_id: list_expenses が返す各支出の id をそのまま渡す。\n\n返り値:\n- store_name(未設定の支出はnull) / purchased_at / total_amount / status(\"draft\"|\"confirmed\") /\n  settled / source(\"receipt\"|\"manual\") / paid_by / advance_amount(支払者が相手の分を\n  立て替えた金額)。\n- items: 各品目の name / price / quantity / subtotal / category_id / category_label /\n  shares(メンバーごとの ratio_percent と負担金額 amount)。分類は支出分類の継承後の値。\n\nエラー時の扱い:\n- 存在しないID・他世帯のID・削除済みの支出はいずれも404として返る(存在を漏らさないため)。\n  list_expenses で有効なIDを確認してから再試行すること。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expense_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "list_expenses が返す各支出の id をそのまま渡す"
+          }
+        },
+        "required": [
+          "expense_id"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "const": "JPY"
+          },
+          "id": {
+            "type": "string"
+          },
+          "store_name": {
+            "description": "未設定の支出ではnull(欠落ではなく明示的null)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchased_at": {
+            "type": "string"
+          },
+          "total_amount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "confirmed"
+            ]
+          },
+          "settled": {
+            "type": "boolean"
+          },
+          "settlement_state": {
+            "type": "string",
+            "enum": [
+              "unsettled",
+              "pending",
+              "settled"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "receipt",
+              "manual"
+            ]
+          },
+          "paid_by": {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "member_id",
+              "display_name"
+            ],
+            "additionalProperties": false
+          },
+          "advance_amount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "支払者が相手の分を立て替えた金額"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "subtotal": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "category_id": {
+                  "type": "string",
+                  "enum": [
+                    "food",
+                    "daily",
+                    "transport",
+                    "housing",
+                    "medical",
+                    "leisure",
+                    "other",
+                    "uncategorized"
+                  ]
+                },
+                "category_label": {
+                  "type": "string"
+                },
+                "shares": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "member_id": {
+                        "type": "string"
+                      },
+                      "display_name": {
+                        "type": "string"
+                      },
+                      "ratio_percent": {
+                        "type": "number"
+                      },
+                      "amount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "member_id",
+                      "display_name",
+                      "ratio_percent",
+                      "amount"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "price",
+                "quantity",
+                "subtotal",
+                "category_id",
+                "category_label",
+                "shares"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "id",
+          "store_name",
+          "purchased_at",
+          "total_amount",
+          "status",
+          "settled",
+          "settlement_state",
+          "source",
+          "paid_by",
+          "advance_amount",
+          "items"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "支出の品目内訳を取得",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

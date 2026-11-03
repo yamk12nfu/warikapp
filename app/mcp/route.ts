@@ -1,7 +1,9 @@
 import { createClerkClient } from "@clerk/backend";
-import { verifyClerkToken } from "@clerk/mcp-tools/next";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+// "/next" ではなく "/server" から読む。"/next" は ../client.mjs 経由で SDK 1.x の
+// Client / StreamableHTTPClientTransport を実行時 import し、/mcp に SDK 1.x が同梱されるため。
+// "/server" は実行時 import の無い純関数のみ(node_modules/@clerk/mcp-tools/dist/server.mjs)。
+import { verifyClerkToken } from "@clerk/mcp-tools/server";
+import type { AuthInfo, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { checkOrigin } from "@/lib/mcp/origin";
 import { registerGetItemBreakdownTool } from "@/lib/mcp/tools/get-item-breakdown";
@@ -60,7 +62,7 @@ const mcpHandler = createMcpHandler((server: McpServer) => {
 //   デコードする経路(fromJwtPayload)も、audience/aud クレームを保持しない
 //   (node_modules/@clerk/backend の実装で確認済み。仮にJWTにaudクレームがあっても
 //   このライブラリの時点で捨てられる)。
-// - mcp-handler@1.1.0 の withMcpAuth 自体もresource照合を行わない
+// - mcp-handler@2.3.0 の withMcpAuth 自体もresource照合を行わない
 //   (node_modules/mcp-handler/dist/index.mjs)。
 // 現実の緩和要因: このClerkインスタンスのリソースサーバーは本MCPサーバー1つのみで、
 // 他のリソースサーバー向けに発行されたトークンが本サーバーに流用される経路が
@@ -94,12 +96,16 @@ async function verifyToken(
     return undefined;
   }
   const clerkAuth = state.toAuth() as Parameters<typeof verifyClerkToken>[0];
+  // verifyClerkToken の戻り値型は @modelcontextprotocol/sdk(1.x。@clerk/mcp-tools 自身の
+  // dependencies)の AuthInfo で、server.d.mts が型としてのみ import する(実行時 import は無い)。
+  // 中身は { token, clientId, scopes, expiresAt?, resource?, extra? }。SDK v2 の AuthInfo は
+  // これに任意項目 resourceMetadataUrl? を足しただけなので構造的に代入可能で、変換は不要。
   return verifyClerkToken(clerkAuth, bearerToken);
 }
 
-// requiredScopes: ["profile"] は mcp-handler@1.1.0 の withMcpAuth がネイティブに
+// requiredScopes: ["profile"] は mcp-handler@2.3.0 の withMcpAuth がネイティブに
 // サポートする(node_modules/mcp-handler/dist/index.mjs の withMcpAuth 実装で確認済み。
-// authInfo.scopes に不足があれば InsufficientScopeError → 403 + WWW-Authenticate を
+// authInfo.scopes に不足があれば OAuthError(insufficient_scope) → 403 + WWW-Authenticate を
 // 自動で返す)。protected resource metadata が広告する scope(§6.1)と実際の検査を
 // 一致させ、scopes: [] の有効トークンを通さないようにする(レビュー指摘 中1)。
 const authedHandler = withMcpAuth(mcpHandler, verifyToken, {
@@ -109,7 +115,7 @@ const authedHandler = withMcpAuth(mcpHandler, verifyToken, {
 });
 
 // Origin検証(Streamable HTTPのMCP仕様が要求する必須項目)。
-// mcp-handler@1.1.0はOriginヘッダーを検証しない(node_modulesで確認済み。
+// mcp-handler@2.3.0 も SDK v2 の createMcpHandler もOriginヘッダーを検証しない(node_modulesで確認済み。
 // lib/mcp/origin.tsのコメント参照)ため、withMcpAuthより手前で自前に挟む。
 // 判定ロジック自体はNext.js/Clerk/mcp-handlerに依存しない純関数(checkOrigin)に
 // 切り出してあり、lib/mcp/origin.test.ts で単体テストする。
