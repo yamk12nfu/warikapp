@@ -163,14 +163,22 @@ export default function HomeClient() {
           <div className="bg-me" style={{ width: `${selfPct}%` }} />
           <div className="bg-partner" style={{ width: `${100 - selfPct}%` }} />
         </div>
-        <div className="mt-2 flex justify-between text-xs text-muted">
-          <span className="inline-flex items-center gap-1">
+        <div className="mt-2 flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-muted">
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1">
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-me" />
-            あなた {formatYen(paidSelf)}
+            <span className="truncate">あなた</span>{" "}
+            <span className="shrink-0 whitespace-nowrap">
+              {formatYen(paidSelf)}
+            </span>
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1">
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-partner" />
-            {household.partner.displayName}さん {formatYen(paidPartner)}
+            <span className="truncate">
+              {household.partner.displayName}さん
+            </span>{" "}
+            <span className="shrink-0 whitespace-nowrap">
+              {formatYen(paidPartner)}
+            </span>
           </span>
         </div>
       </div>
